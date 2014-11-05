@@ -20,9 +20,9 @@ in dealing with a variety of ambiguities in the mapping.
 
 This is currently a first cut, however! The code has been very useful
 for research activities at the Network Modeling Center, but a number of
-inefficiencies and needed features are needed that are described in the
-blog. I welcome opportunities to collaborate in making this code better.
-I also appreciate hearing where this code comes in handy. (Keep in mind
+inefficiencies and features are needed that are described in the blog.
+I welcome opportunities to collaborate in making this code better. I
+also appreciate hearing where this code comes in handy. (Keep in mind
 that transportation research need not be the only domain for this map
 matcher code. This may be applied to a variety of problems that deal
 with error minimizations, etc.)
