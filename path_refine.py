@@ -180,7 +180,7 @@ def pathsRefine(gtfsNodes, hintEntries, vistaGraph):
     limitDirectDistRev = 500    # Radius (ft) to allow backtracking on an existing link (e.g. parking lot)
     distanceFactor = 1.0        # "f_d": Cost multiplier for Linear path distance
     driftFactor = 1.5           # "f_r": Cost multiplier for distance from GTFS point to its VISTA link
-    nonPerpPenalty = 1.5        # "f_n": Penalty multiplier for GTFS points that aren't perpendicular to VISTA links
+    nonPerpPenalty = 1.5        # "f_p": Penalty multiplier for GTFS points that aren't perpendicular to VISTA links
     limitClosestPoints = 25     # "q_p": Number of close-proximity points that are considered for each GTFS point 
     limitSimultaneousPaths = 25 # "q_e": Number of proposed paths to maintain during pathfinding stage
 
