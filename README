@@ -35,6 +35,27 @@ This code accompanies this paper:
 
 This Python project consists of several entry-points that are
 documented at the project website on GitHub.
+
+For documentation, please access the wiki on the GitHub site:
+   https://github.com/ut-ctr-nmc/nmc-map-matcher/wiki
+   
+This project appears in the TRB Annual Meeting 2015 program as a
+"practice-ready" paper. While this project contains functioning code,
+be advised that it isn't quite finished and until some further
+improvements are made, it may require some programming or database
+work to interface for your particular application.  The quickest way to
+get the code running on your computer is to do the following:
+1. Download and install Python 2 (the latest version as of Jan. 2015 is
+   Python 2.7.9)
+2. You may need to install the Psycopg library if you want to use the
+   current database importer. Otherwise you will need to provide your
+   own data importer for your underlying network topology, or wait
+   until this is completed and included in this project.
+3. If you don't want to deal with Git, you can download this project as
+   a ZIP file (available from the GitHub main project page).
+4. Follow the examples in the wiki pages on "Theory of Operation" and
+   so forth.
+
 -----
 
 This program is free software: you can redistribute it and/or modify
