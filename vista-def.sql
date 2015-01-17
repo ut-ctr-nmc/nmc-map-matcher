@@ -3,6 +3,9 @@
 -- the map-matcher without requiring the use of VISTA at all.  This database
 -- contains the node-link representation of underlying maps.
 
+-- In VISTA, it is expected that all databases follow this naming convention:
+-- "user_network".
+
 -- To use, first define an empty database, and then run the statements within
 -- this script on it to create the correctly-defined tables. Then you'll need
 -- to supply the node-link information that defines your underlying map.
