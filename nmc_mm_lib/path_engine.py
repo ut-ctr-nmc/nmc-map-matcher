@@ -759,13 +759,11 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
     # Return the tree nodes:
     return ret
 
-"""
-import path_match, transit_gtfs, os
 class TestStandardDump(unittest.TestCase):
 
     gtfsNodesOrig = None
     gtfsNodesRecon = None
-    
+
     def setUp(self):
         # Initialize using hard-coded parameters:
         dbServer = "nmc-compute2.ctr.utexas.edu"
@@ -796,9 +794,9 @@ class TestStandardDump(unittest.TestCase):
             userName, password, shapePath, filename)
         
     def test_consistency(self):
-        "\""
+        """
         Verifies that the file I/O works correctly.  Check contents of gtfsNodesOrig against gtfsNodesRecon.
-        "\""
+        """
         self.assertTrue(self.gtfsNodesOrig.keys() == self.gtfsNodesRecon.keys(), "gtfsNodes keys")
         for shapeID in self.gtfsNodesOrig.keys():
             gtfsNodesListOrig = self.gtfsNodesOrig[shapeID]
@@ -834,5 +832,9 @@ class TestStandardDump(unittest.TestCase):
                 self.assertEqual(gtfsNodeOrig.restart, gtfsNodeRecon.restart, "Restart flag, shapeID %d" % shapeID)          
 
 if __name__ == '__main__':
+    # Defer this import to tester class instanciation because of circular
+    # reference problem if the import is static.
+    import path_match, transit_gtfs, os
+
     unittest.main()
-"""
+
