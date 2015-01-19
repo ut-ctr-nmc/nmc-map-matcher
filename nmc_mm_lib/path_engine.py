@@ -24,7 +24,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-import graph, linear, gtfs, operator, sys, copy, unittest
+import graph, linear, gtfs, operator, sys, copy
 
 INSUFFICIENT_HINT_PENALTY = 5000
 "@var INSUFFICIET_HINT_PENALTY: The score to add to paths when a hint zone is exited and not all of the hints were traversed."
@@ -758,83 +758,4 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
 
     # Return the tree nodes:
     return ret
-
-class TestStandardDump(unittest.TestCase):
-
-    gtfsNodesOrig = None
-    gtfsNodesRecon = None
-
-    def setUp(self):
-        # Initialize using hard-coded parameters:
-        dbServer = "nmc-compute2.ctr.utexas.edu"
-        networkName = "campo_regional_pm"
-        userName = "austin"
-        password = "austin00"
-        shapePath = "C:\Users\kap2357\Desktop\Deskfiles\Transit\capital-metro_20130830_1523"
-        tempDir = "C:\Users\kap2357\AppData\Local\Temp"
-        limitShapes = [31462, 31463]
-
-        # Build a couple of paths:
-        self.gtfsNodesOrig = path_match.pathMatch(dbServer, networkName, userName, password, shapePath, limitShapes)
-        
-        # Dump out the file:
-        filename = os.path.join(tempDir, "shapes.txt") 
-        with open(filename, 'w') as outFile:
-            dumpStandardHeader(outFile)
-    
-            shapeIDs = self.gtfsNodesOrig.keys()
-            "@type shapeIDs: list<int>"
-            shapeIDs.sort()
-            for shapeID in shapeIDs:
-                "@type shapeID: int"
-                dumpStandardInfo(self.gtfsNodesOrig[shapeID], outFile)
-
-        # Now, can we reconstruct the paths?
-        (vistaGraph, gtfsShapes, self.gtfsNodesRecon, unusedShapeIDs) = transit_gtfs.restorePathMatch(dbServer, networkName,
-            userName, password, shapePath, filename)
-        
-    def test_consistency(self):
-        """
-        Verifies that the file I/O works correctly.  Check contents of gtfsNodesOrig against gtfsNodesRecon.
-        """
-        self.assertTrue(self.gtfsNodesOrig.keys() == self.gtfsNodesRecon.keys(), "gtfsNodes keys")
-        for shapeID in self.gtfsNodesOrig.keys():
-            gtfsNodesListOrig = self.gtfsNodesOrig[shapeID]
-            gtfsNodesListRecon = self.gtfsNodesRecon[shapeID]
-            
-            self.assertEqual(len(gtfsNodesListOrig), len(gtfsNodesListRecon), "Entries equal, shapeID %d" % shapeID)
-            for index in range(0, len(gtfsNodesListOrig)):
-                gtfsNodeOrig = gtfsNodesListOrig[index]
-                gtfsNodeRecon = gtfsNodesListRecon[index]
-                
-                self.assertEqual(gtfsNodeOrig.shapeEntry.shapeID, gtfsNodeRecon.shapeEntry.shapeID, "Shape ID, shapeID %d" % shapeID)
-                self.assertEqual(gtfsNodeOrig.shapeEntry.shapeSeq, gtfsNodeRecon.shapeEntry.shapeSeq, "Shape seq, shapeID %d" % shapeID)
-                self.assertEqual(gtfsNodeOrig.shapeEntry.lat, gtfsNodeRecon.shapeEntry.lat, "Shape lat, shapeID %d" % shapeID)
-                self.assertEqual(gtfsNodeOrig.shapeEntry.lng, gtfsNodeRecon.shapeEntry.lng, "Shape lng, shapeID %d" % shapeID)
-
-                self.assertEqual(gtfsNodeOrig.pointOnLink.link.id, gtfsNodeRecon.pointOnLink.link.id, "PointOnLink linkID, shapeID %d" % shapeID)
-                self.assertEqual(gtfsNodeOrig.pointOnLink.dist, gtfsNodeRecon.pointOnLink.dist, "PointOnLink dist, shapeID %d" % shapeID)
-                self.assertEqual(gtfsNodeOrig.pointOnLink.nonPerpPenalty, gtfsNodeRecon.pointOnLink.nonPerpPenalty, "PointOnLink nonPerpPenalty, shapeID %d" % shapeID)
-                self.assertEqual(gtfsNodeOrig.pointOnLink.refDist, gtfsNodeRecon.pointOnLink.refDist, "PointOnLink refDist, shapeID %d" % shapeID)
-                self.assertEqual(gtfsNodeOrig.pointOnLink.pointX, gtfsNodeRecon.pointOnLink.pointX, "PointOnLink pointX, shapeID %d" % shapeID)
-                self.assertEqual(gtfsNodeOrig.pointOnLink.pointY, gtfsNodeRecon.pointOnLink.pointY, "PointOnLink pointY, shapeID %d" % shapeID)
-
-                # Skip totalCost; it is different.
-                if index > 0:
-                    self.assertIs(gtfsNodeOrig.prevTreeNode, gtfsNodesListOrig[index - 1], "Prev orig, shapeID %d" % shapeID)
-                    self.assertIs(gtfsNodeRecon.prevTreeNode, gtfsNodesListRecon[index - 1], "Prev recon, shapeID %d" % shapeID)
-                else:
-                    self.assertIsNone(gtfsNodeOrig.prevTreeNode, "Prev orig none, shapeID %d" % shapeID)
-                    self.assertIsNone(gtfsNodeRecon.prevTreeNode, "Prev recon none, shapeID %d" % shapeID)
-                self.assertAlmostEqual(gtfsNodeOrig.totalDist, gtfsNodeRecon.totalDist, 1, "Distance, shapeID %d" % shapeID)
-                self.assertTrue([link.id for link in gtfsNodeOrig.routeInfo] \
-                                == [link.id for link in gtfsNodeRecon.routeInfo], "Link list, shapeID %d" % shapeID)  
-                self.assertEqual(gtfsNodeOrig.restart, gtfsNodeRecon.restart, "Restart flag, shapeID %d" % shapeID)          
-
-if __name__ == '__main__':
-    # Defer this import to tester class instanciation because of circular
-    # reference problem if the import is static.
-    import path_match, transit_gtfs, os
-
-    unittest.main()
 
