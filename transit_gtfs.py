@@ -69,7 +69,7 @@ def restorePathMatch(dbServer, networkName, userName, password, shapePath, pathM
     
     # Read in the shapefile information:
     print("INFO: Read GTFS shapefile...", file = sys.stderr)
-    gtfsShapes = gtfs.fillShapes(shapePath, vistaGraph.GPS)
+    gtfsShapes = gtfs.fillShapes(shapePath, vistaGraph.gps)
 
     # Read the path-match file:
     print("INFO: Read the path-match file '%s'..." % pathMatchFilename, file = sys.stderr)
@@ -220,7 +220,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
             
             # We are going to recreate a small VISTA network from ourGTFSNodes and then match up the stops to that.
             # First, prepare the small VISTA network:
-            vistaSubset = graph.GraphLib(vistaNetwork.GPS.latCtr, vistaNetwork.GPS.lngCtr)
+            vistaSubset = graph.GraphLib(vistaNetwork.gps.latCtr, vistaNetwork.gps.lngCtr)
             vistaNodePrior = None
             "@type vistaNodePrior: graph.GraphNode"
             
@@ -482,7 +482,7 @@ def main(argv):
     
     # Read in the stops information:
     print("INFO: Read GTFS stopsfile...", file = sys.stderr)
-    gtfsStops = gtfs.fillStops(shapePath, vistaGraph.GPS)
+    gtfsStops = gtfs.fillStops(shapePath, vistaGraph.gps)
     
     # Read in the trips information:
     print("INFO: Read GTFS tripsfile...", file = sys.stderr)

@@ -248,7 +248,7 @@ def main(argv):
         print("INFO: Read hint file...", file = sys.stderr)
     else:
         print("INFO: No hint file was specified.", file = sys.stderr)
-    hintEntries = fillHints(hintFilename, shapePath, gtfsShapes, vistaGraph.GPS, unusedShapeIDs)
+    hintEntries = fillHints(hintFilename, shapePath, gtfsShapes, vistaGraph.gps, unusedShapeIDs)
     "@type hintEntries: dict<int, path_engine.ShapesEntry>"
 
     # Filter down the routes that we're interested in:

@@ -312,7 +312,7 @@ class WalkPathProcessor:
 
         # Set up a queue for the search.  Preload the queue with the first starting location:
         self.processingQueue = deque()
-        self.processingQueue.append(self._walk_path_next(self, None, self.pointOnLinkOrig.link))
+        self.processingQueue.append(self._WalkPathNext(self, None, self.pointOnLinkOrig.link))
         
         # Do the breadth-first search:
         while len(self.processingQueue) > 0:

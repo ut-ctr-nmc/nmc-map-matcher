@@ -63,7 +63,7 @@ def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap = N
     
     # Read in the shapefile information:
     print("INFO: Read GTFS shapefile...", file = sys.stderr)
-    gtfsShapes = gtfs.fillShapes(shapePath, vistaGraph.GPS)
+    gtfsShapes = gtfs.fillShapes(shapePath, vistaGraph.gps)
     
     # Initialize the path-finder:
     pathFinder = path_engine.PathEngine(pointSearchRadius, pointSearchPrimary, pointSearchSecondary, limitLinearDist,

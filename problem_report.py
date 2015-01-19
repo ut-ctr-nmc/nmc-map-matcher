@@ -46,7 +46,7 @@ def problemReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
         "@type gtfsNodeList: list<path_engine.PathEnd>"
         for gtfsNode in gtfsNodeList:
             "@type gtfsNode: path_engine.PathEnd"
-            (vistaLat, vistaLng) = vistaGraph.GPS.feet2gps(gtfsNode.pointOnLink.pointX, gtfsNode.pointOnLink.pointY) 
+            (vistaLat, vistaLng) = vistaGraph.gps.feet2gps(gtfsNode.pointOnLink.pointX, gtfsNode.pointOnLink.pointY) 
             
             # Determine whether we have a problem to report:
             problemCode = 0
