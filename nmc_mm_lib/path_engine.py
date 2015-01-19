@@ -759,6 +759,7 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
     # Return the tree nodes:
     return ret
 
+"""
 import path_match, transit_gtfs, os
 class TestStandardDump(unittest.TestCase):
 
@@ -795,9 +796,9 @@ class TestStandardDump(unittest.TestCase):
             userName, password, shapePath, filename)
         
     def test_consistency(self):
-        """
+        "\""
         Verifies that the file I/O works correctly.  Check contents of gtfsNodesOrig against gtfsNodesRecon.
-        """
+        "\""
         self.assertTrue(self.gtfsNodesOrig.keys() == self.gtfsNodesRecon.keys(), "gtfsNodes keys")
         for shapeID in self.gtfsNodesOrig.keys():
             gtfsNodesListOrig = self.gtfsNodesOrig[shapeID]
@@ -834,3 +835,4 @@ class TestStandardDump(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+"""
