@@ -447,7 +447,7 @@ def main(argv):
     refTime = None
     
     restrictService = set()
-    "@tyoe restrictService: set<int>"
+    "@type restrictService: set<string>"
 
     if len(argv) > 6:
         i = 7
@@ -459,7 +459,7 @@ def main(argv):
                 endTime = int(argv[i + 1])
                 i += 1
             elif argv[i] == "-c" and i < len(argv) - 1:
-                restrictService.add(int(argv[i + 1]))
+                restrictService.add(argv[i + 1])
                 i += 1
             elif argv[i] == "-p":
                 problemReport = True

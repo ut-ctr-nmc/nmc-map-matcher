@@ -155,7 +155,7 @@ def fillTrips(filePath, shapes, routes, unusedShapeIDs = set(), restrictService 
     @type shapes: dict<int, list<ShapesEntry>>
     @type routes: dict<int, RoutesEntry>
     @type unusedShapeIDs: set<int>
-    @tyoe restrictService: set<int>
+    @type restrictService: set<string>
     @return A map of trip_id to TripsEntry records, as well as a list of unused trip IDs
     @rtype (dict<int, TripsEntry>, set<int>)
     """
@@ -177,7 +177,7 @@ def fillTrips(filePath, shapes, routes, unusedShapeIDs = set(), restrictService 
                 lineElems = fileLine.split(',')
                 shapeID = int(lineElems[7])
                 routeID = int(lineElems[0])
-                serviceID = int(lineElems[1])
+                serviceID = lineElems[1]
                 tripID = int(lineElems[2])
                 if (shapeID in unusedShapeIDs) or ((len(restrictService) > 0) and (serviceID not in restrictService)):
                     unusedTripIDs.add(tripID)
