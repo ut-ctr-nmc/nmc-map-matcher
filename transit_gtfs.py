@@ -48,13 +48,14 @@ def syntax():
     print("Usage:")
     print("  python transit_gtfs.py dbServer network user password shapePath")
     print("    pathMatchFile -t refDateTime [-e endTime] {[-c serviceID]")
-    print("    [-c serviceID] ...} [-p]")
+    print("    [-c serviceID] ...} [-u] [-p]")
     print()
     print("where:")
     print("  -t is the zero-reference time that all arrival time outputs are related to.")
     print("     (Note that the day is ignored.) Use the format HH:MM:SS.")
     print("  -e is the duration in seconds (86400 by default). -t and -e filter stops.")
     print("  -c restricts results to specific service IDs (default: none)")
+    print("  -u excludes links upstream of the first valid stop")
     print("  -p outputs a problem report on the stop matches")
     sys.exit(0)
 
@@ -132,7 +133,7 @@ class stop_match:
         self.stopsEntry = stopsEntry
         self.dist = dist
 
-def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSearchRadius, userName, networkName, outFile = sys.stdout):
+def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSearchRadius, excludeUpstream, userName, networkName, outFile = sys.stdout):
     """
     dumpBusRouteLinks dumps out a public.bus_route_link.csv file contents.
     @type gtfsTrips: dict<int, gtfs.TripsEntry>
@@ -140,6 +141,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
     @type gtfsStopTimes: dict<TripsEntry, list<StopTimesEntry>>
     @type vistaNetwork: graph.GraphLib
     @type stopSearchRadius: float
+    @type excludeUpstream: boolean
     @type userName: str
     @type networkName: str
     @type outFile: file
@@ -168,6 +170,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
     for tripID in tripIDs:
         if gtfsTrips[tripID].shapeEntries[0].shapeID not in gtfsNodes:
             # This happens if the incoming files contain a subset of all available topology.
+            print("WARNING: Skipping route for trip %d because no points are available." % tripID, file = sys.stderr)
             continue
         
         print("INFO: Outputting route for trip %d." % tripID, file = sys.stderr)
@@ -336,13 +339,11 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
             foundStopSet = set()
             "@type foundStopSet: set<int>"
             outSeqCtr = longestStart
+            foundValidStop = False
             for linkID in outLinkIDList:
                 bestTreeEntry = None
                 "@type bestTreeEntry: path_engine.PathEnd"
                 curResultIndex = resultIndex
-                """
-                bleh = []
-                """
                 # This routine will advance resultIndex only if a stop is found for linkID, and will exit out when
                 # no more stops are found for linkID. 
                 matchCtr = 0
@@ -352,11 +353,6 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
                             bestTreeEntry = resultTree[resultIndex]
                         matchCtr += 1
                         resultIndex = curResultIndex + 1
-                        """
-                        bleh.append(resultTree[curResultIndex])
-                        if resultTree[curResultIndex].shapeEntry.shapeSeq == 61:
-                            pass
-                        """
                     curResultIndex += 1
                     if (matchCtr == 0) or ((curResultIndex < len(resultTree)) and (resultTree[resultIndex].pointOnLink.link.id == linkID)):
                         continue
@@ -373,6 +369,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
                 if matchCtr > 0:
                     # Report the best match:
                     foundStopSet.add(bestTreeEntry.shapeEntry.shapeSeq) # Check off this stop sequence.
+                    foundValidStop = True
                     print('"%d","%d","%d","%d","%d",' % (tripID, outSeqCtr, linkID,
                         gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID, DWELLTIME_DEFAULT), file = outFile)
                     if gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID in ret \
@@ -388,8 +385,11 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
                         ret[gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID] = bestTreeEntry.pointOnLink                    
                 else:
                     # The linkID has nothing to do with any points in consideration.  Report it without a stop:
-                    print('"%d","%d","%d",,,' % (tripID, outSeqCtr, linkID), file = outFile)
+                    if foundValidStop or not excludeUpstream:
+                        print('"%d","%d","%d",,,' % (tripID, outSeqCtr, linkID), file = outFile)
                 outSeqCtr += 1
+                # TODO: For start time estimation (as reported in the public.bus_frequency.csv output), it may be
+                # ideal to keep track of linear distance traveled before the first valid stop.
 
             # Are there any stops left over?  If so, report them to say that they aren't in the output file.
             startGap = -1
@@ -466,6 +466,7 @@ def dumpBusStops(gtfsStops, stopLinkMap, userName, networkName, outFile = sys.st
 
 def main(argv):
     global problemReport
+    excludeUpstream = False
     
     # Initialize from command-line parameters:
     if len(argv) < 7:
@@ -494,6 +495,8 @@ def main(argv):
             elif argv[i] == "-c" and i < len(argv) - 1:
                 restrictService.add(argv[i + 1])
                 i += 1
+            elif argv[i] == "-u":
+                excludeUpstream = True
             elif argv[i] == "-p":
                 problemReport = True
             i += 1
@@ -546,7 +549,7 @@ def main(argv):
     print("INFO: Dumping public.bus_route_link.csv...", file = sys.stderr)
     with open("public.bus_route_link.csv", 'w') as outFile:
         stopLinkMap = dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaGraph, stopSearchRadius,
-                                        userName, networkName, outFile)
+                                        excludeUpstream, userName, networkName, outFile)
         "@type stopLinkMap: dict<int, graph.PointOnLink>"
     
     # Filter only to bus stops and stop times that are used in the routes_link output:
