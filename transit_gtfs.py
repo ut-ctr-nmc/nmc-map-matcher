@@ -53,7 +53,7 @@ def syntax():
     print("where:")
     print("  -t is the zero-reference time that all arrival time outputs are related to.")
     print("     (Note that the day is ignored.) Use the format HH:MM:SS.")
-    print("  -e is the end time in seconds (86400 by default)")
+    print("  -e is the duration in seconds (86400 by default). -t and -e filter stops.")
     print("  -c restricts results to specific service IDs (default: none)")
     print("  -p outputs a problem report on the stop matches")
     sys.exit(0)
@@ -104,12 +104,15 @@ def dumpBusRoutes(gtfsTrips, userName, networkName, outFile = sys.stdout):
     _outHeader("public.bus_route", userName, networkName, outFile)
     print("\"id\",\"name\",", file = outFile)
     
+    # Remember, we are treating each route as a trip.
     tripIDs = gtfsTrips.keys()
     tripIDs.sort()
     for tripID in tripIDs:
         append = ""
         if len(gtfsTrips[tripID].route.name) > 0:
             append = ": " + gtfsTrips[tripID].route.name
+        if len(gtfsTrips[tripID].tripHeadsign) > 0:
+            append += " " + gtfsTrips[tripID].tripHeadsign
         print("\"%d\",\"%s\"" % (tripID, gtfsTrips[tripID].route.shortName + append),
                 file = outFile)
 
@@ -335,18 +338,25 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
             outSeqCtr = longestStart
             for linkID in outLinkIDList:
                 bestTreeEntry = None
-                curResultIndex = resultIndex
                 "@type bestTreeEntry: path_engine.PathEnd"
+                curResultIndex = resultIndex
+                """
+                bleh = []
+                """
                 # This routine will advance resultIndex only if a stop is found for linkID, and will exit out when
                 # no more stops are found for linkID. 
                 matchCtr = 0
                 while curResultIndex < len(resultTree):
                     if resultTree[curResultIndex].pointOnLink.link.id == linkID:
-                        foundStopSet.add(resultTree[curResultIndex].shapeEntry.shapeSeq) # Check off this stop sequence.
                         if (bestTreeEntry is None) or (resultTree[resultIndex].pointOnLink.refDist < bestTreeEntry.pointOnLink.refDist):
                             bestTreeEntry = resultTree[resultIndex]
                         matchCtr += 1
                         resultIndex = curResultIndex + 1
+                        """
+                        bleh.append(resultTree[curResultIndex])
+                        if resultTree[curResultIndex].shapeEntry.shapeSeq == 61:
+                            pass
+                        """
                     curResultIndex += 1
                     if (matchCtr == 0) or ((curResultIndex < len(resultTree)) and (resultTree[resultIndex].pointOnLink.link.id == linkID)):
                         continue
@@ -357,8 +367,12 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
                     print("WARNING: %d stops have been matched for TripID %d, LinkID %d. Keeping Stop %d, Stop Seq %d" % (matchCtr,
                         tripID, linkID, gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID,
                         bestTreeEntry.shapeEntry.shapeSeq), file = sys.stderr)
+                    # TODO: This is a problem because VISTA only allows one stop per link. So, the stop that is closest to
+                    # the link is the one that is the winner and the rest are ignored. We don't yet do anything intelligent with dwell
+                    # times, etc.
                 if matchCtr > 0:
                     # Report the best match:
+                    foundStopSet.add(bestTreeEntry.shapeEntry.shapeSeq) # Check off this stop sequence.
                     print('"%d","%d","%d","%d","%d",' % (tripID, outSeqCtr, linkID,
                         gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID, DWELLTIME_DEFAULT), file = outFile)
                     if gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID in ret \
@@ -367,6 +381,9 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
                         print("WARNING: stopID %d is attempted to be assigned to linkID %d, but it had already been assigned to linkID %d." \
                             % (gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID, bestTreeEntry.pointOnLink.link.id,
                                ret[gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID].link.id), file = sys.stderr)
+                        # TODO: This is a tricky problem. This means that among multiple bus routes, the same stop had been
+                        # found to best fit two different links. I don't exactly know the best way to resolve this, other
+                        # than (for NMC analyses) to create a "fake" stop that's tied with the new link. 
                     else:
                         ret[gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID] = bestTreeEntry.pointOnLink                    
                 else:
@@ -375,12 +392,21 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
                 outSeqCtr += 1
 
             # Are there any stops left over?  If so, report them to say that they aren't in the output file.
+            startGap = -1
+            endGap = -1
             for gtfsStopTime in stopTimes:
                 "@type gtfsStopTime: gtfs.StopTimesEntry"
+                flag = False
                 if gtfsStopTime.stopSeq not in foundStopSet:
                     # This stop is unaccounted for:
-                    print("WARNING: Trip tripID %d, stopID %d stop seq. %d will not be in the bus_route_link file." % (tripID,
-                        gtfsStopTime.stop.stopID, gtfsStopTime.stopSeq), file = sys.stderr)
+                    if startGap < 0:
+                        startGap = gtfsStopTime.stopSeq
+                    endGap = gtfsStopTime.stopSeq
+                    
+                    # Old message is very annoying, especially if the underlying topology is a subset of shapefile
+                    # geographic area and there's a ton of them. That's why there is the new range message as shown below.
+                    # print("WARNING: Trip tripID %d, stopID %d stop seq. %d will not be in the bus_route_link file." % (tripID,
+                    #    gtfsStopTime.stop.stopID, gtfsStopTime.stopSeq), file = sys.stderr)
                     
                     if problemReport:
                         revisedNodeList = problemReportNodes[gtfsTrips[tripID].shapeEntries[0].shapeID]  
@@ -394,6 +420,13 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
                             newNode = path_engine.PathEnd(newShape, newPointOnLink)
                             newNode.restart = True
                             revisedNodeList[gtfsStopTime.stopSeq] = newNode
+                else:
+                    flag = True
+                if (flag or gtfsStopTime.stopSeq == stopTimes[-1].stopSeq) and startGap >= 0:
+                    subStr = "Seqs. %d-%d" % (startGap, endGap) if startGap != endGap else "Seq. %d" % startGap
+                    print("WARNING: Trip ID %d, Stop %s will not be in the bus_route_link file." % (tripID, subStr),
+                        file = sys.stderr)
+                    startGap = -1
         else:
             print("WARNING: No links for tripID %d." % tripID, file = sys.stderr)
 
@@ -443,7 +476,7 @@ def main(argv):
     password = argv[4]
     shapePath = argv[5]
     pathMatchFilename = argv[6]
-    endTime = 86400
+    endTimeInt = 86400
     refTime = None
     
     restrictService = set()
@@ -456,7 +489,7 @@ def main(argv):
                 refTime = datetime.strptime(argv[i + 1], '%H:%M:%S')
                 i += 1
             elif argv[i] == "-e" and i < len(argv) - 1:
-                endTime = int(argv[i + 1])
+                endTimeInt = int(argv[i + 1])
                 i += 1
             elif argv[i] == "-c" and i < len(argv) - 1:
                 restrictService.add(argv[i + 1])
@@ -466,8 +499,9 @@ def main(argv):
             i += 1
     
     if refTime is None:
-        print("ERROR: No reference time is specified.")
+        print("ERROR: No reference time is specified. You must use the -t parameter.", file = sys.stderr)
         syntax(1)
+    endTime = refTime + timedelta(seconds = endTimeInt)
     
     # Default parameters:
     stopSearchRadius = 800
@@ -479,18 +513,29 @@ def main(argv):
     # Read in the routes information:
     print("INFO: Read GTFS routesfile...", file = sys.stderr)
     gtfsRoutes = gtfs.fillRoutes(shapePath)
+    "@type gtfsRoutes: dict<int, RoutesEntry>"
     
     # Read in the stops information:
     print("INFO: Read GTFS stopsfile...", file = sys.stderr)
     gtfsStops = gtfs.fillStops(shapePath, vistaGraph.gps)
+    "@type gtfsStops: dict<int, StopsEntry>"
     
     # Read in the trips information:
     print("INFO: Read GTFS tripsfile...", file = sys.stderr)
     (gtfsTrips, unusedTripIDs) = gtfs.fillTrips(shapePath, gtfsShapes, gtfsRoutes, unusedShapeIDs, restrictService)
+    "@type gtfsTrips: dict<int, TripsEntry>"
+    "@type unusedTripIDs: set<int>"
         
     # Read stop times information:
     print("INFO: Read GTFS stop times...", file = sys.stderr)
-    gtfsStopTimes = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs)
+    gtfsStopTimes = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs, refTime, endTime)
+    "@type gtfsStopTimes: dict<TripsEntry, list<StopTimesEntry>>"
+    
+    # Filter trips only to those that are used in valid stop times:
+    gtfsTripsFilterList = [gtfsTripID for gtfsTripID in gtfsTrips if gtfsTrips[gtfsTripID] not in gtfsStopTimes]
+    for gtfsTripID in gtfsTripsFilterList:
+        del gtfsTrips[gtfsTripID]
+    del gtfsTripsFilterList
 
     # Output the routes file:
     print("INFO: Dumping public.bus_route.csv...", file = sys.stderr)
@@ -502,6 +547,13 @@ def main(argv):
     with open("public.bus_route_link.csv", 'w') as outFile:
         stopLinkMap = dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaGraph, stopSearchRadius,
                                         userName, networkName, outFile)
+        "@type stopLinkMap: dict<int, graph.PointOnLink>"
+    
+    # Filter only to bus stops and stop times that are used in the routes_link output:
+    gtfsStopsFilterList = [gtfsStopID for gtfsStopID in gtfsStops if gtfsStopID not in stopLinkMap]
+    for gtfsStopID in gtfsStopsFilterList:
+        del gtfsStops[gtfsStopID]
+    del gtfsStopsFilterList
     
     # Then, output the output the stop file:
     print("INFO: Dumping public.bus_stop.csv...", file = sys.stderr)
@@ -513,19 +565,45 @@ def main(argv):
         _outHeader("public.bus_frequency", userName, networkName, outFile)
         print("\"route\",\"period\",\"frequency\",\"offsettime\",\"preemption\"", file = outFile)
         
+        # Okay, here we iterate through stops until we get to the first defined one. That will
+        # then affect the offsettime. (This is needed because of the idea that we want to start
+        # a bus in the simulation wrt the topology that supports it, skipping those stops that
+        # may fall outside the topology.)
+        totalCycle = int((endTime - refTime).total_seconds()) 
         tripIDs = gtfsTrips.keys()
         tripIDs.sort()
         for tripID in tripIDs:
-            stopTime = gtfsStopTimes[gtfsTrips[tripID]][0].time
-            if stopTime < refTime: # Assume that we're working just within a day.
-                stopTime += timedelta(days = int((refTime - stopTime).total_seconds() / 86400) + 1)
-            print("%d,1,86400,%d,0" % (tripID, (stopTime - refTime).total_seconds()), file = outFile)
+            stopsEntries = gtfsStopTimes[gtfsTrips[tripID]]
+            for gtfsStopTime in stopsEntries:
+                if gtfsStopTime.stop.stopID in gtfsStops:
+                    # Here is a first valid entry! Use this offset value.
+                    
+                    # TODO: This could be inaccurate because the offset is that of the first
+                    # valid stop time encountered in the underlying topology, not approximated
+                    # to the first valid link encountered. While this isn't a big deal for an
+                    # area with a high stop density, it could be a problem for limited-stop
+                    # service where there happens to be a low density around where the bus
+                    # first appears in the underlying topology.
+                    stopTime = gtfsStopTime.arrivalTime
+                    
+                    # Adjust for cases where we need to add a day.
+                    if stopTime < refTime: # Assume that we're working just within a day.
+                        stopTime += timedelta(days = int((refTime - stopTime).total_seconds()) / 86400 + 1)
+                    print("%d,1,%d,%d,0" % (tripID, totalCycle, int((stopTime - refTime).total_seconds())),
+                        file = outFile)
+                    break
+                    
+                # A byproduct of this scheme is that no bus_frequency entry will appear for
+                # routes that don't have stops in the underlying topology.
 
+    # Finally, define one period that spans the whole working time, which all of the individually
+    # defined routes (again, one route per trip) will operate in.
     print("INFO: Dumping public.bus_period.csv...", file = sys.stderr)
     with open("public.bus_period.csv", 'w') as outFile:
         _outHeader("public.bus_period", userName, networkName, outFile)
         print("\"id\",\"starttime\",\"endtime\"", file = outFile)
-        print("1,0,%d" % endTime, file = outFile)
+        # The start time printed here is relative to the reference time.
+        print("1,0,%d" % endTimeInt, file = outFile)
         
     print("INFO: Done.", file = sys.stderr)
 

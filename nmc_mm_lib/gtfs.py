@@ -253,26 +253,31 @@ class StopTimesEntry:
         @type trip: TripsEntry
         @type stop: StopsEntry
         @type stopSeq: int
-        @type time: datetime
+        @type arrivalTime: datetime
+        @type departureTime: datetime
         """
         self.trip = trip
         self.stop = stop
         self.stopSeq = stopSeq
         
-        self.time = None
+        self.arrivalTime = None
+        self.departureTime = None
 
-def fillStopTimes(filePath, trips, stops, unusedTripIDs):
+def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime):
     """
     fillStops retrieves the stoptime information from a GTFS repository.
     @type filePath: str
     @type trips: dict<int, TripsEntry>
     @type stops: dict<int, StopsEntry>
     @type unusedTripIDs: set<int>
+    @type startTime: datetime
+    @type endTime: datetime
     @return A map of TripsEntry to a list of stop entries
     @rtype dict<TripsEntry, list<StopTimesEntry>>
     """
     ret = {}
     "@type ret: dict<TripsEntry, list<StopTimesEntry>>"
+    
     filename = os.path.join(filePath, "stop_times.txt") 
     with open(filename, 'r') as inFile:
         # Sanity check:
@@ -296,18 +301,28 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs):
                     timeHour = int(timeElems[0])
                     timeDays = timeHour / 24
                     timeHour = timeHour % 24
-                    stopTime = datetime.strptime("%02d:%s:%s" % (timeHour, timeElems[1], timeElems[2]), '%H:%M:%S')
-                    stopTime += timedelta(days = timeDays)
-                    
-                    stopID = int(lineElems[3])
-                    if not stopID in stops:
-                        print("WARNING: GTFS Stop Times file expects undefined stop ID %d" % stopID, file = sys.stderr)
-                        continue
-                    newEntry = StopTimesEntry(trips[tripID], stops[stopID], int(lineElems[4]))
-                    newEntry.time = stopTime
-                    if newEntry.trip not in ret:
-                        ret[newEntry.trip] = []
-                    ret[newEntry.trip].append(newEntry)
+                    arrivalTime = datetime(1900, 1, 1, timeHour, int(timeElems[1]), int(timeElems[2]))
+                    arrivalTime += timedelta(days = timeDays)
+
+                    # Does the arrival time sit in an area of interest?
+                    if arrivalTime >= startTime and arrivalTime <= endTime:
+                        timeElems = lineElems[2].split(':')
+                        timeHour = int(timeElems[0])
+                        timeDays = timeHour / 24
+                        timeHour = timeHour % 24
+                        departureTime = datetime(1900, 1, 1, timeHour, int(timeElems[1]), int(timeElems[2]))
+                        departureTime += timedelta(days = timeDays)
+                        
+                        stopID = int(lineElems[3])
+                        if not stopID in stops:
+                            print("WARNING: GTFS Stop Times file expects undefined stop ID %d" % stopID, file = sys.stderr)
+                            continue
+                        newEntry = StopTimesEntry(trips[tripID], stops[stopID], int(lineElems[4]))
+                        newEntry.arrivalTime = arrivalTime
+                        newEntry.departureTime = departureTime
+                        if newEntry.trip not in ret:
+                            ret[newEntry.trip] = []
+                        ret[newEntry.trip].append(newEntry)
                 
     # Ensure that the lists are sorted:
     for stopTimesEntries in ret.values():
