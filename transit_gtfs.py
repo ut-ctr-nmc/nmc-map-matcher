@@ -540,11 +540,6 @@ def main(argv):
         del gtfsTrips[gtfsTripID]
     del gtfsTripsFilterList
 
-    # Output the routes file:
-    print("INFO: Dumping public.bus_route.csv...", file = sys.stderr)
-    with open("public.bus_route.csv", 'w') as outFile:
-        dumpBusRoutes(gtfsTrips, userName, networkName, outFile)
-
     # Output the routes_link file:
     print("INFO: Dumping public.bus_route_link.csv...", file = sys.stderr)
     with open("public.bus_route_link.csv", 'w') as outFile:
@@ -564,6 +559,8 @@ def main(argv):
         dumpBusStops(gtfsStops, stopLinkMap, userName, networkName, outFile)
         
     print("INFO: Dumping public.bus_frequency.csv...", file = sys.stderr)
+    validTrips = {}
+    "@type validTrips: dict<int, gtfs.TripsEntry>"
     with open("public.bus_frequency.csv", 'w') as outFile:
         _outHeader("public.bus_frequency", userName, networkName, outFile)
         print("\"route\",\"period\",\"frequency\",\"offsettime\",\"preemption\"", file = outFile)
@@ -594,10 +591,16 @@ def main(argv):
                         stopTime += timedelta(days = int((refTime - stopTime).total_seconds()) / 86400 + 1)
                     print("%d,1,%d,%d,0" % (tripID, totalCycle, int((stopTime - refTime).total_seconds())),
                         file = outFile)
+                    validTrips[tripID] = gtfsTrips[tripID] # Record as valid.
                     break
                     
                 # A byproduct of this scheme is that no bus_frequency entry will appear for
                 # routes that don't have stops in the underlying topology.
+
+    # Output the routes file:
+    print("INFO: Dumping public.bus_route.csv...", file = sys.stderr)
+    with open("public.bus_route.csv", 'w') as outFile:
+        dumpBusRoutes(validTrips, userName, networkName, outFile)
 
     # Finally, define one period that spans the whole working time, which all of the individually
     # defined routes (again, one route per trip) will operate in.
