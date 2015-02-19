@@ -263,7 +263,7 @@ class StopTimesEntry:
         self.arrivalTime = None
         self.departureTime = None
 
-def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime):
+def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime, warmup):
     """
     fillStops retrieves the stoptime information from a GTFS repository.
     @type filePath: str
@@ -272,13 +272,14 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime):
     @type unusedTripIDs: set<int>
     @type startTime: datetime
     @type endTime: datetime
-    @return A map of TripsEntry to a list of stop entries
-    @rtype dict<TripsEntry, list<StopTimesEntry>>
+    @return A map of TripsEntry to a list of stop entries plus the start and end times adjusted for
+            warm-up and cool-down (if warmup is True)
+    @rtype (dict<TripsEntry, list<StopTimesEntry>>, datetime, datetime)
     """
-    ret = {}
-    "@type ret: dict<TripsEntry, list<StopTimesEntry>>"
+    stopTimes = {}
+    "@type stopTimes: dict<TripsEntry, list<StopTimesEntry>>"
     
-    filename = os.path.join(filePath, "stop_times.txt") 
+    filename = os.path.join(filePath, "stop_times.txt")
     with open(filename, 'r') as inFile:
         # Sanity check:
         fileLine = inFile.readline()
@@ -304,30 +305,73 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime):
                     arrivalTime = datetime(1900, 1, 1, timeHour, int(timeElems[1]), int(timeElems[2]))
                     arrivalTime += timedelta(days = timeDays)
 
-                    # Does the arrival time sit in an area of interest?
-                    if arrivalTime >= startTime and arrivalTime <= endTime:
-                        timeElems = lineElems[2].split(':')
-                        timeHour = int(timeElems[0])
-                        timeDays = timeHour / 24
-                        timeHour = timeHour % 24
-                        departureTime = datetime(1900, 1, 1, timeHour, int(timeElems[1]), int(timeElems[2]))
-                        departureTime += timedelta(days = timeDays)
-                        
-                        stopID = int(lineElems[3])
-                        if not stopID in stops:
-                            print("WARNING: GTFS Stop Times file expects undefined stop ID %d" % stopID, file = sys.stderr)
-                            continue
-                        newEntry = StopTimesEntry(trips[tripID], stops[stopID], int(lineElems[4]))
-                        newEntry.arrivalTime = arrivalTime
-                        newEntry.departureTime = departureTime
-                        if newEntry.trip not in ret:
-                            ret[newEntry.trip] = []
-                        ret[newEntry.trip].append(newEntry)
+                    timeElems = lineElems[2].split(':')
+                    timeHour = int(timeElems[0])
+                    timeDays = timeHour / 24
+                    timeHour = timeHour % 24
+                    departureTime = datetime(1900, 1, 1, timeHour, int(timeElems[1]), int(timeElems[2]))
+                    departureTime += timedelta(days = timeDays)
+                    
+                    stopID = int(lineElems[3])
+                    if not stopID in stops:
+                        print("WARNING: GTFS Stop Times file expects undefined stop ID %d" % stopID, file = sys.stderr)
+                        continue
+                    newEntry = StopTimesEntry(trips[tripID], stops[stopID], int(lineElems[4]))
+                    newEntry.arrivalTime = arrivalTime
+                    newEntry.departureTime = departureTime
+                    if newEntry.trip not in stopTimes:
+                        stopTimes[newEntry.trip] = []
+                    stopTimes[newEntry.trip].append(newEntry)
+                    del newEntry
+                del tripID
+
+    # Eliminate entries that are outside of our intended time range. If warmup is set then we need to
+    # base our criteria on the entire route.
+    warmupStartTime = startTime
+    cooldownEndTime = endTime
+    for trip in stopTimes:
+        keepList = []
+        "@type keepList: list<int>"
+        
+        keepAll = False
+        index = 0
+        for stopEntry in stopTimes[trip]:
+            # Track minimum and maximum times:
+            if index == 0:
+                minTime = stopEntry.arrivalTime
+                maxTime = stopEntry.arrivalTime
+            else:
+                if stopEntry.arrivalTime < minTime:
+                    minTime = stopEntry.arrivalTime
+                if stopEntry.arrivalTime > maxTime:
+                    maxTime = stopEntry.arrivalTime
+            
+            # Does the arrival time sit in an area of interest?
+            if stopEntry.arrivalTime >= startTime and stopEntry.arrivalTime <= endTime:
+                keepList.append(index)
+                if warmup:
+                    keepAll = True
+            index += 1
+        if keepAll:
+            # This happens when we are in the warmup mode. Check to see if we need to widen the
+            # warmup/cooldown interval:
+            if minTime < warmupStartTime:
+                warmupStartTime = minTime
+            if maxTime > cooldownEndTime:
+                cooldownEndTime = maxTime 
+        else:
+            # Perform cleanup, only keeping those that are in the "keep list":
+            newStopEntries = []
+            for stopTimeEntryIndex in keepList:
+                newStopEntries.append(stopTimes[trip][stopTimeEntryIndex])
+            stopTimes[trip] = newStopEntries
+        if not stopTimes[trip]:
+            del stopTimes[trip]
                 
     # Ensure that the lists are sorted:
-    for stopTimesEntries in ret.values():
+    for stopTimesEntries in stopTimes.values():
         "@type stopTimesEntries: list<StopTimesEntry>"
         stopTimesEntries.sort(key = operator.attrgetter('stopSeq'))
-                    
+    
     # Return the shapes file contents:
-    return ret
+    return (stopTimes, warmupStartTime, cooldownEndTime)

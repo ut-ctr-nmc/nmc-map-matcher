@@ -48,7 +48,7 @@ def syntax():
     print("Usage:")
     print("  python transit_gtfs.py dbServer network user password shapePath")
     print("    pathMatchFile -t refDateTime [-e endTime] {[-c serviceID]")
-    print("    [-c serviceID] ...} [-u] [-p]")
+    print("    [-c serviceID] ...} [-u] [-w] [-p]")
     print()
     print("where:")
     print("  -t is the zero-reference time that all arrival time outputs are related to.")
@@ -56,6 +56,9 @@ def syntax():
     print("  -e is the duration in seconds (86400 by default). -t and -e filter stops.")
     print("  -c restricts results to specific service IDs (default: none)")
     print("  -u excludes links upstream of the first valid stop")
+    print("  -w warm-up: include entire routes that would otherwise be cut off by -t and")
+    print("     -e. This will suggest a new starting time and duration and record all all")
+    print("     times relative to that.")
     print("  -p outputs a problem report on the stop matches")
     sys.exit(0)
 
@@ -479,6 +482,7 @@ def main(argv):
     pathMatchFilename = argv[6]
     endTimeInt = 86400
     refTime = None
+    warmup = False
     
     restrictService = set()
     "@type restrictService: set<string>"
@@ -497,6 +501,8 @@ def main(argv):
                 i += 1
             elif argv[i] == "-u":
                 excludeUpstream = True
+            elif argv[i] == "-w":
+                warmup = True
             elif argv[i] == "-p":
                 problemReport = True
             i += 1
@@ -531,9 +537,9 @@ def main(argv):
         
     # Read stop times information:
     print("INFO: Read GTFS stop times...", file = sys.stderr)
-    gtfsStopTimes = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs, refTime, endTime)
+    (gtfsStopTimes, newStartTime, newEndTime) = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs, refTime, endTime, warmup)
     "@type gtfsStopTimes: dict<TripsEntry, list<StopTimesEntry>>"
-    
+        
     # Filter trips only to those that are used in valid stop times:
     gtfsTripsFilterList = [gtfsTripID for gtfsTripID in gtfsTrips if gtfsTrips[gtfsTripID] not in gtfsStopTimes]
     for gtfsTripID in gtfsTripsFilterList:
@@ -569,7 +575,7 @@ def main(argv):
         # then affect the offsettime. (This is needed because of the idea that we want to start
         # a bus in the simulation wrt the topology that supports it, skipping those stops that
         # may fall outside the topology.)
-        totalCycle = int((endTime - refTime).total_seconds()) 
+        totalCycle = int((newEndTime - newStartTime).total_seconds()) 
         tripIDs = gtfsTrips.keys()
         tripIDs.sort()
         for tripID in tripIDs:
@@ -611,6 +617,16 @@ def main(argv):
         # The start time printed here is relative to the reference time.
         print("1,0,%d" % endTimeInt, file = outFile)
         
+    if warmup:
+        # Report the implicit adjustment in times because of warmup:
+        startTimeDiff = refTime - newStartTime
+        endTimeDiff = newEndTime - endTime
+        print("INFO: Warmup requires start %d sec. earlier and duration %d sec. longer." % (startTimeDiff.total_seconds(),
+            endTimeDiff.total_seconds() + startTimeDiff.total_seconds()), file = sys.stderr)
+        totalTimeDiff = newEndTime - newStartTime
+        print("INFO: New time reference is %s, duration %d sec." % (newStartTime.strftime("%H:%M:%S"), totalTimeDiff.total_seconds()),
+            file = sys.stderr)
+
     print("INFO: Done.", file = sys.stderr)
 
 # Boostrap:
