@@ -593,9 +593,9 @@ def main(argv):
                     stopTime = gtfsStopTime.arrivalTime
                     
                     # Adjust for cases where we need to add a day.
-                    if stopTime < refTime: # Assume that we're working just within a day.
-                        stopTime += timedelta(days = int((refTime - stopTime).total_seconds()) / 86400 + 1)
-                    print("%d,1,%d,%d,0" % (tripID, totalCycle, int((stopTime - refTime).total_seconds())),
+                    if stopTime < newStartTime: # Assume that we're working just within a day.
+                        stopTime += timedelta(days = int((newStartTime - stopTime).total_seconds()) / 86400 + 1)
+                    print("%d,1,%d,%d,0" % (tripID, totalCycle, int((stopTime - newStartTime).total_seconds())),
                         file = outFile)
                     validTrips[tripID] = gtfsTrips[tripID] # Record as valid.
                     break
