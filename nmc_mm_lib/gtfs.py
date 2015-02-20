@@ -329,7 +329,7 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime, war
     # base our criteria on the entire route.
     warmupStartTime = startTime
     cooldownEndTime = endTime
-    for trip in stopTimes:
+    for trip in stopTimes.keys():
         keepList = []
         "@type keepList: list<int>"
         
