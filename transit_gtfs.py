@@ -56,9 +56,11 @@ def syntax():
     print("  -e is the duration in seconds (86400 by default). -t and -e filter stops.")
     print("  -c restricts results to specific service IDs (default: none)")
     print("  -u excludes links upstream of the first valid stop")
-    print("  -w warm-up: include entire routes that would otherwise be cut off by -t and")
-    print("     -e. This will suggest a new starting time and duration and record all all")
-    print("     times relative to that.")
+    print("  -w, -wb, -we: widen both, widen begin, widen end: include entire routes that")
+    print("     would otherwise be cut off by -t (begin) and/or -e (end). This will")
+    print("     suggest new starting time/duration and record all times relative to that.")
+    print("  -x, -xb, -xe: exclude both, exclude begin, exclude end: excludes entire")
+    print("     entire routes that intersect with -t (begin) and/or -e (end).")
     print("  -p outputs a problem report on the stop matches")
     sys.exit(0)
 
@@ -482,7 +484,10 @@ def main(argv):
     pathMatchFilename = argv[6]
     endTimeInt = 86400
     refTime = None
-    warmup = False
+    widenBegin = False
+    widenEnd = False
+    excludeBegin = False
+    excludeEnd = False
     
     restrictService = set()
     "@type restrictService: set<string>"
@@ -502,7 +507,19 @@ def main(argv):
             elif argv[i] == "-u":
                 excludeUpstream = True
             elif argv[i] == "-w":
-                warmup = True
+                widenBegin = True
+                widenEnd = True
+            elif argv[i] == "-wb":
+                widenBegin = True
+            elif argv[i] == "-we":
+                widenEnd = True
+            elif argv[i] == "-x":
+                excludeBegin = True
+                excludeEnd = True
+            elif argv[i] == "-xb":
+                excludeBegin = True
+            elif argv[i] == "-xe":
+                excludeEnd = True
             elif argv[i] == "-p":
                 problemReport = True
             i += 1
@@ -511,6 +528,13 @@ def main(argv):
         print("ERROR: No reference time is specified. You must use the -t parameter.", file = sys.stderr)
         syntax(1)
     endTime = refTime + timedelta(seconds = endTimeInt)
+    
+    if widenBegin and excludeBegin:
+        print("ERROR: Widening (-w or -wb) and exclusion (-x or -xb) cannot be used together.")
+        syntax(1)    
+    if widenEnd and excludeEnd:
+        print("ERROR: Widening (-w or -we) and exclusion (-x or -xe) cannot be used together.")
+        syntax(1)
     
     # Default parameters:
     stopSearchRadius = 800
@@ -537,7 +561,8 @@ def main(argv):
         
     # Read stop times information:
     print("INFO: Read GTFS stop times...", file = sys.stderr)
-    (gtfsStopTimes, newStartTime, newEndTime) = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs, refTime, endTime, warmup)
+    (gtfsStopTimes, newStartTime, newEndTime) = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs,
+        refTime, endTime, widenBegin, widenEnd, excludeBegin, excludeEnd)
     "@type gtfsStopTimes: dict<TripsEntry, list<StopTimesEntry>>"
         
     # Filter trips only to those that are used in valid stop times:
@@ -617,11 +642,11 @@ def main(argv):
         # The start time printed here is relative to the reference time.
         print("1,0,%d" % endTimeInt, file = outFile)
         
-    if warmup:
-        # Report the implicit adjustment in times because of warmup:
+    if widenBegin or widenEnd:
+        # Report the implicit adjustment in times because of warmup or cooldown:
         startTimeDiff = refTime - newStartTime
         endTimeDiff = newEndTime - endTime
-        print("INFO: Warmup requires start %d sec. earlier and duration %d sec. longer." % (startTimeDiff.total_seconds(),
+        print("INFO: Widening requires start %d sec. earlier and duration %d sec. longer." % (startTimeDiff.total_seconds(),
             endTimeDiff.total_seconds() + startTimeDiff.total_seconds()), file = sys.stderr)
         totalTimeDiff = newEndTime - newStartTime
         print("INFO: New time reference is %s, duration %d sec." % (newStartTime.strftime("%H:%M:%S"), totalTimeDiff.total_seconds()),

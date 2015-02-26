@@ -263,7 +263,7 @@ class StopTimesEntry:
         self.arrivalTime = None
         self.departureTime = None
 
-def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime, warmup):
+def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime, widenBegin, widenEnd, excludeBegin, excludeEnd):
     """
     fillStops retrieves the stoptime information from a GTFS repository.
     @type filePath: str
@@ -272,8 +272,12 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime, war
     @type unusedTripIDs: set<int>
     @type startTime: datetime
     @type endTime: datetime
+    @type widenBegin: bool
+    @type widenEnd: bool
+    @type excludeBegin: bool
+    @type excludeEnd: bool
     @return A map of TripsEntry to a list of stop entries plus the start and end times adjusted for
-            warm-up and cool-down (if warmup is True)
+            warm-up and cool-down (if widenBegin or widenEnd is True)
     @rtype (dict<TripsEntry, list<StopTimesEntry>>, datetime, datetime)
     """
     stopTimes = {}
@@ -325,8 +329,8 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime, war
                     del newEntry
                 del tripID
 
-    # Eliminate entries that are outside of our intended time range. If warmup is set then we need to
-    # base our criteria on the entire route.
+    # Eliminate entries that are outside of our intended time range. If widenBegin or widenEnd are set then
+    # we need to base our criteria on the entire route.
     warmupStartTime = startTime
     cooldownEndTime = endTime
     for trip in stopTimes.keys():
@@ -349,15 +353,20 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime, war
             # Does the arrival time sit in an area of interest?
             if stopEntry.arrivalTime >= startTime and stopEntry.arrivalTime <= endTime:
                 keepList.append(index)
-                if warmup:
+                if widenBegin and minTime < startTime or widenEnd and maxTime > endTime:
+                    # Flag that the entire series of stops are to be kept.
                     keepAll = True
             index += 1
+        if keepList and (excludeBegin and minTime < startTime or excludeEnd and maxTime > endTime):
+            # Throw whole thing out if we cross the minimum or maximum and we're excluding:
+            keepAll = False
+            del keepList[:]
         if keepAll:
-            # This happens when we are in the warmup mode. Check to see if we need to widen the
+            # This happens when we are in the widenBegin or widenEnd mode. Check to see if we need to widen the
             # warmup/cooldown interval:
-            if minTime < warmupStartTime:
+            if widenBegin and minTime < warmupStartTime:
                 warmupStartTime = minTime
-            if maxTime > cooldownEndTime:
+            if widenEnd and maxTime > cooldownEndTime:
                 cooldownEndTime = maxTime 
         else:
             # Perform cleanup, only keeping those that are in the "keep list":
