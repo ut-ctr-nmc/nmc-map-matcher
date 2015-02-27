@@ -353,15 +353,15 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime, wid
             # Does the arrival time sit in an area of interest?
             if stopEntry.arrivalTime >= startTime and stopEntry.arrivalTime <= endTime:
                 keepList.append(index)
-                if widenBegin and minTime < startTime or widenEnd and maxTime > endTime:
-                    # Flag that the entire series of stops are to be kept.
-                    keepAll = True
+            if widenBegin and minTime < startTime or widenEnd and maxTime > endTime:
+                # Flag that the entire series of stops are to be kept.
+                keepAll = True
             index += 1
         if keepList and (excludeBegin and minTime < startTime or excludeEnd and maxTime > endTime):
             # Throw whole thing out if we cross the minimum or maximum and we're excluding:
             keepAll = False
             del keepList[:]
-        if keepAll:
+        if keepList and keepAll:
             # This happens when we are in the widenBegin or widenEnd mode. Check to see if we need to widen the
             # warmup/cooldown interval:
             if widenBegin and minTime < warmupStartTime:
