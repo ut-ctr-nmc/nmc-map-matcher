@@ -263,22 +263,15 @@ class StopTimesEntry:
         self.arrivalTime = None
         self.departureTime = None
 
-def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime, widenBegin, widenEnd, excludeBegin, excludeEnd):
+def fillStopTimes(filePath, trips, stops, unusedTripIDs):
     """
-    fillStops retrieves the stoptime information from a GTFS repository.
+    fillStopTimes retrieves the stoptime information from a GTFS repository.
     @type filePath: str
     @type trips: dict<int, TripsEntry>
     @type stops: dict<int, StopsEntry>
     @type unusedTripIDs: set<int>
-    @type startTime: datetime
-    @type endTime: datetime
-    @type widenBegin: bool
-    @type widenEnd: bool
-    @type excludeBegin: bool
-    @type excludeEnd: bool
-    @return A map of TripsEntry to a list of stop entries plus the start and end times adjusted for
-            warm-up and cool-down (if widenBegin or widenEnd is True)
-    @rtype (dict<TripsEntry, list<StopTimesEntry>>, datetime, datetime)
+    @return A map of TripsEntry to a list of stop entries plus the start and end times
+    @rtype dict<TripsEntry, list<StopTimesEntry>>
     """
     stopTimes = {}
     "@type stopTimes: dict<TripsEntry, list<StopTimesEntry>>"
@@ -329,58 +322,5 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs, startTime, endTime, wid
                     del newEntry
                 del tripID
 
-    # Eliminate entries that are outside of our intended time range. If widenBegin or widenEnd are set then
-    # we need to base our criteria on the entire route.
-    warmupStartTime = startTime
-    cooldownEndTime = endTime
-    for trip in stopTimes.keys():
-        keepList = []
-        "@type keepList: list<int>"
-        
-        keepAll = False
-        index = 0
-        for stopEntry in stopTimes[trip]:
-            # Track minimum and maximum times:
-            if index == 0:
-                minTime = stopEntry.arrivalTime
-                maxTime = stopEntry.arrivalTime
-            else:
-                if stopEntry.arrivalTime < minTime:
-                    minTime = stopEntry.arrivalTime
-                if stopEntry.arrivalTime > maxTime:
-                    maxTime = stopEntry.arrivalTime
-            
-            # Does the arrival time sit in an area of interest?
-            if stopEntry.arrivalTime >= startTime and stopEntry.arrivalTime <= endTime:
-                keepList.append(index)
-            if widenBegin and minTime < startTime or widenEnd and maxTime > endTime:
-                # Flag that the entire series of stops are to be kept.
-                keepAll = True
-            index += 1
-        if keepList and (excludeBegin and minTime < startTime or excludeEnd and maxTime > endTime):
-            # Throw whole thing out if we cross the minimum or maximum and we're excluding:
-            keepAll = False
-            del keepList[:]
-        if keepList and keepAll:
-            # This happens when we are in the widenBegin or widenEnd mode. Check to see if we need to widen the
-            # warmup/cooldown interval:
-            if widenBegin and minTime < warmupStartTime:
-                warmupStartTime = minTime
-            if widenEnd and maxTime > cooldownEndTime:
-                cooldownEndTime = maxTime 
-        else:
-            # Perform cleanup, only keeping those that are in the "keep list":
-            newStopEntries = []
-            for stopTimeEntryIndex in keepList:
-                newStopEntries.append(stopTimes[trip][stopTimeEntryIndex])
-            stopTimes[trip] = newStopEntries
-        if not stopTimes[trip]:
-            del stopTimes[trip]
-                
-    # Ensure that the lists are sorted:
-    for stopTimesEntries in stopTimes.values():
-        "@type stopTimesEntries: list<StopTimesEntry>"
-        stopTimesEntries.sort(key = operator.attrgetter('stopSeq'))
-    
-    # Return the shapes file contents:
-    return (stopTimes, warmupStartTime, cooldownEndTime)
+    # Return the stop times file contents:
+    return stopTimes

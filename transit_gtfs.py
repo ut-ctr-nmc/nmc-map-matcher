@@ -122,43 +122,57 @@ def dumpBusRoutes(gtfsTrips, userName, networkName, outFile = sys.stdout):
         print("\"%d\",\"%s\"" % (tripID, gtfsTrips[tripID].route.shortName + append),
                 file = outFile)
 
-class stop_match:
+class StopMatch:
     """
-    stop_match represents a stop and a PointOnLink, used within dumpBusRouteLinks.
+    StopMatch represents a matched stop, used within dumpBusRouteLinks.
+    
+    @type bestTreeEntry: path_engine.PathEnd
+    @type matchCtr: int
+    @type linkID: int
     """
-    def __init__(self, tripID, gtfsNode, stopsEntry, dist):
+    def __init__(self, linkID):
         """
-        @type tripID: int
-        @type gtfsNode: path_engine.PathEnd
-        @type stopsEntries: gtfs.StopsEntry
-        @type dist: float
+        Sets member variables to zero and initialized.
+        @type linkID: int
         """
-        self.tripID = tripID
-        self.gtfsNode = gtfsNode
-        self.stopsEntry = stopsEntry
-        self.dist = dist
+        self.bestTreeEntry = None
+        self.matchCtr = 0
+        self.linkID = linkID
 
-def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSearchRadius, excludeUpstream, userName, networkName, outFile = sys.stdout):
+def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSearchRadius, excludeUpstream, userName,
+        networkName, startTime, endTime, widenBegin, widenEnd, excludeBegin, excludeEnd, outFile = sys.stdout):
     """
-    dumpBusRouteLinks dumps out a public.bus_route_link.csv file contents.
+    dumpBusRouteLinks dumps out a public.bus_route_link.csv file contents. This also will remove all stop times and trips
+    that fall outside of the valid evaluation interval as dictated by the exclusion parameters.
     @type gtfsTrips: dict<int, gtfs.TripsEntry>
-    @type gtfsNodes: dict<int, list<path_engine.PathEnd>>
     @type gtfsStopTimes: dict<TripsEntry, list<StopTimesEntry>>
+    @type gtfsNodes: dict<int, list<path_engine.PathEnd>>
     @type vistaNetwork: graph.GraphLib
     @type stopSearchRadius: float
     @type excludeUpstream: boolean
     @type userName: str
     @type networkName: str
+    @type startTime: datetime
+    @type endTime: datetime
+    @type widenBegin: bool
+    @type widenEnd: bool
+    @type excludeBegin: bool
+    @type excludeEnd: bool
     @type outFile: file
-    @return A mapping of stopID to points-on-links.
-    @rtype dict<int, graph.PointOnLink>
+    @return A mapping of stopID to points-on-links plus the start and end times adjusted for
+            warm-up and cool-down (if widenBegin or widenEnd is True)
+    @rtype (dict<int, graph.PointOnLink>, datetime, datetime)
     """
     _outHeader("public.bus_route_link", userName, networkName, outFile)
     print('"route","sequence","link","stop","dwelltime",', file = outFile)
     
     # Set up the output:
     ret = {}
-    
+    "@type ret: dict<int, graph.PointOnLink>"
+        
+    warmupStartTime = startTime
+    cooldownEndTime = endTime
+
     # Initialize the path engine for use later:
     pathEngine = path_engine.PathEngine(stopSearchRadius, stopSearchRadius, stopSearchRadius, sys.float_info.max, sys.float_info.max,
                                         stopSearchRadius, 1, 1, 1, sys.maxint, sys.maxint)
@@ -177,8 +191,6 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
             # This happens if the incoming files contain a subset of all available topology.
             print("WARNING: Skipping route for trip %d because no points are available." % tripID, file = sys.stderr)
             continue
-        
-        print("INFO: Outputting route for trip %d." % tripID, file = sys.stderr)
         
         treeNodes = gtfsNodes[gtfsTrips[tripID].shapeEntries[0].shapeID]
         "@type treeNodes: list<path_engine.PathEnd>"
@@ -222,7 +234,21 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
                          treeNodes[longestEnd - 1].shapeEntry.shapeSeq, 100 * float(longestLinkCount) / float(totalLinks),
                          totalLinks), file = sys.stderr)
             
-            # Step 2: Match up stops to that contiguous list:
+            # Step 2: Ignore routes that are entirely outside our valid time interval.
+            flag = False
+            for stopEntry in gtfsStopTimes[gtfsTrips[tripID]]:
+                if stopEntry.arrivalTime >= startTime and stopEntry.arrivalTime <= endTime:
+                    flag = True
+                    break
+            if not flag:
+                # This will be done silently because (depending upon the valid interval) there could be
+                # hundreds of these in a GTFS set.
+                continue
+            
+            # Step 3: Match up stops to that contiguous list:
+            # At this point, we're doing something with this.
+            print("INFO: -- Matching stops for trip %d --" % tripID, file = sys.stderr)
+        
             stopTimes = gtfsStopTimes[gtfsTrips[tripID]]
             "@type stopTimes: list<gtfs.StopTimesEntry>"
             
@@ -316,6 +342,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
             # So now we should have one tree entry per matched stop.
 
             # Deal with Problem Report:
+            # TODO: The Problem Report will include all nodes on each path regardless of valid time interval;
+            # However; we will not have gotten here if the trip was entirely outside of it. 
             if problemReport:
                 revisedNodeList = {}
                 prevNode = None
@@ -341,60 +369,92 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
         
             # Walk through our output link list and see where the resultTree entries occur:
             resultIndex = 0
-            foundStopSet = set()
-            "@type foundStopSet: set<int>"
-            outSeqCtr = longestStart
-            foundValidStop = False
+            stopMatches = []
+            "@type stopMatches: list<StopMatch>"
+            rejectFlag = False
             for linkID in outLinkIDList:
-                bestTreeEntry = None
-                "@type bestTreeEntry: path_engine.PathEnd"
                 curResultIndex = resultIndex
                 # This routine will advance resultIndex only if a stop is found for linkID, and will exit out when
-                # no more stops are found for linkID. 
-                matchCtr = 0
+                # no more stops are found for linkID.
+                stopMatch = StopMatch(linkID)
+                "@type stopMatch: StopMatch" 
+                stopMatches.append(stopMatch)
                 while curResultIndex < len(resultTree):
                     if resultTree[curResultIndex].pointOnLink.link.id == linkID:
-                        if (bestTreeEntry is None) or (resultTree[resultIndex].pointOnLink.refDist < bestTreeEntry.pointOnLink.refDist):
-                            bestTreeEntry = resultTree[resultIndex]
-                        matchCtr += 1
+                        # Only pay attention to this stop if it is within the valid time range:
+                        gtfsStopTime = gtfsStopsLookup[resultTree[resultIndex].shapeEntry.shapeSeq]
+                        if excludeBegin and gtfsStopTime.arrivalTime < startTime or excludeEnd and gtfsStopTime.arrivalTime > endTime:
+                            # Throw away this entire route because it is excluded and part of it falls outside:
+                            print("INFO: Excluded because of activity outside of the valid time range.", file = sys.stderr)
+                            del stopMatches[:]
+                            rejectFlag = True
+                            break
+                        elif (widenBegin or gtfsStopTime.arrivalTime >= startTime) and (widenEnd or gtfsStopTime.arrivalTime <= endTime):
+                            if (stopMatch.bestTreeEntry is None) \
+                                    or (resultTree[resultIndex].pointOnLink.refDist < stopMatch.bestTreeEntry.pointOnLink.refDist):
+                                # Log the best match:
+                                stopMatch.bestTreeEntry = resultTree[resultIndex]
+                            stopMatch.matchCtr += 1
                         resultIndex = curResultIndex + 1
                     curResultIndex += 1
-                    if (matchCtr == 0) or ((curResultIndex < len(resultTree)) and (resultTree[resultIndex].pointOnLink.link.id == linkID)):
+                    if (stopMatch and stopMatch.matchCtr == 0) \
+                            or ((curResultIndex < len(resultTree)) and (resultTree[resultIndex].pointOnLink.link.id == linkID)):
                         continue
                     # We have gotten to the end of matched link(s). 
-                    break 
-                if matchCtr > 1:
-                    # Report duplicates:
-                    print("WARNING: %d stops have been matched for TripID %d, LinkID %d. Keeping Stop %d, Stop Seq %d" % (matchCtr,
-                        tripID, linkID, gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID,
-                        bestTreeEntry.shapeEntry.shapeSeq), file = sys.stderr)
-                    # TODO: This is a problem because VISTA only allows one stop per link. So, the stop that is closest to
-                    # the link is the one that is the winner and the rest are ignored. We don't yet do anything intelligent with dwell
-                    # times, etc.
-                if matchCtr > 0:
-                    # Report the best match:
-                    foundStopSet.add(bestTreeEntry.shapeEntry.shapeSeq) # Check off this stop sequence.
-                    foundValidStop = True
-                    print('"%d","%d","%d","%d","%d",' % (tripID, outSeqCtr, linkID,
-                        gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID, DWELLTIME_DEFAULT), file = outFile)
-                    if gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID in ret \
-                            and ret[gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID].link.id \
-                                != bestTreeEntry.pointOnLink.link.id:
-                        print("WARNING: stopID %d is attempted to be assigned to linkID %d, but it had already been assigned to linkID %d." \
-                            % (gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID, bestTreeEntry.pointOnLink.link.id,
-                               ret[gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID].link.id), file = sys.stderr)
-                        # TODO: This is a tricky problem. This means that among multiple bus routes, the same stop had been
-                        # found to best fit two different links. I don't exactly know the best way to resolve this, other
-                        # than (for NMC analyses) to create a "fake" stop that's tied with the new link. 
+                    break
+                if rejectFlag:
+                    break
+            
+            # Then, output the results out if we are supposed to.
+            foundStopSet = set()
+            "@type foundStopSet: set<int>"
+            if not rejectFlag:
+                outSeqCtr = longestStart
+                minTime = warmupStartTime
+                maxTime = cooldownEndTime
+                foundValidStop = False
+                for stopMatch in stopMatches:    
+                    if stopMatch.matchCtr > 1:
+                        # Report duplicates:
+                        print("WARNING: %d stops have been matched for TripID %d, LinkID %d. Keeping Stop %d, Stop Seq %d" \
+                            % (stopMatch.matchCtr, tripID, stopMatch.linkID, gtfsStopsLookup[stopMatch.bestTreeEntry.shapeEntry.shapeSeq].stop.stopID,
+                            stopMatch.bestTreeEntry.shapeEntry.shapeSeq), file = sys.stderr)
+                        # TODO: This is a problem because VISTA only allows one stop per link. So, the stop that is closest to
+                        # the link is the one that is the winner and the rest are ignored. We don't yet do anything intelligent with dwell
+                        # times, etc.
+                    if stopMatch.matchCtr > 0:
+                        # Report the best match:
+                        foundStopSet.add(stopMatch.bestTreeEntry.shapeEntry.shapeSeq) # Check off this stop sequence.
+                        foundValidStop = True
+                        print('"%d","%d","%d","%d","%d",' % (tripID, outSeqCtr, stopMatch.linkID,
+                            gtfsStopsLookup[stopMatch.bestTreeEntry.shapeEntry.shapeSeq].stop.stopID, DWELLTIME_DEFAULT), file = outFile)
+                        if gtfsStopsLookup[stopMatch.bestTreeEntry.shapeEntry.shapeSeq].stop.stopID in ret \
+                                and ret[gtfsStopsLookup[stopMatch.bestTreeEntry.shapeEntry.shapeSeq].stop.stopID].link.id \
+                                    != stopMatch.bestTreeEntry.pointOnLink.link.id:
+                            print("WARNING: stopID %d is attempted to be assigned to linkID %d, but it had already been assigned to linkID %d." \
+                                % (gtfsStopsLookup[stopMatch.bestTreeEntry.shapeEntry.shapeSeq].stop.stopID, stopMatch.bestTreeEntry.pointOnLink.link.id,
+                                   ret[gtfsStopsLookup[stopMatch.bestTreeEntry.shapeEntry.shapeSeq].stop.stopID].link.id), file = sys.stderr)
+                            # TODO: This is a tricky problem. This means that among multiple bus routes, the same stop had been
+                            # found to best fit two different links. I don't exactly know the best way to resolve this, other
+                            # than (for NMC analyses) to create a "fake" stop that's tied with the new link. 
+                        else:
+                            ret[gtfsStopsLookup[stopMatch.bestTreeEntry.shapeEntry.shapeSeq].stop.stopID] = stopMatch.bestTreeEntry.pointOnLink
+                            
+                        # Check on the minimum/maximum time range:
+                        gtfsStopTime = gtfsStopsLookup[stopMatch.bestTreeEntry.shapeEntry.shapeSeq]
+                        minTime = min(gtfsStopTime.arrivalTime, minTime)
+                        maxTime = max(gtfsStopTime.arrivalTime, maxTime)
                     else:
-                        ret[gtfsStopsLookup[bestTreeEntry.shapeEntry.shapeSeq].stop.stopID] = bestTreeEntry.pointOnLink                    
-                else:
-                    # The linkID has nothing to do with any points in consideration.  Report it without a stop:
-                    if foundValidStop or not excludeUpstream:
-                        print('"%d","%d","%d",,,' % (tripID, outSeqCtr, linkID), file = outFile)
-                outSeqCtr += 1
-                # TODO: For start time estimation (as reported in the public.bus_frequency.csv output), it may be
-                # ideal to keep track of linear distance traveled before the first valid stop.
+                        # The linkID has nothing to do with any points in consideration.  Report it without a stop:
+                        if foundValidStop or not excludeUpstream:
+                            print('"%d","%d","%d",,,' % (tripID, outSeqCtr, stopMatch.linkID), file = outFile)
+                    outSeqCtr += 1
+                    # TODO: For start time estimation (as reported in the public.bus_frequency.csv output), it may be
+                    # ideal to keep track of linear distance traveled before the first valid stop.
+                    
+                # Widen out the valid interval if needed:
+                warmupStartTime = min(minTime, warmupStartTime)
+                cooldownEndTime = max(maxTime, cooldownEndTime)
 
             # Are there any stops left over?  If so, report them to say that they aren't in the output file.
             startGap = -1
@@ -448,11 +508,11 @@ def dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaNetwork, stopSea
             problemReportNodesOut[shapeID] = ourTgtList                
         problem_report.problemReport(problemReportNodesOut, vistaNetwork)
     
-    return ret 
+    return (ret, warmupStartTime, cooldownEndTime) 
 
 def dumpBusStops(gtfsStops, stopLinkMap, userName, networkName, outFile = sys.stdout):
     """
-    dumpBusRouteLinks dumps out a public.bus_route_link.csv file contents.
+    dumpBusRouteStops dumps out a public.bus_route_link.csv file contents.
     @type gtfsStops: dict<int, StopsEntry>
     @type stopLinkMap: dict<int, graph.PointOnLink>
     @type userName: str
@@ -561,21 +621,15 @@ def main(argv):
         
     # Read stop times information:
     print("INFO: Read GTFS stop times...", file = sys.stderr)
-    (gtfsStopTimes, newStartTime, newEndTime) = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs,
-        refTime, endTime, widenBegin, widenEnd, excludeBegin, excludeEnd)
+    gtfsStopTimes = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs)
     "@type gtfsStopTimes: dict<TripsEntry, list<StopTimesEntry>>"
         
-    # Filter trips only to those that are used in valid stop times:
-    gtfsTripsFilterList = [gtfsTripID for gtfsTripID in gtfsTrips if gtfsTrips[gtfsTripID] not in gtfsStopTimes]
-    for gtfsTripID in gtfsTripsFilterList:
-        del gtfsTrips[gtfsTripID]
-    del gtfsTripsFilterList
-
     # Output the routes_link file:
     print("INFO: Dumping public.bus_route_link.csv...", file = sys.stderr)
     with open("public.bus_route_link.csv", 'w') as outFile:
-        stopLinkMap = dumpBusRouteLinks(gtfsTrips, gtfsNodes, gtfsStopTimes, vistaGraph, stopSearchRadius,
-                                        excludeUpstream, userName, networkName, outFile)
+        (stopLinkMap, newStartTime, newEndTime) = dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaGraph,
+            stopSearchRadius, excludeUpstream, userName, networkName, refTime, endTime, widenBegin, widenEnd,
+            excludeBegin, excludeEnd, outFile)
         "@type stopLinkMap: dict<int, graph.PointOnLink>"
     
     # Filter only to bus stops and stop times that are used in the routes_link output:
