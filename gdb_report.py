@@ -25,7 +25,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
 from datetime import datetime
-from nmc_mm_lib import vista_network, path_engine, gtfs
+from nmc_mm_lib import path_engine, gtfs
+from nmc_mm_lib import vista_database
 import sys, gdb_extracted, transit_gtfs, problem_report
 
 # TODO: This is not used:
@@ -110,11 +111,11 @@ def main(argv):
 
     # Get the database connected:
     print("INFO: Connect to database...", file = sys.stderr)
-    database = vista_network.connect(dbServer, userName, password, networkName)
+    database = vista_database.connect(dbServer, userName, password, networkName)
     
     # Read in the topology from the VISTA database:
     print("INFO: Read topology from database...", file = sys.stderr)
-    vistaGraph = vista_network.fillGraph(database)
+    vistaGraph = vista_database.fillGraph(database)
     
     # Read in the GPS track information:
     print("INFO: Read GDB GPS track '%s'..." % gdbFilename, file = sys.stderr)

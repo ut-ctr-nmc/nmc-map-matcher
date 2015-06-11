@@ -74,6 +74,9 @@ def syntax():
     sys.exit(0)
 
 def main(argv):
+    
+    
+    
     # Initialize from command-line parameters:
     if len(argv) < 7:
         syntax()

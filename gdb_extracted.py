@@ -26,7 +26,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
 from datetime import datetime
-from nmc_mm_lib import gtfs, vista_network, path_engine
+from nmc_mm_lib import gtfs, path_engine
+from nmc_mm_lib import vista_database
 import operator, sys
 
 # A module that deals with reading CSV files extracted from a GDB format.
@@ -108,11 +109,11 @@ def pathMatch(dbServer, networkName, userName, password, filename, limitMap = No
     
     # Get the database connected:
     print("INFO: Connect to database...", file = sys.stderr)
-    database = vista_network.connect(dbServer, userName, password, networkName)
+    database = vista_database.connect(dbServer, userName, password, networkName)
     
     # Read in the topology from the VISTA database:
     print("INFO: Read topology from database...", file = sys.stderr)
-    vistaGraph = vista_network.fillGraph(database)
+    vistaGraph = vista_database.fillGraph(database)
     
     # Read in the GPS track information:
     print("INFO: Read GDB GPS track...", file = sys.stderr)

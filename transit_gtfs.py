@@ -28,7 +28,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-from nmc_mm_lib import gtfs, vista_network, path_engine, graph
+from nmc_mm_lib import gtfs, path_engine, graph
+from nmc_mm_lib import vista_database
 import problem_report, sys, time
 from datetime import datetime, timedelta
 
@@ -67,11 +68,11 @@ def syntax():
 def restorePathMatch(dbServer, networkName, userName, password, shapePath, pathMatchFilename):
     # Get the database connected:
     print("INFO: Connect to database...", file = sys.stderr)
-    database = vista_network.connect(dbServer, userName, password, networkName)
+    database = vista_database.connect(dbServer, userName, password, networkName)
     
     # Read in the topology from the VISTA database:
     print("INFO: Read topology from database...", file = sys.stderr)
-    vistaGraph = vista_network.fillGraph(database)
+    vistaGraph = vista_database.fillGraph(database)
     
     # Read in the shapefile information:
     print("INFO: Read GTFS shapefile...", file = sys.stderr)
