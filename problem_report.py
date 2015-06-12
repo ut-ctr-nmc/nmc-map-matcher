@@ -1,13 +1,12 @@
 """
-problem_report.py outputs GPS information for GTFS shapefiles reports potential
-    problems with VISTA path matching
+problem_report.py outputs GPS information for potential problems with path matching
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
     Cockrell School of Engineering, The University of Texas at Austin 
-@version: 1.0
+@version: 1.1
 
-@copyright: (C) 2014, The University of Texas at Austin
+@copyright: (C) 2015, The University of Texas at Austin
 @license: GPL v3
 
 This program is free software: you can redistribute it and/or modify
@@ -24,29 +23,30 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-import transit_gtfs, sys
+from nmc_mm_lib import geo_data_provider, path_match_data
+import transit_gtfs, sys, argparse
 
 PERP_DIST = 300.0
 "@var PERP_DIST: Maximum allowed distance in ft from VISTA line for perpendicular match" 
 NONPERP_DIST = 150.0
 "@var NONPERP_DIST: Maximum allowed distance in ft from VISTA line for non-perpendicular match" 
 
-def problemReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
+def problemReport(nodes, underlyingGraph, outFile = sys.stdout):
     """
-    Takes a GTFS node set and outputs a CSV format of GPS points where there are indications of problems.
-    @type gtfsNodes: dict<?, path_engine.PathEnd>
-    @type vistaGraph: graph.GraphLib  
+    Takes a node set and outputs a CSV format of GPS points where there are indications of problems.
+    @type nodes: dict<?, path_engine.PathEnd>
+    @type underlyingGraph: graph.GraphLib  
     """
     print("shapeID,shapeSeq,linkID,linkDist,problemCode,gtfsLat,gtfsLng,vistaLat,vistaLng", file = outFile)
 
-    shapeIDs = gtfsNodes.keys()
+    shapeIDs = nodes.keys()
     shapeIDs.sort()
     for shapeID in shapeIDs:
-        gtfsNodeList = gtfsNodes[shapeID]
+        gtfsNodeList = nodes[shapeID]
         "@type gtfsNodeList: list<path_engine.PathEnd>"
         for gtfsNode in gtfsNodeList:
             "@type gtfsNode: path_engine.PathEnd"
-            (vistaLat, vistaLng) = vistaGraph.gps.feet2gps(gtfsNode.pointOnLink.pointX, gtfsNode.pointOnLink.pointY) 
+            (vistaLat, vistaLng) = underlyingGraph.gps.feet2gps(gtfsNode.pointOnLink.pointX, gtfsNode.pointOnLink.pointY) 
             
             # Determine whether we have a problem to report:
             problemCode = 0
@@ -63,17 +63,20 @@ def problemReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
                             gtfsNode.shapeEntry.lng, vistaLat, vistaLng)
             print(outStr, file = outFile)
 
-def syntax():
-    """
-    Print usage information
-    """
-    print("problem_report outputs GPS information for GTFS shapefiles reports potential problems with VISTA path matching.")
-    print("Problem codes: 0: OK; 1: Path restarted; 2: For perpendicular; 3: For nonperpendicular")
-    print("Usage:")
-    print("  python problem_report.py dbServer network user password shapePath pathMatchFile")
-    sys.exit(0)
-
-def main(argv):
+def main():
+    # Configure command-line parameters:
+    options = argparse.ArgumentParser(description="outputs GPS information for GTFS shapefiles reports potential "
+        "problems with VISTA path matching. Problem codes: 0: OK; 1: Path restarted; 2: For perpendicular; 3: For "
+        "nonperpendicular")
+    
+    # Set up the modules that we'll be using:
+    geo_data_provider.loadGeoDataProviders(options)
+    path_match_data.provideCmdLineOpts(options)
+    
+    # Parse arguments:
+    args = options.parse_args()
+    
+    # 
     
     
     
@@ -96,4 +99,4 @@ def main(argv):
     
 # Boostrap:
 if __name__ == '__main__':
-    main(sys.argv)
+    main()

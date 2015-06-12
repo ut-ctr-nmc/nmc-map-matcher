@@ -1,12 +1,12 @@
 """
-__init__.py: Initializer for nmc_mm_lib module directory.
+__init__.py: Initializer for nmc_mm_lib.geo_data_providers module directory.
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
     Cockrell School of Engineering, The University of Texas at Austin
-@version: 1.0
+@version: 1.1
 
-@copyright: (C) 2014, The University of Texas at Austin
+@copyright: (C) 2015, The University of Texas at Austin
 @license: GPL v3
 
 This program is free software: you can redistribute it and/or modify

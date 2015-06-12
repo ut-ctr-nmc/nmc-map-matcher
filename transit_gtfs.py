@@ -28,7 +28,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-from nmc_mm_lib import gtfs, path_engine, graph
+from nmc_mm_lib import gtfs, path_engine, path_match_data, graph
 from nmc_mm_lib import vista_database
 import problem_report, sys, time
 from datetime import datetime, timedelta
@@ -65,33 +65,6 @@ def syntax():
     print("  -p outputs a problem report on the stop matches")
     sys.exit(0)
 
-def restorePathMatch(dbServer, networkName, userName, password, shapePath, pathMatchFilename):
-    # Get the database connected:
-    print("INFO: Connect to database...", file = sys.stderr)
-    database = vista_database.connect(dbServer, userName, password, networkName)
-    
-    # Read in the topology from the VISTA database:
-    print("INFO: Read topology from database...", file = sys.stderr)
-    vistaGraph = vista_database.fillGraph(database)
-    
-    # Read in the shapefile information:
-    print("INFO: Read GTFS shapefile...", file = sys.stderr)
-    gtfsShapes = gtfs.fillShapes(shapePath, vistaGraph.gps)
-
-    # Read the path-match file:
-    print("INFO: Read the path-match file '%s'..." % pathMatchFilename, file = sys.stderr)
-    with open(pathMatchFilename, 'r') as inFile:
-        gtfsNodes = path_engine.readStandardDump(vistaGraph, gtfsShapes, inFile)
-        "@type gtfsNodes: dict<int, list<path_engine.PathEnd>>"
-
-    # Filter out the unused shapes:
-    unusedShapeIDs = set()
-    for shapeID in gtfsShapes.keys():
-        if shapeID not in gtfsNodes:
-            del gtfsShapes[shapeID]
-            unusedShapeIDs.add(shapeID)
-
-    return (vistaGraph, gtfsShapes, gtfsNodes, unusedShapeIDs)
 
 def _outHeader(tableName, userName, networkName, outFile):
     print("User,%s" % userName, file = outFile)

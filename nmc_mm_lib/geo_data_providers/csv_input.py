@@ -24,14 +24,15 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-import nmc_mm_lib.graph, nmc_mm_lib.geo_data_provider, sys
+from nmc_mm_lib import geo_data_provider
+import sys
 
 NODES_HEADER1 = "id,type,x,y"
 NODES_HEADER2 = "id,x,y"
 LINKS_HEADER1 = "id,type,source,destination"
 LINKS_HEADER2 = "id,source,destination"
 
-class CSVInput(nmc_mm_lib.geo_data_provider.GeoDataProvider):
+class CSVInput(geo_data_provider.GeoDataProvider):
     """
     @ivar nodesFilename: str representing the nodes CSV filename
     @ivar linksFilename: str representing the links CSV filename
@@ -42,7 +43,7 @@ class CSVInput(nmc_mm_lib.geo_data_provider.GeoDataProvider):
         self.nodesFilename = ""
         self.linksFilename = ""
         
-        super(nmc_mm_lib.geo_data_provider.GeoDataProvider, self).__init__()
+        super(geo_data_provider.GeoDataProvider, self).__init__()
     
     def provideCmdLineOpts(self, options):
         """

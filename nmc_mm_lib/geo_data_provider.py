@@ -1,6 +1,6 @@
 """
 geo_data_provider.py: Abstract class for functionality that has to do with reading in
-geographic data for use.
+underlying geographic topology.
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
@@ -87,7 +87,23 @@ def loadGeoDataProviders(options):
                 importers.append(newImporter)
                 newImporter.provideCmdLineOpts(options)
 
-def readCmdLineOpts(args):
+def readData(args):
+    """
+    Reads in geographic input data using the importer that was found in checkCmdLineOpts().
+    @type args: argparse.Namespace
+    @return A graph representing the geographic data, or None if there is a problem.
+    @rtype graph.GraphLib
+    """
+    global importers, validImporter
+    if not _readCmdLineOpts(args):
+        return None
+    if validImporter is None:
+        print("ERROR: No valid importer for underlying geographic topology was found.", file=sys.stderr)
+        return None
+    graphData = validImporter.readData()
+    return graphData
+
+def _readCmdLineOpts(args):
     """
     Checks the given command-line options and determines if there are sufficient options
     for successfully loading in data for any supported subclasses. Call loadGeoDataProviders first.
@@ -103,27 +119,11 @@ def readCmdLineOpts(args):
             validImporter = importer
             validCount += 1
     if validCount == 0:
-        print("ERROR: Insufficient command line parameters have been given to load geographic data.", file=sys.stderr)
+        print("ERROR: Insufficient command line parameters have been given to load underlying geographic topology.", file=sys.stderr)
         return False 
     if validCount > 1:
         print("ERROR: Too many command line parameters were given such that there are conflicts among supported geographic"
-              " data importers. Only one import style may be used.", file=sys.stderr)
+              " topology importers. Only one import style may be used.", file=sys.stderr)
         return False
     validImporter.readCmdLineOpts(args)
     return True
-
-def readData():
-    """
-    Reads in geographic input data using the importer that was found in checkCmdLineOpts(). Dereferences all importers
-    at the end.
-    @return A graph representing the geographic data, or None if there is a problem.
-    @rtype graph.GraphLib
-    """
-    global importers, validImporter
-    if validImporter is None:
-        print("ERROR: No valid importer was found. checkCmdLineOpts() must be called first in geo_data_provider.", file=sys.stderr)
-        return None
-    graphData = validImporter.readData()
-    validImporter = None
-    del importers[:]
-    return graphData
