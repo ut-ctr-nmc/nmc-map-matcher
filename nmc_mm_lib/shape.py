@@ -80,13 +80,13 @@ class Route:
     """
     Route is a single route with name.
     @ivar routeID: ? signifying a route ID
-    @ivar shortName: str that is the short name of the route
+    @ivar shortName: ? that is the short name of the route
     @ivar name: str that is the full name of the route
     """
     def __init__(self, routeID, shortName, name):
         """
         @type routeID: ?
-        @type shortName: str
+        @type shortName: ?
         @type name: str
         """
         self.routeID = routeID
