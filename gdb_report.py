@@ -118,7 +118,7 @@ def main(argv):
     
     # Read in the GPS track information:
     print("INFO: Read GDB GPS track '%s'..." % gdbFilename, file = sys.stderr)
-    gpsTracks = gdb_extracted.fillFromFile(gdbFilename, vistaGraph.GPS)
+    gpsTracks = gdb_extracted.fillFromFile(gdbFilename, vistaGraph.gps)
     
     # Restore the path match:
     print("INFO: Read the GDB path-match file '%s'..." % gdbPathMatch, file = sys.stderr)

@@ -118,7 +118,7 @@ def main(argv):
     
     # Read in the GPS track information:
     print("INFO: Read ArcGIS CSV GPS track '%s'..." % csvFilename, file = sys.stderr)
-    gpsTracks = arcgiscsv_extracted.fillFromFile(csvFilename, vistaGraph.GPS)
+    gpsTracks = arcgiscsv_extracted.fillFromFile(csvFilename, vistaGraph.gps)
     
     # Restore the path match:
     print("INFO: Read the ArcGIS CSV path-match file '%s'..." % csvPathMatch, file = sys.stderr)

@@ -29,7 +29,7 @@ from datetime import datetime, timedelta
 from nmc_mm_lib import gtfs, vista_network, path_engine
 import operator, sys, csv
 
-# A module that deals with reading CSV files extracted from a GDB format.
+# A module that deals with reading CSV files extracted from an ArcGIS CSV export format.
 DIVISOR = 1000L * long(1 << 48)
 
 def syntax():
@@ -44,7 +44,7 @@ def syntax():
 
 def fillFromFile(filename, GPS):
     """
-    fillFromFile retrieves the GDB information from the CSV dump and builds up a series of shapes
+    fillFromFile retrieves the ArcGIS information from the CSV dump and builds up a series of shapes
     varying by userID from it
     @type filename: str
     @type GPS: GPS.GPS
@@ -105,10 +105,10 @@ def pathMatch(dbServer, networkName, userName, password, filename, limitMap = No
     distanceFactor = 1.0        # "f_d": Cost multiplier for Linear path distance
     driftFactor = 1.5           # "f_r": Cost multiplier for distance from GTFS point to its VISTA link
     nonPerpPenalty = 1.5        # "f_p": Penalty multiplier for GTFS points that aren't perpendicular to VISTA links
-    limitClosestPoints = 8     # "q_p": Number of close-proximity points that are considered for each GTFS point 
-    limitSimultaneousPaths = 6  # "q_e": Number of proposed paths to maintain during pathfinding stage
+    limitClosestPoints = 10     # "q_p": Number of close-proximity points that are considered for each GTFS point 
+    limitSimultaneousPaths = 8  # "q_e": Number of proposed paths to maintain during pathfinding stage
     
-    maxHops = 12                # Maximum number of VISTA links to pursue in a path-finding operation
+    maxHops = 8                # Maximum number of VISTA links to pursue in a path-finding operation
     
     # Get the database connected:
     print("INFO: Connect to database...", file = sys.stderr)
@@ -119,7 +119,7 @@ def pathMatch(dbServer, networkName, userName, password, filename, limitMap = No
     vistaGraph = vista_network.fillGraph(database)
     
     # Read in the GPS track information:
-    print("INFO: Read GDB GPS track...", file = sys.stderr)
+    print("INFO: Read ArcGIS CSV GPS track...", file = sys.stderr)
     gpsTracks = fillFromFile(filename, vistaGraph.gps)
     
     # Initialize the path-finder:
