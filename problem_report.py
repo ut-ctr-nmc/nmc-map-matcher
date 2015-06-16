@@ -37,7 +37,7 @@ def problemReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
     @type gtfsNodes: dict<?, path_engine.PathEnd>
     @type vistaGraph: graph.GraphLib  
     """
-    print("shapeID,shapeSeq,linkID,linkDist,problemCode,gtfsLat,gtfsLng,vistaLat,vistaLng", file = outFile)
+    print("shapeID,shapeSeq,linkID,linkDist,problemCode,gtfsCoords,vistaCoords", file = outFile)
 
     shapeIDs = gtfsNodes.keys()
     shapeIDs.sort()
@@ -57,10 +57,10 @@ def problemReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
             elif gtfsNode.pointOnLink.nonPerpPenalty and gtfsNode.pointOnLink.refDist > NONPERP_DIST:
                 problemCode = 3
             
-            outStr = "%s,%d,%d,%g,%d,%g,%g,%g,%g" % (str(gtfsNode.shapeEntry.shapeID), gtfsNode.shapeEntry.shapeSeq,
+            outStr = "%s,%d,%d,%g,%d,%s,%s" % (str(gtfsNode.shapeEntry.shapeID), gtfsNode.shapeEntry.shapeSeq,
                             gtfsNode.pointOnLink.link.id if gtfsNode.pointOnLink.link is not None else -1,
-                            gtfsNode.pointOnLink.dist, problemCode, gtfsNode.shapeEntry.lat,
-                            gtfsNode.shapeEntry.lng, vistaLat, vistaLng)
+                            gtfsNode.pointOnLink.dist, problemCode, str(gtfsNode.shapeEntry.lat)
+                            + " " + str(gtfsNode.shapeEntry.lng), str(vistaLat) + " " + str(vistaLng))
             print(outStr, file = outFile)
 
 def syntax():

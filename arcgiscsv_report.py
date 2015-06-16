@@ -165,7 +165,7 @@ def main(argv):
     trips = {}
     stopTimes = {}
     for routeID in routes:
-        trips[vehCtr] = gtfs.TripsEntry(vehCtr, routes[routeID], routes[routeID].shortName, gpsTracks[routes[routeID].shortName])
+        trips[vehCtr] = gtfs.TripsEntry(vehCtr, routes[routeID], "", gpsTracks[routes[routeID].shortName])
         stopTimes[trips[vehCtr]] = list() # Fake the system by having no stops defined.
         vehCtr += 1
     tripIDs = trips.keys()
@@ -179,8 +179,8 @@ def main(argv):
     # Output the routes_link file:
     print("INFO: Dumping public.bus_route_link.csv...", file = sys.stderr)
     with open("public.bus_route_link.csv", 'w') as outFile:
-        transit_gtfs.dumpBusRouteLinks(trips, nodes, stopTimes, vistaGraph, 1, userName, networkName, outFile)
-    
+        transit_gtfs.dumpBusRouteLinks(trips, stopTimes, nodes, vistaGraph, 1, False, userName, networkName, refTime, endTime,
+            False, False, False, False, outFile)
     print("INFO: Dumping public.bus_frequency.csv...", file = sys.stderr)
     with open("public.bus_frequency.csv", 'w') as outFile:
         transit_gtfs._outHeader("public.bus_frequency", userName, networkName, outFile)
