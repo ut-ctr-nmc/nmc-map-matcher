@@ -96,8 +96,8 @@ def fillFromFile(filename, GPS):
 
 def pathMatch(dbServer, networkName, userName, password, filename, limitMap = None):
     # Default parameters, with explanations and cross-references to Perrine et al., 2015:
-    pointSearchRadius = 1000    # "k": Radius (ft) to search from GTFS point to perpendicular VISTA links
-    pointSearchPrimary = 350    # "k_p": Radius (ft) to search from GTFS point to new VISTA links    
+    pointSearchRadius = 1200    # "k": Radius (ft) to search from GTFS point to perpendicular VISTA links
+    pointSearchPrimary = 800    # "k_p": Radius (ft) to search from GTFS point to new VISTA links    
     pointSearchSecondary = 200  # "k_s": Radius (ft) to search from VISTA perpendicular point to previous point
     limitLinearDist = 500      # Path distance (ft) to allow new proposed paths from one point to another
     limitDirectDist = 400      # Radius (ft) to allow new proposed paths from one point to another
