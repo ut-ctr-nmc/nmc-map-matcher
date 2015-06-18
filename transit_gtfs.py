@@ -236,10 +236,15 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
             
             # Step 2: Ignore routes that are entirely outside our valid time interval.
             flag = False
-            for stopEntry in gtfsStopTimes[gtfsTrips[tripID]]:
-                if stopEntry.arrivalTime >= startTime and stopEntry.arrivalTime <= endTime:
-                    flag = True
-                    break
+            if len(gtfsStopTimes[gtfsTrips[tripID]]) == 0:
+                # This will happen if we don't have stops defined. In this case, we want to go ahead and process the bus_route_link
+                # outputs because we don't know if the trip falls in or out of the valid time range.
+                flag = True
+            else:
+                for stopEntry in gtfsStopTimes[gtfsTrips[tripID]]:
+                    if stopEntry.arrivalTime >= startTime and stopEntry.arrivalTime <= endTime:
+                        flag = True
+                        break
             if not flag:
                 # This will be done silently because (depending upon the valid interval) there could be
                 # hundreds of these in a GTFS set.
