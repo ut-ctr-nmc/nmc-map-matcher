@@ -229,8 +229,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         if longestStart >= 0:
             # We have a valid path.  See if it had been trimmed down and report it.
             if (longestStart > 0) or (longestEnd < len(treeNodes)):
-                print("WARNING: For shape ID %d from seq. %d through %d, %.2g%% of %d links will be used." \
-                      % (treeNodes[longestStart].shapeEntry.shapeID, treeNodes[longestStart].shapeEntry.shapeSeq,
+                print("WARNING: For shape ID %s from seq. %d through %d, %.2g%% of %d links will be used." \
+                      % (str(treeNodes[longestStart].shapeEntry.shapeID), treeNodes[longestStart].shapeEntry.shapeSeq,
                          treeNodes[longestEnd - 1].shapeEntry.shapeSeq, 100 * float(longestLinkCount) / float(totalLinks),
                          totalLinks), file = sys.stderr)
             

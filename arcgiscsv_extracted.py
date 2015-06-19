@@ -105,8 +105,8 @@ def pathMatch(dbServer, networkName, userName, password, filename, limitMap = No
     distanceFactor = 1.0        # "f_d": Cost multiplier for Linear path distance
     driftFactor = 1.5           # "f_r": Cost multiplier for distance from GTFS point to its VISTA link
     nonPerpPenalty = 1.5        # "f_p": Penalty multiplier for GTFS points that aren't perpendicular to VISTA links
-    limitClosestPoints = 10     # "q_p": Number of close-proximity points that are considered for each GTFS point 
-    limitSimultaneousPaths = 8  # "q_e": Number of proposed paths to maintain during pathfinding stage
+    limitClosestPoints = 20     # "q_p": Number of close-proximity points that are considered for each GTFS point 
+    limitSimultaneousPaths = 12 # "q_e": Number of proposed paths to maintain during pathfinding stage
     
     maxHops = 8                # Maximum number of VISTA links to pursue in a path-finding operation
     
