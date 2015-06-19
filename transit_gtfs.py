@@ -38,7 +38,7 @@ DWELLTIME_DEFAULT = 0
 problemReport = False
 "@var problemReport is set to true when the -p parameter is specified."
 
-def syntax():
+def syntax(exitCode):
     """
     Print usage information
     """
@@ -62,7 +62,7 @@ def syntax():
     print("  -x, -xb, -xe: exclude both, exclude begin, exclude end: excludes entire")
     print("     entire routes that intersect with -t (begin) and/or -e (end).")
     print("  -p outputs a problem report on the stop matches")
-    sys.exit(0)
+    sys.exit(exitCode)
 
 def restorePathMatch(dbServer, networkName, userName, password, shapePath, pathMatchFilename):
     # Get the database connected:
@@ -540,7 +540,7 @@ def main(argv):
     
     # Initialize from command-line parameters:
     if len(argv) < 7:
-        syntax()
+        syntax(1)
     dbServer = argv[1]
     networkName = argv[2]
     userName = argv[3]

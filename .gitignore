@@ -4,6 +4,8 @@
 /filter_gtfs_shapes.pyc
 /gdb_extracted.pyc
 /gdb_report.pyc
+/arcgiscsv_extracted.pyc
+/arcgiscsv_report.pyc
 /path_match.pyc
 /path_refine.pyc
 /problem_report.pyc
