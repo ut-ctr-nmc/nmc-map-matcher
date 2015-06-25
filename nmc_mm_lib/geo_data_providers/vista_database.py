@@ -55,15 +55,15 @@ class VISTADatabase(nmc_mm_lib.geo_data_provider.GeoDataProvider):
         @type options: argparse
         """
         options.add_argument("-ds", nargs=1, type=str, metavar="DBSERVER", dest="serverName", default="localhost",
-            help="If using a VISTA database for input, specifies the database server")
+            help="If using a VISTA database for underlying topology input, specifies the database server")
         options.add_argument("-du", nargs=1, type=str, metavar="DBUSERNAME", dest="userName",
-            help="If using a VISTA database for input, specifies a user name")
+            help="If using a VISTA database for underlying topology input, specifies a user name")
         options.add_argument("-dp", nargs=1, type=str, metavar="DBPASSWORD", dest="password", default="",
-            help="If using a VISTA database for input, specifies a database password")
+            help="If using a VISTA database for underlying topology input, specifies a database password")
         options.add_argument("-dd", nargs=1, type=str, metavar="DBNAME", dest="databaseName",
-            help="If using a VISTA database for input, specifies a database name directly. Cannot be used with -dn.")
+            help="If using a VISTA database for underlying topology input, specifies a database name directly. Cannot be used with -dn.")
         options.add_argument("-dn", nargs=1, type=str, metavar="NETWORKNAME", dest="networkName",
-            help='If using a VISTA database for input, specifies a network name. The resulting database name '
+            help='If using a VISTA database for underlying topology input, specifies a network name. The resulting database name '
             'will then be "DBUSERNAME_NETWORKNAME". Cannot be used with -dd.')
 
     def checkCmdLineOpts(self, args):

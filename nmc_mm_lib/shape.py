@@ -43,7 +43,7 @@ class Shape(list):
 class ShapesEntry:
     """
     ShapesEntry is a single shape dataset entry.
-    @ivar shapeID: ? signifying the shape ID of this ShapesEntry
+    @ivar shape: Shape that is the parent of this ShapesEntry
     @ivar shapeSeq: int signifying the ordering of this shape relative to others
     @ivar lat: float signifying latitude
     @ivar lng: float signifying longitude
@@ -79,14 +79,14 @@ class Routes(dict):
 class Route:
     """
     Route is a single route with name.
-    @ivar routeID: ? signifying a route ID
-    @ivar shortName: ? that is the short name of the route
+    @ivar routeID: str signifying a route ID
+    @ivar shortName: str that is the short name of the route
     @ivar name: str that is the full name of the route
     """
     def __init__(self, routeID, shortName, name):
         """
-        @type routeID: ?
-        @type shortName: ?
+        @type routeID: str
+        @type shortName: str
         @type name: str
         """
         self.routeID = routeID
@@ -102,14 +102,14 @@ class Trips(dict):
 class Trip:
     """
     Trip is a single trip entry.
-    @ival tripID: ? signifying a trip ID
+    @ival tripID: str signifying a trip ID
     @ival route: RoutesEntry that the trip is a member of
     @ival tripHeadsign: str that signifies the direction that the trip is taking
     @ival shape: Shape that captures all of the shape elements that comprise this trip, or None if not defined
     """
     def __init__(self, tripID, route, tripHeadsign, shape=None):
         """
-        @type tripID: ?
+        @type tripID: str
         @type route: RoutesEntry
         @type tripHeadsign: str
         @type shape: Shape
@@ -128,7 +128,7 @@ class Stops(dict):
 class Stop:
     """
     Stop is a single stops file entry.
-    @ivar stopID: ? representing the stop ID
+    @ivar stopID: str representing the stop ID
     @ivar stopName: str representing the name of the stop
     @ivar gpsLat: float representing the latitude of the stop 
     @ivar gpsLng: float representing the longitude of the stop
@@ -137,7 +137,7 @@ class Stop:
     """
     def __init__(self, stopID, stopName, gpsLat, gpsLng):
         """
-        @type stopID: ?
+        @type stopID: str
         @type stopName: str
         @type gpsLat: float
         @type gpsLng: float

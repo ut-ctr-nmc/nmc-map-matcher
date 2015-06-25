@@ -51,9 +51,9 @@ class CSVInput(geo_data_provider.GeoDataProvider):
         @type options: argparse
         """
         options.add_argument("-fn", nargs=1, type=str, metavar="NODESFILENAME", dest="nodesFilename",
-            help="If using CSV files for input, specifies the nodes CSV file")
+            help="If using CSV files for underlying topology input, specifies the nodes CSV file. Must also specify -fl")
         options.add_argument("-fl", nargs=1, type=str, metavar="LINKSFILENAME", dest="linksFilename",
-            help="If using CSV files for input, specifies the links CSV file")
+            help="If using CSV files for underlying topology input, specifies the links CSV file. Must also specify -fn")
 
     def checkCmdLineOpts(self, args):
         """
@@ -62,6 +62,7 @@ class CSVInput(geo_data_provider.GeoDataProvider):
         @type args: argparse.Namespace
         @return True if sufficient command-line options are provided for this class
         """
+        # Use "or" here to make better error messages later if one is missing.
         return args.nodesFilename is not None or args.linksFilename is not None
     
     def readCmdLineOpts(self, args):
@@ -74,11 +75,11 @@ class CSVInput(geo_data_provider.GeoDataProvider):
         """
         self.nodesFilename = args.nodesFilename
         if self.nodesFilename is None:
-            print("ERROR: When using CSV files for input, a nodes filename -fn must be specified.", file=sys.stderr)
+            print("ERROR: When using CSV files for input, a nodes filename -fn must also be specified.", file=sys.stderr)
             return False
         self.linksFilename = args.linksFilename
         if self.linksFilename is None:
-            print("ERROR: When using CSV files for input, a links filename -fl must be specified.", file=sys.stderr) 
+            print("ERROR: When using CSV files for input, a links filename -fl must also be specified.", file=sys.stderr) 
             return False
         return True
     

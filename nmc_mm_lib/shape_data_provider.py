@@ -34,10 +34,10 @@ class ShapeDataProvider:
     trip corresponds with one shape, and each route corresponds with one trip.
     @todo This is a good opportunity to detect similarities in shapes and consolidate.
     
-    @ivar exlusionList: set<?> of shape IDs to exclude; set when getShapeImporter() is called.
-    @ivar inclusionList: set<?> of shape IDs to exclude; set when getShapeImporter() is called.
-    @ivar _encounteredIDs: set<?> keeps track of the IDs that have been encountered.
-    @ivar _currentShapeID: ? that is the current Shape ID when keeping track of order.
+    @ivar exlusionList: set<str> of shape IDs to exclude; set when getShapeImporter() is called.
+    @ivar inclusionList: set<str> of shape IDs to exclude; set when getShapeImporter() is called.
+    @ivar _encounteredIDs: set<str> keeps track of the IDs that have been encountered.
+    @ivar _currentShapeID: str that is the current Shape ID when keeping track of order.
     @ivar _currentShape: shape.Shape that is the current shape.
     @ivar _prevSeq: int that is used to keep track of out-of-order entries in readShape().
     @ivar gps: The resident GPS object used with this importer
@@ -45,20 +45,13 @@ class ShapeDataProvider:
     def __init__(self):
         # These lists are here in case we get to the point that we need to maintain two different
         # shape sets and each needs its own list of exclusions or inclusions.
-        self.exclusionList = None
-        self.inclusionList = None
+        self.exclusionList = set()
+        self.inclusionList = set()
         self._encounteredIDs = None
         self._currentShapeID = None
         self._currentShape = None
         self._prevSeq = -1
         self.gps = None
-    
-    def shapeIDConstructor(self):
-        """
-        Returns a constructor that signifies the data type for a shape ID. By default, this
-        will be a string.
-        """
-        return lambda x: str(x)
     
     def provideCmdLineOpts(self, options):
         """
@@ -87,7 +80,7 @@ class ShapeDataProvider:
         @rtype boolean
         """
         raise NotImplementedError()
-    
+                
     def readAllShapes(self):
         """
         Using information from the command-line options, reads in all shape data from the geographic
@@ -96,9 +89,8 @@ class ShapeDataProvider:
         @rtype shape.Shapes
         """
         ret = shape.Shapes()
-        "@type ret: shape.Shape"
         
-        for shapeEntry in readShapesEntries(suppressOutOfOrder=True):
+        for shapeEntry in self.readShapesEntries(suppressOutOfOrder=True):
             if shapeEntry.shapeID not in ret:
                 ret[shapeEntry.shapeID] = shape.Shape(shapeEntry.shapeID)
             ret[shapeEntry.shapeID][shapeEntry.shapeSeq] = shapeEntry
@@ -175,22 +167,22 @@ class ShapeDataProvider:
         """
         readTrips retrieves the trip information that corresponds with this dataset. The default implementation
         creates one trip per shape.
-        @type shapes: dict<int, list<ShapesEntry>>
-        @type routes: dict<int, RoutesEntry>
+        @type shapes: shape.Shapes
+        @type routes: shape.Routes
         @type unusedShapeIDs: set<?>
         @type restrictService: set<string>
         @return A map of tripID to shape.Trip records, as well as a list of unused trip IDs
-        @rtype (shape.Trips, set<int>)
+        @rtype (shape.Trips, set<str>)
         """
         trips = shape.Trips()
         unusedTripIDs = set()
-        "@type unusedTripIDs: set<?>"
+        "@type unusedTripIDs: set<str>"
 
         ctr = 0
         for routeID in routes:
-            trips[ctr] = shapes.Trip(ctr, routes[routeID], routes[routeID].shortName, shapes[routes[routeID].shortName])
+            trips[str(ctr)] = shapes.Trip(ctr, routes[routeID], routes[routeID].shortName, "")
                 
-        return (ret, unusedTripIDs)
+        return (trips, unusedTripIDs)
     
     def readStops(self):
         """
@@ -206,7 +198,7 @@ class ShapeDataProvider:
         each Trip ID.
         @type trips: Trips
         @type stops: Stops
-        @type unusedTripIDs: set<?>
+        @type unusedTripIDs: set<str>
         @return A map of TripsEntry to a list of stop entries plus the start and end times
         @rtype StopTimes
         """
@@ -269,26 +261,19 @@ def getValidShapeProvider(args, gps):
     validImporter.readCmdLineOpts(args)
     
     if args.excludeFilename is not None and args.includeFilename is not None:
-        print("WARNING: It is ideal not to use both exclusion lists and inclusion lists at the same time.",
-              file=sys.stderr)
-
-    converter = validImporter.shapeIDConstructor()
+        print("WARNING: It is ideal not to use both exclusion lists and inclusion lists at the same time.", file=sys.stderr)
     if args.excludeFilename is not None:
-        validImporter.exclusionList = set()
-        with open(filename, 'r') as inFile:
-            fileLine = inFile.readline()
-            if len(fileLine.strip()) > 0:
-                validImporter.exclusionList.add(converter(inFile))
-    else:
-        validImporter.exclusionList = None
+        with open(args.excludeFilename, 'r') as inFile:
+            for fileLine in inFile:
+                id = fileLine.strip()
+                if len(id) > 0:
+                    validImporter.exclusionList.add(id)
     if args.includeFilename is not None:
-        validImporter.inclusionList = set()
-        with open(filename, 'r') as inFile:
-            fileLine = inFile.readline()
-            if len(fileLine.strip()) > 0:
-                validImporter.inclusionList.add(converter(inFile))
-    else:
-        validImporter.exclusionList = set()
+        with open(args.includeFilename, 'r') as inFile:
+            for fileLine in inFile:
+                id = fileLine.strip()
+                if len(id) > 0:
+                    validImporter.inclusionList.add(id)
 
     validImporter._encounteredIDs = set()        
     validImporter._currentShapeID = None
