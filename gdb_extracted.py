@@ -117,7 +117,7 @@ def pathMatch(dbServer, networkName, userName, password, filename, limitMap = No
     
     # Read in the GPS track information:
     print("INFO: Read GDB GPS track...", file = sys.stderr)
-    gpsTracks = fillFromFile(filename, vistaGraph.GPS)
+    gpsTracks = fillFromFile(filename, vistaGraph.gps)
     
     # Initialize the path-finder:
     pathFinder = path_engine.PathEngine(pointSearchRadius, pointSearchPrimary, pointSearchSecondary, limitLinearDist,

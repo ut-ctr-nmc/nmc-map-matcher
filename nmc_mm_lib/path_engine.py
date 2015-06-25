@@ -147,9 +147,9 @@ class PathEngine:
         """
         # Then, for each previous GTFS tree entry, find the shortest path to each current GTFS tree entry:
         # (On the first time through, this loop will be skipped).
-        if len(gtfsPointsPrev) == 0:
-            gtfsPointsPrev.append(None) 
-        for gtfsPointPrev in gtfsPointsPrev:
+        
+        iterList = gtfsPointsPrev if len(gtfsPointsPrev) > 0 else [None]
+        for gtfsPointPrev in iterList:
             "@type gtfsPointPrev: PathEnd"
             for gtfsPoint in gtfsPoints:
                 "@type gtfsPoint: PathEnd"
@@ -182,7 +182,7 @@ class PathEngine:
                 if gtfsPoint.prevTreeNode is not None:
                     gtfsPointsWork.append(gtfsPoint)
         else:
-            gtfsPointsPrev = gtfsPoints
+            gtfsPointsWork = gtfsPoints
                                         
         # Warn if we ended up with nothing and move on to the next GTFS point:
         if (len(gtfsPointsWork) == 0) and (avoidRestartCode < 2):

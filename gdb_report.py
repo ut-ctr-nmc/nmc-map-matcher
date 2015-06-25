@@ -119,7 +119,7 @@ def main(argv):
     
     # Read in the GPS track information:
     print("INFO: Read GDB GPS track '%s'..." % gdbFilename, file = sys.stderr)
-    gpsTracks = gdb_extracted.fillFromFile(gdbFilename, vistaGraph.GPS)
+    gpsTracks = gdb_extracted.fillFromFile(gdbFilename, vistaGraph.gps)
     
     # Restore the path match:
     print("INFO: Read the GDB path-match file '%s'..." % gdbPathMatch, file = sys.stderr)
@@ -166,7 +166,7 @@ def main(argv):
     trips = {}
     stopTimes = {}
     for routeID in routes:
-        trips[vehCtr] = gtfs.TripsEntry(vehCtr, routes[routeID], routes[routeID].shortName, gpsTracks[routes[routeID].shortName])
+        trips[vehCtr] = gtfs.TripsEntry(vehCtr, routes[routeID], "", gpsTracks[routes[routeID].shortName])
         stopTimes[trips[vehCtr]] = list() # Fake the system by having no stops defined.
         vehCtr += 1
     tripIDs = trips.keys()
@@ -180,7 +180,8 @@ def main(argv):
     # Output the routes_link file:
     print("INFO: Dumping public.bus_route_link.csv...", file = sys.stderr)
     with open("public.bus_route_link.csv", 'w') as outFile:
-        transit_gtfs.dumpBusRouteLinks(trips, nodes, stopTimes, vistaGraph, 1, userName, networkName, outFile)
+        transit_gtfs.dumpBusRouteLinks(trips, stopTimes, nodes, vistaGraph, 1, False, userName, networkName, refTime, endTime,
+            False, False, False, False, outFile)
     
     print("INFO: Dumping public.bus_frequency.csv...", file = sys.stderr)
     with open("public.bus_frequency.csv", 'w') as outFile:
@@ -189,7 +190,8 @@ def main(argv):
         
         for tripID in tripIDs:
             departureTime = trips[tripID].shapeEntries[0].time
-            print("%d,1,86400,%d,0" % (tripID, (departureTime - refTime).total_seconds()), file = outFile)
+            timeDiff = departureTime - refTime
+            print("%d,1,86400,%d,0" % (tripID, timeDiff.days * 24 * 3600 + timeDiff.seconds), file = outFile)
 
     print("INFO: Dumping public.bus_period.csv...", file = sys.stderr)
     with open("public.bus_period.csv", 'w') as outFile:
@@ -210,8 +212,11 @@ def main(argv):
             lastTime = trips[tripID].shapeEntries[-1].time
             
             # Add the first link to the file:
-            outStr = "%d,%d,%d,%d,%d,%d,%d" % ((departureTime - refTime).total_seconds(), trips[tripID].route.routeID, tripID,
-                (lastTime - refTime).total_seconds(), nodeList[0].pointOnLink.link.id, (departureTime - refTime).total_seconds(), sourceID)            
+            timeDiff = departureTime - refTime
+            timeDiffLast = lastTime - refTime
+            outStr = "%d,%d,%d,%d,%d,%d,%d" % (timeDiff.days * 24 * 3600 + timeDiff.seconds, trips[tripID].route.routeID,
+                 tripID, timeDiffLast.days * 24 * 3600 + timeDiffLast.seconds, nodeList[0].pointOnLink.link.id,
+                 timeDiff.days * 24 * 3600 + timeDiff.seconds, sourceID)
             print(outStr, file = outFile)
             
             for node in nodeList:
@@ -222,8 +227,10 @@ def main(argv):
                     for link in node.routeInfo:
                         arrivalTimeSec = 3600 * arrivalTime.hour + 60 * arrivalTime.minute + arrivalTime.second
                         # TODO: We need to make vehicleID, routeID and tripID be consistent.
-                        outStr = "%d,%d,%d,%d,%d,%d,%d" % ((departureTime - refTime).total_seconds(), trips[tripID].route.routeID, tripID,
-                            (lastTime - refTime).total_seconds(), link.id, (arrivalTime - refTime).total_seconds(), sourceID)
+                        timeDiffArr = arrivalTime - refTime
+                        outStr = "%d,%d,%d,%d,%d,%d,%d" % (timeDiff.days * 24 * 3600 + timeDiff.seconds, 
+                            trips[tripID].route.routeID, tripID, timeDiffLast.days * 24 * 3600 + timeDiffLast.seconds, 
+                            link.id, timeDiffArr.days * 24 * 3600 + timeDiffArr.seconds, sourceID)
                         print(outStr, file = outFile)
 
     print("INFO: Done.", file = sys.stderr)

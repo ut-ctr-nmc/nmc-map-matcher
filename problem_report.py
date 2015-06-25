@@ -57,10 +57,10 @@ def problemReport(nodes, underlyingGraph, outFile = sys.stdout):
             elif gtfsNode.pointOnLink.nonPerpPenalty and gtfsNode.pointOnLink.refDist > NONPERP_DIST:
                 problemCode = 3
             
-            outStr = "%s,%d,%d,%g,%d,%g,%g,%g,%g" % (str(gtfsNode.shapeEntry.shapeID), gtfsNode.shapeEntry.shapeSeq,
+            outStr = "%s,%d,%d,%g,%d,%s,%s" % (str(gtfsNode.shapeEntry.shapeID), gtfsNode.shapeEntry.shapeSeq,
                             gtfsNode.pointOnLink.link.id if gtfsNode.pointOnLink.link is not None else -1,
-                            gtfsNode.pointOnLink.dist, problemCode, gtfsNode.shapeEntry.lat,
-                            gtfsNode.shapeEntry.lng, vistaLat, vistaLng)
+                            gtfsNode.pointOnLink.dist, problemCode, str(gtfsNode.shapeEntry.lat)
+                            + " " + str(gtfsNode.shapeEntry.lng), str(vistaLat) + " " + str(vistaLng))
             print(outStr, file = outFile)
 
 def main():
