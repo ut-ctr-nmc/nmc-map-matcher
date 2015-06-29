@@ -29,10 +29,16 @@ import linear, gps, sys, math, operator
 class GraphLink:
     """
     GraphLink is a link that connects one node to another.
-    """
+    
+    @ivar id: A string that uniquely identifies this GraphLink
+    @ivar origNode: A GraphNode that is the start of this GraphLink
+    @ivar destNode: A GraphNode that is the end of this GraphLink
+    @ivar distance: A distance (as float) that is computed for this link.
+    @ivar streetName: An optional street name that is tied with this Link.
+    """    
     def __init__(self, ident, origNode, destNode):
         """
-        @type ident: int
+        @type ident: str
         @type origNode: GraphNode
         @type destNode: GraphNode 
         """
@@ -42,6 +48,7 @@ class GraphLink:
         
         # Placeholders for efficiency of measurement:
         self.distance = 0.0
+        self.streetName = ""
         
     def isComplementary(self, otherLink):
         """
@@ -53,10 +60,17 @@ class GraphLink:
 class GraphNode:
     """
     GraphNode is a node that connects multiple links together.
+
+    @ivar id: Uniquely identifies this GraphNode
+    @ivar gpsLat: Latitude value (as float) that is tied with this GraphNode
+    @ivar gpsLng: longitude value (as float) that is tied with this GraphNode
+    @ivar outgoingLinkMap: Internal map (as dict<str, GraphLink>) for identifying outgoing links
+    @ivar coordX: A computed X distance relative to the center point for this GraphNode 
+    @ivar coordY: A computed Y distance relative to the center point for this GraphNode 
     """
     def __init__(self, ident, gpsLat, gpsLng):
         """
-        @type ident: int
+        @type ident: str
         @type gpsLat: float
         @type gpsLng: float
         """
@@ -64,7 +78,6 @@ class GraphNode:
         self.gpsLat = gpsLat
         self.gpsLng = gpsLng
         self.outgoingLinkMap = {}
-        "@type self.outgoingLinkMap: dict<int, GraphLink>" 
         
         # Placeholders for coordinates in feet; these won't be filled out until this is added to the GraphLib.
         self.coordX = 0.0
@@ -140,6 +153,13 @@ class GraphLib:
         """
         (node.coordX, node.coordY) = self.gps.gps2feet(node.gpsLat, node.gpsLng)
         self.nodeMap[node.id] = node
+        
+    def hasNodeID(self, nodeID):
+        """
+        Returns True if the given nodeID already exists in this collection.
+        @type nodeID: str
+        """
+        return nodeID in self.nodeMap
         
     def addLink(self, link):
         """

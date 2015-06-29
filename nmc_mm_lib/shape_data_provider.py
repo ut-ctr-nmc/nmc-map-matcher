@@ -118,7 +118,7 @@ class ShapeDataProvider:
         @param shapeEntry: A filled-out shape.ShapesEntry. Make sure ShapesEntry.shapeID is cast to the
             supported type; use shapeIDConstructor().
         @type shapeEntry: shape.ShapesEntry
-        @return True if the worked properly, or false if there was an out of order entry or excluded.
+        @return True if the worked properly, or False if there was an out of order entry or excluded.
         """
         # Process exclusions and inclusions:
         if self.exclusionList is not None and shapeEntry.shapeID in self.exclusionList:
@@ -169,7 +169,7 @@ class ShapeDataProvider:
         creates one trip per shape.
         @type shapes: shape.Shapes
         @type routes: shape.Routes
-        @type unusedShapeIDs: set<?>
+        @type unusedShapeIDs: set<str>
         @type restrictService: set<string>
         @return A map of tripID to shape.Trip records, as well as a list of unused trip IDs
         @rtype (shape.Trips, set<str>)

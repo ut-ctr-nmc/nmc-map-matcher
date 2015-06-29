@@ -38,7 +38,6 @@ class VISTADatabase(nmc_mm_lib.geo_data_provider.GeoDataProvider):
     @ivar password: str for the database password
     @ivar dbName: str for the name of the database
     """
-    
     def __init__(self):
         "@type self.connection: psycopg2.connection"
         self.connection = None
