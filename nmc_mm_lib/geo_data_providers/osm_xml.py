@@ -27,6 +27,14 @@ from __future__ import print_function
 from nmc_mm_lib import geo_data_provider, graph
 import sys, xml.etree.ElementTree as ET
 
+class _NodeRef:
+    """
+    Internal class for tying reference counts to nodes.
+    """
+    def __init__(self, node):
+        self.node = node
+        self.refCount = 0
+            
 class OSMxml(geo_data_provider.GeoDataProvider):
     """
     @ivar osmFilename: str representing the OpenStreetMap XML filename
@@ -64,7 +72,7 @@ class OSMxml(geo_data_provider.GeoDataProvider):
         """
         self.osmFilename = args.osmFilename
         return True
-    
+        
     def readData(self):
         """
         Using information from the command-line options, reads in data from the geographic data
@@ -78,6 +86,7 @@ class OSMxml(geo_data_provider.GeoDataProvider):
         
         # Step 1: Figure out the geographic center of the network and create the Graph:
         nodeCollection = {}
+        "@type nodeCollection: dict<str, _NodeRef>"
         rows = 0
         latSum = 0
         lonSum = 0
@@ -90,14 +99,42 @@ class OSMxml(geo_data_provider.GeoDataProvider):
             rows += 1
             
             node = graph.GraphNode(nodeID, lat, lon)
-            nodeCollection[nodeID] = node
+            nodeCollection[nodeID] = _NodeRef(node)
 
         if rows == 0:
             print("ERROR: The OSM XML file '%s' doesn't have any node data." % self.osmFilename, file=sys.stderr)
             return None
         graphLib = graph.GraphLib(latSum / rows, lonSum / rows)
 
-        # Step 2: Create links out of OSM ways:            
+        # Step 2: Collect nodes to OSM ways:
+        # First, prepare reference counts for nodes to later figure out whether they're intersections.
+        for xmlWay in xmlRoot.iterfind("way"):
+            highwayFlag = False
+            for tag in xmlWay.iterfind("tag"):
+                key = tag.attrib("k")
+                if key == "highway":
+                    highwayFlag = True
+            if highwayFlag:
+                errFlag = False
+                nodeCount = 0
+                for osmNode in xmlWay.iterfind("nd"):
+                    if osmNode.attrib("ref") not in nodeCollection:
+                        print("WARNING: In OSM Way %s, Node %s is not found." % (xmlWay.attrib("id"),
+                            osmNode.attrib("ref")), file=sys.stderr)
+                        errFlag = True
+                        break
+                    nodeCount += 1
+                if errFlag:
+                    continue
+                if len(nodeCount) < 2:
+                    print("WARNING: The OSM Way %s has too few elements." % xmlWay.attrib("id"), file=sys.stderr)
+                    continue
+                for osmNode in xmlWay.iterfind("nd"):
+                    # Increment the reference count for this node:
+                    nodeCollection[osmNode.attrib("ref")].refCount += 1
+
+        # Next, create links between all Nodes that are endpoints or referenced more than once (which implies
+        # intersections or joints between two OSM ways): 
         for xmlWay in xmlRoot.iterfind("way"):
             highwayFlag = False
             onewayFlag = False
@@ -117,119 +154,39 @@ class OSMxml(geo_data_provider.GeoDataProvider):
                 for osmNode in xmlWay.iterfind("nd"):
                     nodeIDList.append(osmNode.attrib("ref"))
                     if nodeIDList[-1] not in nodeCollection:
-                        print("WARNING: In OSM Way %s (for '%s'), Node %s is not found." % (xmlWay.attrib("id"),
-                            streetName, nodeIDList[-1]), file=sys.stderr)
                         errFlag = True
                         break
                 if errFlag:
                     continue
                 if len(nodeIDList) < 2:
-                    print("WARNING: The OSM Way %s (for '%s') has too few elements." % (xmlWay.attrib("id"),
-                        streetName), file=sys.stderr)
                     continue
-                for nodeID in nodeIDList:
-                    if not graphLib.hasNodeID(nodeID):
+                for nodeIndex in range(0, len(nodeIDList)):
+                    addFlag = False
+                    if nodeIndex == 0 or nodeIndex == len(nodeIDList) - 1 or \
+                            nodeCollection[nodeIDList[nodeIndex]].refCount > 1:
+                        addFlag = True
+                    if addFlag and not graphLib.hasNodeID(nodeID):
                         graphLib.addNode(nodeCollection[node])
+                prevNodeID = nodeIDList[0]
                 for nodeIndex in range(1, len(nodeIDList)):
-                    linkID = nodeIDList[nodeIndex - 1] + "-" + nodeIDList[nodeIndex]
-                    link = graph.GraphLink(linkID, nodeCollection[nodeIDList[nodeIndex - 1]], nodeCollection[nodeIDList[nodeIndex]])
-                    
-                        
-                        
-    for (pugi::xml_node nd = way.child("nd"); nd; nd = nd.next_sibling("nd"))
-        ei.nodes.push_back(nd.attribute("ref").as_uint(0));
-
-            
-    for (pugi::xml_node tag = way.child("tag"); tag; tag = tag.next_sibling("tag"))
-        ei.attr.insert(std::pair<std::string, std::string>(tag.attribute("k").value(), tag.attribute("v").value()));
-
-            if "highway" in xmlWay.attrib:
-                
-            
-            
-            
-
-
-        
-        
-        with open(self.nodesFilename, 'r') as nodesFile:
-            # Sanity check:
-            fileLine = nodesFile.readline()
-            if not fileLine.startswith(NODES_HEADER1) and not fileLine.startswith(NODES_HEADER2):
-                print("ERROR: The nodes file '%s' doesn't have the expected header:" % self.nodesFilename, file=sys.stderr)
-                print('       "%s" or "%s"' % (NODES_HEADER2, NODES_HEADER1), file=sys.stderr)
-                return None
-            hasType = fileLine.startswith(NODES_HEADER1)
-            
-            # Step 1: Figure out the geographic center of the network and create the Graph:
-            rows = 0
-            x = 0
-            y = 0
-            for fileLine in nodesFile:
-                if len(fileLine) == 0:
-                    continue
-                lineElems = fileLine.split(',')
-                if hasType:
-                    if int(lineElems[1] != 1):
-                        continue
-                    x += float(lineElems[2])
-                    y += float(lineElems[3])
-                else:
-                    x += float(lineElems[1])
-                    y += float(lineElems[2])
-                rows += 1
-            
-            if rows == 0:
-                print("ERROR: The nodes file '%s' doesn't have any data." % self.nodesFilename, file=sys.stderr)
-                return None
-            graphLib = nmc_mm_lib.graph.GraphLib(y / rows, x / rows)
-            
-            # Step 2: Rewind, and fill out the nodes:
-            # TODO: If there is a monster nodes file, then it may be worth while to save the values
-            # from the first pass into an array and avoid the second read-through.
-            nodesFile.seek(0)
-            nodesFile.readLine()
-            for fileLine in nodesFile:
-                if len(fileLine) == 0:
-                    continue
-                lineElems = fileLine.split(',')
-                nodeID = int(lineElems[0])
-                if hasType:
-                    if int(lineElems[1] != 1):
-                        continue
-                    x = float(lineElems[2])
-                    y = float(lineElems[3])
-                else:
-                    x = float(lineElems[1])
-                    y = float(lineElems[2])
-                node = nmc_mm_lib.graph.GraphNode(nodeID, y, x)
-                graphLib.addNode(node)
-
-        # Step 3: Fill out the links:
-        with open(self.linksFilename, 'r') as linksFile:
-            # Sanity check:
-            fileLine = linksFile.readline()
-            if not fileLine.startswith(LINKS_HEADER1) and not fileLine.startswith(LINKS_HEADER2):
-                print("ERROR: The links file '%s' doesn't have the expected header:" % self.linksFilename, file=sys.stderr)
-                print('       "%s" or "%s"' % (LINKS_HEADER2, LINKS_HEADER1), file=sys.stderr)
-                return None
-            hasType = fileLine.startswith(LINKS_HEADER1)
-
-            for fileLine in linksFile:
-                if len(fileLine) == 0:
-                    continue
-                lineElems = fileLine.split(',')
-                linkID = int(lineElems[0])
-                if hasType:
-                    if int(lineElems[1] != 1):
-                        continue
-                    source = int(lineElems[2])
-                    dest = int(lineElems[3])
-                else:
-                    source = int(lineElems[1])
-                    dest = int(lineElems[2])
-                link = nmc_mm_lib.graph.GraphLink(linkID, graphLib.nodeMap[source], graphLib.nodeMap[dest])
-                graphLib.addLink(link)
+                    if nodeIndex == len(nodeIDList) - 1 or \
+                            nodeCollection[nodeIDList[nodeIndex]].refCount > 1:
+                        linkID = nodeIDList[prevNodeID] + "-" + nodeIDList[nodeIndex]
+                        link = graph.GraphLink(linkID, nodeCollection[prevNodeID], nodeCollection[nodeIDList[nodeIndex]])
+                        link.streetName = streetName
+                        # TODO: Support link curvature.
+                        prevNodeID = nodeIDList[nodeIndex]
+                        graphLib.addLink(link)
+                if not onewayFlag:
+                    prevNodeID = nodeIDList[-1]
+                    for nodeIndex in range(len(nodeIDList) - 2, 0, -1):
+                        if nodeIndex == 0 or nodeCollection[nodeIDList[nodeIndex]].refCount > 1:
+                            linkID = nodeIDList[prevNodeID] + "-" + nodeIDList[nodeIndex]
+                            link = graph.GraphLink(linkID, nodeCollection[prevNodeID], nodeCollection[nodeIDList[nodeIndex]])
+                            link.streetName = streetName
+                            # TODO: Support link curvature.
+                            prevNodeID = nodeIDList[nodeIndex]
+                            graphLib.addLink(link)
             
         # There we are.
         return graphLib

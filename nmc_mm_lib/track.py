@@ -1,5 +1,5 @@
 """
-shape.py: Definitions for entities that exist within shape datasets
+track.py: Definitions for entities that exist within shape datasets
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
@@ -23,49 +23,50 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-class Shapes(dict):
+class Tracks(dict):
     """
-    Shapes is a dictionary of Shape objects, organized according to shapeID -> Shape
+    Tracks is a dictionary of Track objects, organized according to trackID -> Track
     """
     pass
 
-class Shape(list):
+class Track(list):
     """
-    Shape is a single shape that contains multiple ShapesEntry objects arranged by sequence number.
-    @ivar shapeID: an undefined type for this shape's unique identifier
+    Track is a single shape that contains multiple TrackEntry objects arranged by sequence number.
+    @ivar trackID: an undefined type for this shape's unique identifier
     """
-    def __init__(self, shapeID):
+    def __init__(self, trackID):
         """
-        @type shapeID: ?
+        @type trackID: str
         """
-        self.shapeID = shapeID
+        self.trackID = trackID
     
-class ShapesEntry:
+class Trackpoint:
     """
-    ShapesEntry is a single shape dataset entry.
-    @ivar shape: Shape that is the parent of this ShapesEntry
-    @ivar shapeSeq: int signifying the ordering of this shape relative to others
+    Trackpoint is a single shape dataset entry.
+    @ivar trackID: Identifier that signifies the parent of this TrackEntry
+    @ivar trackSeq: int signifying the ordering of this element relative to others.
+        The pair trackID, trackSeq are to be unique.
     @ivar lat: float signifying latitude
     @ivar lng: float signifying longitude
-    @ivar time: datetime object representing a timestamp, or None if undefined.
-    @ivar hintFlag: bool signifying whether this ShapesEntry is a hint or not.
+    @ivar hintFlag: bool signifying whether this TrackEntry is a hint or not.
     @ivar pointX: float signifying the translated rectangular coordinate X value.
     @ivar pointY: float signifying the translated rectangular coordinate Y value.
+    @ivar name: str that is a name attached to this Trackpoint
     """
-    def __init__(self, shape, shapeSeq, lat, lng, hintFlag=False):
+    def __init__(self, trackID, trackSeq, lat, lng, hintFlag=False):
         """
-        @type shape: Shape
-        @type shapeSeq: int
+        @type trackID: str
+        @type trackSeq: int
         @type lat: float
         @type lng: float
         @type hintFlag: bool
         """
-        self.shape = shape
-        self.shapeSeq = shapeSeq
+        self.trackID = trackID
+        self.trackSeq = trackSeq
         self.lat = lat
         self.lng = lng
         self.hintFlag = hintFlag
-        self.time = None
+        self.name = str + "-" + str(trackSeq)
         
         self.pointX = 0
         self.pointY = 0
@@ -105,75 +106,45 @@ class Trip:
     @ival tripID: str signifying a trip ID
     @ival route: RoutesEntry that the trip is a member of
     @ival tripHeadsign: str that signifies the direction that the trip is taking
-    @ival shape: Shape that captures all of the shape elements that comprise this trip, or None if not defined
+    @ival track: Shape that captures all of the track elements that comprise this trip, or None if not defined
     """
-    def __init__(self, tripID, route, tripHeadsign, shape=None):
+    def __init__(self, tripID, route, tripHeadsign, track=None):
         """
         @type tripID: str
         @type route: RoutesEntry
         @type tripHeadsign: str
-        @type shape: Shape
+        @type track: Track
         """
         self.tripID = tripID
         self.route = route
         self.tripHeadsign = tripHeadsign
-        self.shape = shape
+        self.track = track
 
-class Stops(dict):
+class Timepoints(dict):
     """
-    Stops is a dictionary of stopID -> Stop
+    Timepoints represents Trackpoints that have timestamps associated with them, arranged as a 
+    dictionary of tripID -> list<StopTime>.
     """
     pass
 
-class Stop:
+class Timepoint:
     """
-    Stop is a single stops file entry.
-    @ivar stopID: str representing the stop ID
-    @ivar stopName: str representing the name of the stop
-    @ivar gpsLat: float representing the latitude of the stop 
-    @ivar gpsLng: float representing the longitude of the stop
-    @ivar pointX: float representing the stop according to rectangular X coordinates around a reference point
-    @ivar pointY: float representing the stop according to rectangular Y coordinates around a reference point
-    """
-    def __init__(self, stopID, stopName, gpsLat, gpsLng):
-        """
-        @type stopID: str
-        @type stopName: str
-        @type gpsLat: float
-        @type gpsLng: float
-        """
-        self.stopID = stopID
-        self.stopName = stopName
-        self.gpsLat = gpsLat
-        self.gpsLng = gpsLng
-        
-        self.pointX = 0
-        self.pointY = 0
-
-class StopTimes(dict):
-    """
-    StopTimes represents a set of StopTime objects arranged as a dictionary of tripID -> list<StopTime>.
-    """
-    pass
-
-class StopTime:
-    """
-    StopTime is a single stoptimes file entry.
+    Timepoint ties a time to a Trackpoint.
     @ivar trip: Trip that this StopTime is a member of
-    @ivar stop: Stop that this StopTime is a member of
-    @ivar stopSeq: int that is the stop sequence number
+    @ivar trackpoint: The reference to the individual trackpoint
+    @ivar timeSeq: int that is a sequence number to arrange Timepoints
     @ivar arrivalTime: datetime that is the arrival time of this StopTime
     @ivar departureTime: datetime that is the departure time of this StopTime
     """
-    def __init__(self, trip, stop, stopSeq):
+    def __init__(self, trip, trackpoint, timeSeq):
         """
-        @type trip: TripsEntry
-        @type stop: StopsEntry
-        @type stopSeq: int
+        @type trip: Trip
+        @type trackpoint: Trackpoint
+        @type timeSeq: int
         """
         self.trip = trip
-        self.stop = stop
-        self.stopSeq = stopSeq
+        self.trackpoint = trackpoint
+        self.timeSeq = timeSeq
         
         self.arrivalTime = None
         self.departureTime = None

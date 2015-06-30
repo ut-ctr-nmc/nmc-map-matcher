@@ -1,6 +1,7 @@
 """
-shape_data_provider.py: Abstract class for functionality that has to do with reading in
-the shape data that's to be mapped to underlying topology.
+track_data_provider.py: Abstract class for functionality that has to do with reading in
+track data (possibly timestamped) that corresponds with shapes, or the ability to
+infer shapes from tracks.
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
@@ -23,22 +24,26 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
-import shape, nmc_mm_lib.shape_data_providers, sys, inspect
+import shape, nmc_mm_lib.track_data_providers, sys, inspect
 
 importers = []
 
-class ShapeDataProvider:
+class TrackDataProvider:
     """
-    The scheme for ShapeDataProvider is to keep the shape import abstract (as we always need
-    shape data for anything we're doing) but to create fake routes and trips such that each
-    trip corresponds with one shape, and each route corresponds with one trip.
+    The scheme for TrackDataProvider is to keep the track import abstract but to create fake routes
+    and trips such that each trip corresponds with one shape, and each route corresponds with one trip.
+    (Unless overridden by track importers that extend this class)
     @todo This is a good opportunity to detect similarities in shapes and consolidate.
     
-    @ivar exlusionList: set<str> of shape IDs to exclude; set when getShapeImporter() is called.
-    @ivar inclusionList: set<str> of shape IDs to include; set when getShapeImporter() is called.
-    @ivar _encounteredIDs: set<str> keeps track of the IDs that have been encountered.
-    @ivar _currentShapeID: str that is the current Shape ID when keeping track of order.
-    @ivar _currentShape: shape.Shape that is the current shape.
+    @ivar routeExlusionList: set<str> of route IDs to exclude; set when getTrackImporter() is called.
+    @ivar routeInclusionList: set<str> of route IDs to include; set when getTrackImporter() is called.
+    @ivar trackExlusionList: set<str> of track IDs to exclude; set when getTrackImporter() is called.
+    @ivar trackInclusionList: set<str> of track IDs to include; set when getTrackImporter() is called.
+    @ivar _encounteredRouteIDs: set<str> keeps track of the route IDs that have been encountered.
+    @ivar _currentRouteID: str that is the current route ID when keeping track of order.
+    @ivar _encounteredTrackIDs: set<str> keeps track of the track IDs that have been encountered.
+    @ivar _currentTrackID: str that is the current track ID when keeping track of order.
+    @ivar _currentTrack: shape.Track that is the current track.
     @ivar _prevSeq: int that is used to keep track of out-of-order entries in readShape().
     @ivar gps: The resident GPS object used with this importer
     """
