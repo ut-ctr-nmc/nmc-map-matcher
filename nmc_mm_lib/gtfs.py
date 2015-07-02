@@ -294,7 +294,8 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs):
                         print("WARNING: GTFS Stop Times file expects undefined trip ID %d" % tripID, file = sys.stderr)
                         continue
                     
-                    # Split apart time string because hours can roll around.
+                    # Split apart time string this way and count from epoch because GTFS stops may express times for
+                    # early morning service with hours being greater than 23.
                     timeElems = lineElems[1].split(':')
                     timeHour = int(timeElems[0])
                     timeDays = timeHour / 24
