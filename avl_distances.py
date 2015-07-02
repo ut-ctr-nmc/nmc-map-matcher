@@ -57,13 +57,13 @@ def readAVLCSV(avlCSVFile, gtfsTrips, gps, routeID=None, routeHeadsign=None):
     as bus stops.
     @type avlCSVFile: str
     @param gtfsTrips: All valid GTFS trips
-    @type gtfsTrips: dict<str, gtfs.TripsEntry>
+    @type gtfsTrips: dict<int, gtfs.TripsEntry>
     @param gps: gps.GPS
     @return A dictionary of TripID values to lists of StopTimesEntry
-    @rtype dict<str, list<gtfs.StopTimesEntry>>
+    @rtype dict<gtfs.TripsEntry, list<gtfs.StopTimesEntry>>
     """
     ret = {}
-    "@type ret: dict<str, list<gtfs.StopTimesEntry>>"
+    "@type ret: dict<gtfs.TripsEntry, list<gtfs.StopTimesEntry>>"
     with open(avlCSVFile, 'r') as inFile:
         csvReader = csv.DictReader(inFile)
         prevTime = None
@@ -87,42 +87,42 @@ def readAVLCSV(avlCSVFile, gtfsTrips, gps, routeID=None, routeHeadsign=None):
                     return None
                 firstRun = False
         
-            if (routeID is None or fileLine["route_id"] == routeID) and (routeHeadsign is None or fileLine["trip_headsign"] == routeHeadsign):
-                if prevRouteID is not None and prevRouteID != fileLine["route_id"] or \
+            if (routeID is None or int(fileLine["route_id"]) == routeID) and (routeHeadsign is None or fileLine["trip_headsign"] == routeHeadsign):
+                if prevRouteID is not None and prevRouteID != int(fileLine["route_id"]) or \
                         prevRouteHeadsign is not None and prevRouteHeadsign != fileLine["trip_headsign"]:
                     if not duplicateMsgFlag:
                         print("WARNING: Only one unique route ID and trip headsign from the AVL CSV file are allowed to be processed at once. "
                               "There was ambiguity at route ID %s, trip headsign %s." % (fileLine["route_id"], fileLine["trip_headsign"]), file=sys.stderr)
                         duplicateMsgFlag = True
                     continue
-                prevRouteHeadsign = fileLine["route_id"]
+                prevRouteHeadsign = int(fileLine["route_id"])
                 prevRouteID = fileLine["trip_headsign"]
                 
-                if prevTripID is None or fileLine["trip_id"] != prevTripID:
-                    if fileLine["trip_id"] in previousTripIDs:
+                if prevTripID is None or int(fileLine["trip_id"]) != prevTripID:
+                    if int(fileLine["trip_id"]) in previousTripIDs:
                         print("WARNING: In the AVL CSV input, Trip ID %s cannot be continued after going to another Trip ID." % fileLine["trip_id"], file=sys.stderr)
                         # TODO: Allow these to be out of order.
                         continue
-                    previousTripIDs.add(fileLine["trip_id"])
-                    prevTripID = fileLine["trip_id"]
+                    previousTripIDs.add(int(fileLine["trip_id"]))
+                    prevTripID = int(fileLine["trip_id"])
                     ctr = 0
                     prevTime = None
                 
                 ourTime = datetime.strptime(fileLine["timestamp"].replace("-", ""), "%Y%m%dT%H:%M:%S")
                 if prevTime is not None and ourTime < prevTime:
-                    if fileLine["trip_id"] not in duplicateTimes:
+                    if int(fileLine["trip_id"]) not in duplicateTimes:
                         print("WARNING: A non-increasing timestamp was discovered in the AVL CSV file %s, Trip %s; ignoring." % (avlCSVFile,
                             fileLine["trip_id"]), file=sys.stderr)
-                        duplicateTimes.add(fileLine["trip_id"])
+                        duplicateTimes.add(int(fileLine["trip_id"]))
                     continue
                 prevTime = ourTime
                 
-                if fileLine["trip_id"] not in gtfsTrips:
-                    if fileLine["trip_id"] not in duplicateTimes:
+                if int(fileLine["trip_id"]) not in gtfsTrips:
+                    if int(fileLine["trip_id"]) not in duplicateTimes:
                         print("WARNING: Trip ID %s from the AVL CSV file is not found in the GTFS set." % fileLine["trip_id"], file=sys.stderr)
-                        duplicateTimes.add(fileLine["trip_id"])
+                        duplicateTimes.add(int(fileLine["trip_id"]))
                     continue
-                gtfsTrip = gtfsTrips[fileLine["trip_id"]]
+                gtfsTrip = gtfsTrips[int(fileLine["trip_id"])]
                 
                 # Here we fabricate fake stops for each AVL point:
                 stop = gtfs.StopsEntry(ctr, fileLine["speed"], float(fileLine["lat"]), float(fileLine["lng"]))
@@ -133,9 +133,9 @@ def readAVLCSV(avlCSVFile, gtfsTrips, gps, routeID=None, routeHeadsign=None):
                 ctr += 1
                 
                 # Store the stop results:
-                if fileLine["trip_id"] not in ret:
-                    ret[fileLine["trip_id"]] = []
-                ret[fileLine["trip_id"]].append(stopTime)
+                if gtfsTrips[int(fileLine["trip_id"])] not in ret:
+                    ret[gtfsTrips[int(fileLine["trip_id"])]] = []
+                ret[gtfsTrips[int(fileLine["trip_id"])]].append(stopTime)
                     
     # Return the fake stop times:
     return ret
@@ -144,10 +144,10 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
                      outFile=sys.stdout):
     """
     dumpAVLDistances writes out AVL distances and speeds at each position along AVL paths.
-    @type gtfsTrips: dict<str, gtfs.TripsEntry>
-    @param gtfsStopTimes: A dictionary of TripID values to lists of StopTimesEntry
-    @type gtfsStopTimes: dict<str, list<gtfs.StopTimesEntry>>
-    @type gtfsNodes: dict<str, list<path_engine.PathEnd>>
+    @type gtfsTrips: dict<int, gtfs.TripsEntry>
+    @param gtfsStopTimes: A dictionary of Trip values to lists of StopTimesEntry
+    @type gtfsStopTimes: dict<gtfs.TripsEntry, list<gtfs.StopTimesEntry>>
+    @type gtfsNodes: dict<int, list<path_engine.PathEnd>>
     @type vistaNetwork: graph.GraphLib
     @type stopSearchRadius: float
     @type problemReport: bool
@@ -156,11 +156,11 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
     @type stopsFlag: bool
     @type outFile: file
     @return A mapping of tripID to AVL points-on-links
-    @rtype dict<str, graph.PointOnLink>
+    @rtype dict<int, graph.PointOnLink>
     """
     # Set up the output:
     ret = {}
-    "@type ret: dict<str, list<graph.PointOnLink>>"
+    "@type ret: dict<int, list<graph.PointOnLink>>"
         
     # Initialize the path engine for use later:
     pathEngine = path_engine.PathEngine(stopSearchRadius, stopSearchRadius, stopSearchRadius, sys.float_info.max, sys.float_info.max,
@@ -178,7 +178,7 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
     for tripID in tripIDs:
         if gtfsTrips[tripID].shapeEntries[0].shapeID not in gtfsNodes:
             # This happens if the incoming files contain a subset of all available topology.
-            print("WARNING: Skipping route for trip %d because no points are available." % tripID, file = sys.stderr)
+            print("WARNING: Skipping route for trip %d because no points are available." % tripID, file=sys.stderr)
             continue
         
         stopTimes = gtfsStopTimes[gtfsTrips[tripID]]
@@ -193,11 +193,11 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
             
         # Step 3: Match up stops to that contiguous list:
         # At this point, we're doing something with this.
-        print("INFO: -- Matching stops for trip %d --" % tripID, file = sys.stderr)
+        print("INFO: -- Matching stops for trip %d --" % tripID, file=sys.stderr)
         vistaSubset, outLinkIDList = transit_gtfs.buildSubset(ourGTFSNodes, vistaNetwork)
 
         # Then, prepare the stops as GTFS shapes entries:
-        print("INFO: Mapping stops to VISTA network...", file = sys.stderr)
+        print("INFO: Mapping stops to VISTA network...", file=sys.stderr)
         gtfsShapes, gtfsStopsLookup = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes)
 
         # Find a path through our prepared node map subset:
@@ -242,10 +242,10 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
                 lastLink = linkID
             
             if not stopsFlag:
-                print ("%s,%f,%s,%f" % (pathEnd.trip.tripID, distance, stopTimes[ctr].stop.arrivalTime.strftime("%Y%m%dT%H:%M:%S"),
+                print ("%d,%f,%s,%f" % (pathEnd.trip.tripID, distance, stopTimes[ctr].stop.arrivalTime.strftime("%Y%m%dT%H:%M:%S"),
                     stopTimes[ctr].stop.stopName), file=outFile);
             else:
-                print ("%s,%s,%d,%f,%s,%s,%f" % (pathEnd.trip.tripID, stopTimes[ctr].stop.stopID, stopTimes[ctr].stopSeq, distance,
+                print ("%d,%d,%d,%f,%s,%s,%f" % (pathEnd.trip.tripID, stopTimes[ctr].stop.stopID, stopTimes[ctr].stopSeq, distance,
                     stopTimes[ctr].stop.arrivalTime.strftime("%H:%M:%S"), stopTimes[ctr].stop.departureTime.strftime("%H:%M:%S"), 
                     stopTimes[ctr].stop.stopName), file=outFile);
                 # TODO: Note that the GTFS stopTimes input uses hours greater than 23 to express next early morning service.
@@ -339,7 +339,7 @@ def main(argv):
         # Read stop times information:
         print("INFO: Read GTFS stop times...", file=sys.stderr)
         gtfsStopTimes = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs)
-    "@type gtfsStopTimes: dict<TripsEntry, list<StopTimesEntry>>"
+    "@type gtfsStopTimes: dict<gtfs.TripsEntry, list<StopTimesEntry>>"
     
     # Output the route distance information:
     dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaGraph, stopSearchRadius, problemReport, stopsFlag)
