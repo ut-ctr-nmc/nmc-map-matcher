@@ -59,6 +59,8 @@ def readAVLCSV(avlCSVFile, gtfsTrips, gps, routeID=None, routeHeadsign=None):
     @param gtfsTrips: All valid GTFS trips
     @type gtfsTrips: dict<int, gtfs.TripsEntry>
     @param gps: gps.GPS
+    @type routeID: int
+    @type routeHeadsign: str
     @return A dictionary of TripID values to lists of StopTimesEntry
     @rtype dict<gtfs.TripsEntry, list<gtfs.StopTimesEntry>>
     """
@@ -95,8 +97,8 @@ def readAVLCSV(avlCSVFile, gtfsTrips, gps, routeID=None, routeHeadsign=None):
                               "There was ambiguity at route ID %s, trip headsign %s." % (fileLine["route_id"], fileLine["trip_headsign"]), file=sys.stderr)
                         duplicateMsgFlag = True
                     continue
-                prevRouteHeadsign = int(fileLine["route_id"])
-                prevRouteID = fileLine["trip_headsign"]
+                prevRouteID = int(fileLine["route_id"])
+                prevRouteHeadsign = fileLine["trip_headsign"]
                 
                 if prevTripID is None or int(fileLine["trip_id"]) != prevTripID:
                     if int(fileLine["trip_id"]) in previousTripIDs:
@@ -108,7 +110,19 @@ def readAVLCSV(avlCSVFile, gtfsTrips, gps, routeID=None, routeHeadsign=None):
                     ctr = 0
                     prevTime = None
                 
-                ourTime = datetime.strptime(fileLine["timestamp"].replace("-", ""), "%Y%m%dT%H:%M:%S")
+                # The parsing of the date is set up for the format: YYYY-MM-DDTHH:MM:SS-/+HH:MM
+                timeParts = fileLine["timestamp"].split("T")
+                datePart = datetime.strptime(timeParts[0], "%Y-%m-%d")
+                
+                # TODO: We shall ignore the time zone part right now and assume that other time references are in the current time zone.
+                for searchChar in ["+", "-"]:
+                    tzPos = timeParts[1].find(searchChar)
+                    if tzPos > 0:
+                        timeParts[1] = timeParts[1][0:tzPos]
+                        break                
+                timePart = datetime.strptime(timeParts[1], "%H:%M:%S")
+                ourTime = datePart + timedelta(hours=timePart.hour, minutes=timePart.minute, seconds=timePart.second)
+                
                 if prevTime is not None and ourTime < prevTime:
                     if int(fileLine["trip_id"]) not in duplicateTimes:
                         print("WARNING: A non-increasing timestamp was discovered in the AVL CSV file %s, Trip %s; ignoring." % (avlCSVFile,
@@ -125,7 +139,7 @@ def readAVLCSV(avlCSVFile, gtfsTrips, gps, routeID=None, routeHeadsign=None):
                 gtfsTrip = gtfsTrips[int(fileLine["trip_id"])]
                 
                 # Here we fabricate fake stops for each AVL point:
-                stop = gtfs.StopsEntry(ctr, fileLine["speed"], float(fileLine["lat"]), float(fileLine["lng"]))
+                stop = gtfs.StopsEntry(ctr, fileLine["speed"], float(fileLine["lat"]), float(fileLine["lon"]))
                 stop.pointX, stop.pointY = gps.gps2feet(stop.gpsLat, stop.gpsLng)
                 stopTime = gtfs.StopTimesEntry(gtfsTrip, stop, ctr)
                 stopTime.arrivalTime = ourTime
@@ -173,7 +187,7 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
     problemReportNodes = {}
     "@type problemReportNodes: dict<str, path_engine.PathEnd>"
     
-    tripIDs = gtfsTrips.keys()
+    tripIDs = [trip.tripID for trip in gtfsStopTimes.keys()]
     tripIDs.sort()
     for tripID in tripIDs:
         if gtfsTrips[tripID].shapeEntries[0].shapeID not in gtfsNodes:
@@ -226,31 +240,33 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
         distance = 0
         ctr = 0
         lastPos = ourGTFSNodes[0].pointOnLink.dist
-        lastLink = ourGTFSNodes[0].pointOnLink.link.linkID
+        lastLink = ourGTFSNodes[0].pointOnLink.link
         for pathEnd in resultTree:
             "@type pathEnd: path_engine.PathEnd"
             
             procLinks = pathEnd.routeInfo[:-1]
-            procLinks.append(pathEnd.pointOnLink.link.linkID)
-            for linkID in procLinks:
-                if linkID != lastLink:
-                    distance += vistaNetwork.linkMap[lastLink].distance - lastPos
+            procLinks.append(pathEnd.pointOnLink.link)
+            for link in procLinks:
+                if link != lastLink:
+                    distance += lastLink.distance - lastPos
                     lastPos = 0
                 else:
                     distance += pathEnd.pointOnLink.dist - lastPos
                     lastPos = pathEnd.pointOnLink.dist
-                lastLink = linkID
+                lastLink = link
             
             if not stopsFlag:
-                print ("%d,%f,%s,%f" % (pathEnd.trip.tripID, distance, stopTimes[ctr].stop.arrivalTime.strftime("%Y%m%dT%H:%M:%S"),
+                # Recall that because of transit_gtfs.prepareMapStops() the shapeID is the trips ID.
+                # And, recall that because of readAVLCSV(), stopName is the speed value. 
+                print ("%d,%f,%s,%s" % (pathEnd.shapeEntry.shapeID, distance, stopTimes[ctr].arrivalTime.strftime("%Y-%m-%dT%H:%M:%S"),
                     stopTimes[ctr].stop.stopName), file=outFile);
             else:
-                print ("%d,%d,%d,%f,%s,%s,%f" % (pathEnd.trip.tripID, stopTimes[ctr].stop.stopID, stopTimes[ctr].stopSeq, distance,
-                    stopTimes[ctr].stop.arrivalTime.strftime("%H:%M:%S"), stopTimes[ctr].stop.departureTime.strftime("%H:%M:%S"), 
+                print ("%d,%d,%d,%f,%s,%s,%s" % (pathEnd.shapeEntry.shapeID, stopTimes[ctr].stop.stopID, stopTimes[ctr].stopSeq, distance,
+                    stopTimes[ctr].arrivalTime.strftime("%H:%M:%S"), stopTimes[ctr].departureTime.strftime("%H:%M:%S"), 
                     stopTimes[ctr].stop.stopName), file=outFile);
                 # TODO: Note that the GTFS stopTimes input uses hours greater than 23 to express next early morning service.
                 # In gtfs.fillStopTimes(), this has been adapted to datetime by incrementing the day and doing a mod 24 on the hours.
-                # Already, times are stored since the epoch 1/1/1900. Maybe a new function call will do the trick.
+                # Already, stop times are stored relative to the day the epoch 1/1/1900. Maybe a new function call will do the trick.
             ctr += 1
         ret[tripID] = resultTree
     
@@ -294,7 +310,7 @@ def main(argv):
                 avlCSVFile = argv[i + 1]
                 i += 1
             elif argv[i] == "-r" and i < len(argv) - 1:
-                routeID = argv[i + 1]
+                routeID = int(argv[i + 1])
                 i += 1
             elif argv[i] == "-h" and i < len(argv) - 1:
                 routeHeadsign = argv[i + 1]
@@ -313,7 +329,7 @@ def main(argv):
     stopSearchRadius = 800
     
     # Restore the stuff that was built with path_match:
-    (vistaGraph, gtfsShapes, gtfsNodes, unusedShapeIDs) = transit_gtfs.restorePathMatch(dbServer, networkName, userName,
+    vistaGraph, gtfsShapes, gtfsNodes, unusedShapeIDs = transit_gtfs.restorePathMatch(dbServer, networkName, userName,
         password, shapePath, pathMatchFilename)
     
     # Read in the routes information:
@@ -323,13 +339,17 @@ def main(argv):
     
     # Read in the trips information:
     print("INFO: Read GTFS tripsfile...", file=sys.stderr)
-    (gtfsTrips, unusedTripIDs) = gtfs.fillTrips(shapePath, gtfsShapes, gtfsRoutes, unusedShapeIDs)
+    gtfsTrips, unusedTripIDs = gtfs.fillTrips(shapePath, gtfsShapes, gtfsRoutes, unusedShapeIDs)
     "@type gtfsTrips: dict<int, TripsEntry>"
     "@type unusedTripIDs: set<int>"
         
     if not stopsFlag:
         # Read in the AVL CSV file and create fake stops off of each point so we can use the existing code.
+        print("INFO: Read AVL file %s..." % avlCSVFile, file=sys.stderr)
         gtfsStopTimes = readAVLCSV(avlCSVFile, gtfsTrips, vistaGraph.gps, routeID, routeHeadsign)
+        if len(gtfsStopTimes.keys()) == 0:
+            print("ERROR: No AVL points were found. Check to make sure that your search criteria in -r and/or -h are present in your AVL file.", file=sys.stderr)
+            sys.exit(1)
     else:
         # Read in the stops information:
         print("INFO: Read GTFS stopsfile...", file=sys.stderr)
@@ -340,11 +360,12 @@ def main(argv):
         print("INFO: Read GTFS stop times...", file=sys.stderr)
         gtfsStopTimes = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs)
     "@type gtfsStopTimes: dict<gtfs.TripsEntry, list<StopTimesEntry>>"
-    
+        
     # Output the route distance information:
+    print("INFO: Outputting AVL distance information...", file=sys.stderr)
     dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaGraph, stopSearchRadius, problemReport, stopsFlag)
 
-    print("INFO: Done.", file = sys.stderr)
+    print("INFO: Done.", file=sys.stderr)
 
 # Boostrap:
 if __name__ == '__main__':

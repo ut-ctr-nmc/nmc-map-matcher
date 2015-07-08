@@ -162,6 +162,7 @@ def fillTrips(filePath, shapes, routes, unusedShapeIDs = set(), restrictService 
     ret = {}
     "@type ret: dict<int, TripsEntry>"
     unusedTripIDs = set()
+    shapeErrorIDs = set()
     "@type unusedTripIDs: set<int>"
     filename = os.path.join(filePath, "trips.txt") 
     with open(filename, 'r') as inFile:
@@ -183,11 +184,13 @@ def fillTrips(filePath, shapes, routes, unusedShapeIDs = set(), restrictService 
                     unusedTripIDs.add(tripID)
                 else:
                     if shapeID not in shapes:
-                        print("WARNING: GTFS Trips file expects undefined shape ID %d" % shapeID, file = sys.stderr)
-                        unusedTripIDs.add(tripID)                        
+                        if shapeID not in shapeErrorIDs:
+                            print("WARNING: GTFS Trip %d expects undefined shape ID %d; skipping" % (tripID, shapeID), file=sys.stderr)
+                            shapeErrorIDs.add(shapeID)                        
+                        unusedTripIDs.add(tripID)
                     else:
                         if routeID not in routes:
-                            print("WARNING: GTFS Trips file expects undefined route ID %d" % routeID, file = sys.stderr)
+                            print("WARNING: GTFS Trip %d expects undefined route ID %d; skipping" % (tripID, routeID), file=sys.stderr)
                             unusedTripIDs.add(tripID)                        
                         else:
                             newEntry = TripsEntry(tripID, routes[routeID], lineElems[3], shapes[shapeID])
@@ -275,13 +278,15 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs):
     """
     stopTimes = {}
     "@type stopTimes: dict<TripsEntry, list<StopTimesEntry>>"
+    errTrips = set()
+    "@type errTrips: set<int>"
     
     filename = os.path.join(filePath, "stop_times.txt")
     with open(filename, 'r') as inFile:
         # Sanity check:
         fileLine = inFile.readline()
         if not fileLine.startswith("trip_id,arrival_time,departure_time,stop_id"):
-            print("ERROR: The stop_times.txt file doesn't have the expected header.", file = sys.stderr)
+            print("ERROR: The stop_times.txt file doesn't have the expected header.", file=sys.stderr)
             return None
         
         # Go through the lines of the file:
@@ -291,7 +296,9 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs):
                 tripID = int(lineElems[0])
                 if tripID not in unusedTripIDs:
                     if not tripID in trips:
-                        print("WARNING: GTFS Stop Times file expects undefined trip ID %d" % tripID, file = sys.stderr)
+                        if tripID not in errTrips:
+                            print("WARNING: GTFS Stop Times file expects undefined trip ID %d" % tripID, file=sys.stderr)
+                            errTrips.add(tripID)
                         continue
                     
                     # Split apart time string this way and count from epoch because GTFS stops may express times for
