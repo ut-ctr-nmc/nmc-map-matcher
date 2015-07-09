@@ -225,12 +225,17 @@ class PathEngine:
             
         return gtfsPoints            
 
-    def constructPath(self, shapeEntries, vistaGraph):
+    def constructPath(self, shapeEntries, vistaGraph, forceStartPoint=None, forceEndPoint=None):
         """
         constructPath goes through a list of shapeEntries and finds the shortest path through the given vistaGraph.
         This roughly corresponds with algorithms "WalkTrack" and "TrackpointArrives" in Figure 2 of Perrine et al. 2015.
         @type shapeEntries: list<ShapesEntry>
         @type vistaGraph: graph.GraphLib
+        @type tripID: int
+        @param forceStartPoint: Set this to add an extra "anchor" that is a known starting point.
+        @type forceStartPoint: graph.PointOnLink 
+        @param forceEndPoint: Set this to add an extra "anchor" that is a known ending point.
+        @type forceEndPoint: graph.PointOnLink 
         @rtype: list<PathEnd>
         """
         gtfsPointsPrev = []
@@ -240,9 +245,16 @@ class PathEngine:
             self.maxHops)
         "@type pathProcessor: graph.WalkPathProcessor"
         
+        # Incorporate starting anchor if it is specified:
+        if forceStartPoint is not None:
+            shapeEntry = gtfs.ShapesEntry(shapeEntries[0].shapeID, -1, forceStartPoint.link.origNode.gpsLat, forceStartPoint.link.origNode.gpsLng)
+            gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, [PathEnd(shapeEntry, forceStartPoint)],
+                vistaGraph)
+            
         shapeCtr = 0
         if self.logFile is not None:
             print("INFO: Building path...", file = self.logFile)
+            
         for shapeEntry in shapeEntries:
             "@type shapeEntry: ShapesEntry"
             shapeCtr = shapeCtr + 1
@@ -273,6 +285,12 @@ class PathEngine:
             # (We're adding another layer to the tree, and previous tree nodes can be found by accessing
             # PathEnd.prevTreeNode)
             gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, vistaGraph)
+
+        # Finalize path with ending anchor if it is specified:
+        if forceEndPoint is not None:
+            shapeEntry = gtfs.ShapesEntry(shapeEntries[0].shapeID, -1, forceEndPoint.link.origNode.gpsLat, forceEndPoint.link.origNode.gpsLng)
+            gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, [PathEnd(shapeEntry, forceEndPoint)],
+                vistaGraph)
 
         # Now, extract the shortest path.  First, find the end that has the cheapest cost:
         if self.logFile is not None:

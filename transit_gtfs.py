@@ -261,11 +261,13 @@ def buildSubset(treeNodes, vistaNetwork):
 
     return vistaSubset, outLinkIDList
 
-def prepareMapStops(treeNodes, stopTimes):
+def prepareMapStops(treeNodes, stopTimes, dummyFlag=True):
     """
     prepareMapStops maps stops information to an underlying path. Used by dumpBusRouteLinks() and possibly others.
     @type treeNodes: list<path_engine.PathEnd>
     @type stopTimes: list<gtfs.StopTimesEntry>
+    @param dummyFlag: Set to true to add dummy entries to the start and end. This will allow proximity searching at these places.
+    @type dummyFlag: bool
     @return Prepared stop information
     @rtype (list<gtfs.ShapesEntry>, dict<int, gtfs.StopTimesEntry>)
     """
@@ -273,9 +275,10 @@ def prepareMapStops(treeNodes, stopTimes):
     gtfsStopsLookup = {}
     "@type gtfsStopsLookup: dict<int, gtfs.StopTimesEntry>"
     
-    # Append an initial dummy shape to force routing through the path start:
-    gtfsShapes.append(gtfs.ShapesEntry(stopTimes[0].trip.tripID, -1, treeNodes[0].pointOnLink.link.origNode.gpsLat,
-                                        treeNodes[0].pointOnLink.link.origNode.gpsLng))
+    if dummyFlag:
+        # Append an initial dummy shape to force routing through the path start:
+        gtfsShapes.append(gtfs.ShapesEntry(stopTimes[0].trip.tripID, -1, treeNodes[0].pointOnLink.link.origNode.gpsLat,
+                                            treeNodes[0].pointOnLink.link.origNode.gpsLng))
     
     # Append all of the stops:
     for gtfsStopTime in stopTimes:
@@ -283,9 +286,10 @@ def prepareMapStops(treeNodes, stopTimes):
         gtfsShapes.append(gtfs.ShapesEntry(gtfsStopTime.trip.tripID, gtfsStopTime.stopSeq, gtfsStopTime.stop.gpsLat, gtfsStopTime.stop.gpsLng))
         gtfsStopsLookup[gtfsStopTime.stopSeq] = gtfsStopTime
 
-    # Append a trailing dummy shape to force routing through the path end:
-    gtfsShapes.append(gtfs.ShapesEntry(stopTimes[0].trip.tripID, -1, treeNodes[-1].pointOnLink.link.destNode.gpsLat,
-                                        treeNodes[-1].pointOnLink.link.destNode.gpsLng))
+    if dummyFlag:
+        # Append a trailing dummy shape to force routing through the path end:
+        gtfsShapes.append(gtfs.ShapesEntry(stopTimes[0].trip.tripID, -1, treeNodes[-1].pointOnLink.link.destNode.gpsLat,
+                                            treeNodes[-1].pointOnLink.link.destNode.gpsLng))
 
     return gtfsShapes, gtfsStopsLookup
 
@@ -309,7 +313,7 @@ def assembleProblemReport(resultTree, vistaNetwork):
         newPointOnLink = graph.PointOnLink(origLink, stopNode.pointOnLink.dist,
             stopNode.pointOnLink.nonPerpPenalty, stopNode.pointOnLink.refDist)
         newNode = path_engine.PathEnd(newShape, newPointOnLink)
-        newNode.restart = False
+        newNode.restart = stopNode.restart
         newNode.totalCost = stopNode.totalCost
         newNode.totalDist = stopNode.totalDist
         newNode.routeInfo = []
