@@ -219,12 +219,12 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
 
         # Then, prepare the stops as GTFS shapes entries:
         print("INFO: Mapping stops to VISTA network...", file=sys.stderr)
-        #gtfsShapes, gtfsStopsLookup = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes, False)
-        gtfsShapes, gtfsStopsLookup = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes)
+        gtfsShapes, gtfsStopsLookup = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes, False)
+        #gtfsShapes, gtfsStopsLookup = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes)
 
         # Find a path through our prepared node map subset:
-        #resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset, ourGTFSNodes[0].pointOnLink, ourGTFSNodes[-1].pointOnLink)
-        resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset)
+        resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset, ourGTFSNodes[0].pointOnLink, ourGTFSNodes[-1].pointOnLink)
+        #resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset)
         "@type resultTree: list<path_engine.PathEnd>"
         
         # Strip off the dummy ends:
