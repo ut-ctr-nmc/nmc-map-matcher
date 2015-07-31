@@ -222,7 +222,6 @@ def buildSubset(treeNodes, vistaNetwork):
     outLinkIDList.append(treeNodes[0].pointOnLink.link.id)
     
     # Link together nodes as we traverse through them:
-    prevLink = None
     for ourGTFSNode in treeNodes:
         "@type ourGTFSNode: path_engine.PathEnd"
         # There should only be one destination link per VISTA node because this comes form our tree.
@@ -246,17 +245,14 @@ def buildSubset(treeNodes, vistaNetwork):
             # We shall label our links as indices into the stage we're at in ourGTFSNodes links.  This will allow for access later.
             newLink = graph.GraphLink(outLinkIDList[-1], vistaNodePrior, vistaNode)
             vistaSubset.addLink(newLink)
-            newLink.distance = link.distance
             vistaNodePrior = vistaNode
             outLinkIDList.append(link.id)
-            prevLink = link
             
     # And then finish off the graph with the last link:
     vistaNode = graph.GraphNode(ourGTFSNode.pointOnLink.link.destNode.id, ourGTFSNode.pointOnLink.link.destNode.gpsLat, ourGTFSNode.pointOnLink.link.destNode.gpsLng)
     vistaNode.coordX, vistaNode.coordY = ourGTFSNode.pointOnLink.link.destNode.coordX, ourGTFSNode.pointOnLink.link.destNode.coordY
     newLink = graph.GraphLink(outLinkIDList[-1], vistaNodePrior, vistaNode)
     vistaSubset.addLink(newLink)
-    newLink.distance = prevLink.distance
 
     return vistaSubset, outLinkIDList
 

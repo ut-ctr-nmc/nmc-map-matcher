@@ -180,7 +180,7 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
     pathEngine = path_engine.PathEngine(stopSearchRadius, stopSearchRadius, stopSearchRadius, sys.float_info.max, sys.float_info.max,
                                         stopSearchRadius, 1, 1.5, 1.5, sys.maxint, sys.maxint)
     pathEngine.limitClosestPoints = 12
-    pathEngine.limitSimultaneousPaths = 8
+    pathEngine.limitSimultaneousPaths = 12
     pathEngine.maxHops = 50
     pathEngine.logFile = None # Suppress the log outputs for the path engine; enough stuff will come from other sources.
 
@@ -250,7 +250,7 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
         # TODO: The Problem Report will include all nodes on each path regardless of valid time interval;
         # However; we will not have gotten here if the trip was entirely outside of it. 
         if problemReport:
-            problemReportNodes[gtfsTrips[tripID].shapeEntries[0].shapeID] = transit_gtfs.assembleProblemReport(resultTree, vistaNetwork) 
+            problemReportNodes[tripID if not stopsFlag else 0] = transit_gtfs.assembleProblemReport(resultTree, vistaNetwork) 
         
         # Dump out the output:
         distance = 0
@@ -300,14 +300,14 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
     if problemReport:
         print("INFO: Output problem report CSV...", file = sys.stderr)
         problemReportNodesOut = {}
-        for shapeID in problemReportNodes:
-            seqs = problemReportNodes[shapeID].keys()
+        for idVal in problemReportNodes:
+            seqs = problemReportNodes[idVal].keys()
             seqs.sort()
             ourTgtList = []
             for seq in seqs:
-                ourTgtList.append(problemReportNodes[shapeID][seq])
-            problemReportNodesOut[shapeID] = ourTgtList                
-        problem_report.problemReport(problemReportNodesOut, vistaNetwork)
+                ourTgtList.append(problemReportNodes[idVal][seq])
+            problemReportNodesOut[idVal] = ourTgtList                
+        problem_report.problemReport(problemReportNodesOut, vistaNetwork, True)
     
     return ret 
 

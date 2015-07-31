@@ -209,11 +209,27 @@ class GraphLib:
                             # We have a winner:
                             retSet.add(pointOnLink)
                             break
+                   
+        # Filter out duplicate locations represented by a nonperpendicular match to the end of one link and a nonperpendicular
+        # match to the start of the following link. Keep the upstream one:
+        nonPerpSetStarts = {}
+        nonPerpSetEnds = set()
+        for pointOnLink in retSet:
+            if pointOnLink.nonPerpPenalty:
+                if pointOnLink.dist == 0:
+                    if pointOnLink.link.origNode not in nonPerpSetStarts:
+                        nonPerpSetStarts[pointOnLink.link.origNode] = set()
+                    nonPerpSetStarts[pointOnLink.link.origNode].add(pointOnLink)
+                elif pointOnLink.dist == pointOnLink.link.distance:
+                    nonPerpSetEnds.add(pointOnLink)
+        for endingPointOnLink in nonPerpSetEnds:
+            if endingPointOnLink.link.destNode in nonPerpSetStarts:
+                for pointOnLink in nonPerpSetStarts[endingPointOnLink.link.destNode]:
+                    if endingPointOnLink.refDist == pointOnLink.refDist:
+                        if pointOnLink in retSet:
+                            retSet.remove(pointOnLink) 
                     
         ret = list(retSet)
-        
-        # TODO: If there is a nonperpendicular link and distance = 0, and there also exists in the set a link
-        # that leads to the first link's parent node, then get rid of that first link.
         
         # Keep limited number of closest values 
         ret.sort(key = operator.attrgetter('refDist'))

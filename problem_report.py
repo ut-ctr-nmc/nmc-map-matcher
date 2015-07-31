@@ -31,13 +31,14 @@ PERP_DIST = 300.0
 NONPERP_DIST = 150.0
 "@var NONPERP_DIST: Maximum allowed distance in ft from VISTA line for non-perpendicular match" 
 
-def problemReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
+def problemReport(gtfsNodes, vistaGraph, byTripFlag=False, outFile=sys.stdout):
     """
     Takes a GTFS node set and outputs a CSV format of GPS points where there are indications of problems.
     @type gtfsNodes: dict<?, path_engine.PathEnd>
     @type vistaGraph: graph.GraphLib  
     """
-    print("shapeID,shapeSeq,linkID,linkDist,problemCode,gtfsCoords,vistaCoords", file = outFile)
+    strStart = "shapeID," if not byTripFlag else "tripID,"
+    print(strStart + "shapeSeq,linkID,linkDist,problemCode,gtfsCoords,vistaCoords", file = outFile)
 
     shapeIDs = gtfsNodes.keys()
     shapeIDs.sort()
