@@ -232,9 +232,9 @@ class PathEngine:
         @type shapeEntries: list<ShapesEntry>
         @type vistaGraph: graph.GraphLib
         @type tripID: int
-        @param forceStartPoint: Set this to add an extra "anchor" that is a known starting point.
+        @param forceStartPoint: Set this to add an extra "anchor" that is a known starting point. Must be in vistaGraph space.
         @type forceStartPoint: graph.PointOnLink 
-        @param forceEndPoint: Set this to add an extra "anchor" that is a known ending point.
+        @param forceEndPoint: Set this to add an extra "anchor" that is a known ending point. Must be in vistaGraph space.
         @type forceEndPoint: graph.PointOnLink 
         @rtype: list<PathEnd>
         """
@@ -248,6 +248,7 @@ class PathEngine:
         # Incorporate starting anchor if it is specified:
         if forceStartPoint is not None:
             shapeEntry = gtfs.ShapesEntry(shapeEntries[0].shapeID, -1, forceStartPoint.link.origNode.gpsLat, forceStartPoint.link.origNode.gpsLng)
+            shapeEntry.pointX, shapeEntry.pointY = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
             gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, [PathEnd(shapeEntry, forceStartPoint)],
                 vistaGraph)
             

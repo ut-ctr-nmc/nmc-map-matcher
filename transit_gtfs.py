@@ -208,7 +208,7 @@ def buildSubset(treeNodes, vistaNetwork):
     """
     # We are going to recreate a small VISTA network from ourGTFSNodes and then match up the stops to that.
     # First, prepare the small VISTA network:
-    vistaSubset = graph.GraphLib(vistaNetwork.gps.latCtr, vistaNetwork.gps.lngCtr)
+    vistaSubset = graph.GraphLib(vistaNetwork.gps.latCtr, vistaNetwork.gps.lngCtr, True)
     "@type vistaNodePrior: graph.GraphNode"
     
     # Build a list of links:
@@ -218,10 +218,11 @@ def buildSubset(treeNodes, vistaNetwork):
     # Plop in the start node:
     vistaNodePrior = graph.GraphNode(treeNodes[0].pointOnLink.link.origNode.id,
         treeNodes[0].pointOnLink.link.origNode.gpsLat, treeNodes[0].pointOnLink.link.origNode.gpsLng)
-    vistaSubset.addNode(vistaNodePrior)
+    vistaNodePrior.coordX, vistaNodePrior.coordY = treeNodes[0].pointOnLink.link.origNode.coordX, treeNodes[0].pointOnLink.link.origNode.coordY
     outLinkIDList.append(treeNodes[0].pointOnLink.link.id)
     
     # Link together nodes as we traverse through them:
+    prevLink = None
     for ourGTFSNode in treeNodes:
         "@type ourGTFSNode: path_engine.PathEnd"
         # There should only be one destination link per VISTA node because this comes form our tree.
@@ -238,26 +239,24 @@ def buildSubset(treeNodes, vistaNetwork):
             origVistaLink = vistaNetwork.linkMap[link.id]
             "@type origVistaLink: graph.GraphLink"
             
-            if origVistaLink.origNode.id not in vistaSubset.nodeMap:
-                # Create a new node:
-                vistaNode = graph.GraphNode(origVistaLink.origNode.id, origVistaLink.origNode.gpsLat, origVistaLink.origNode.gpsLng)
-                vistaSubset.addNode(vistaNode)
-            else:
-                # The path evidently crosses over itself.  Reuse an existing node.
-                vistaNode = vistaSubset.nodeMap[origVistaLink.origNode.id]
+            # Create a new node, even if the node had been visited before. We are creating a single-path and need a separate instance:
+            vistaNode = graph.GraphNode(origVistaLink.origNode.id, origVistaLink.origNode.gpsLat, origVistaLink.origNode.gpsLng)
+            vistaNode.coordX, vistaNode.coordY = origVistaLink.origNode.coordX, origVistaLink.origNode.coordY
                 
             # We shall label our links as indices into the stage we're at in ourGTFSNodes links.  This will allow for access later.
-            if outLinkIDList[-1] not in vistaSubset.linkMap:
-                vistaSubset.addLink(graph.GraphLink(outLinkIDList[-1], vistaNodePrior, vistaNode))
+            newLink = graph.GraphLink(outLinkIDList[-1], vistaNodePrior, vistaNode)
+            vistaSubset.addLink(newLink)
+            newLink.distance = link.distance
             vistaNodePrior = vistaNode
             outLinkIDList.append(link.id)
+            prevLink = link
             
     # And then finish off the graph with the last link:
-    if ourGTFSNode.pointOnLink.link.destNode.id not in vistaSubset.nodeMap:
-        vistaNode = graph.GraphNode(ourGTFSNode.pointOnLink.link.destNode.id, ourGTFSNode.pointOnLink.link.destNode.gpsLat, ourGTFSNode.pointOnLink.link.destNode.gpsLng)
-        vistaSubset.addNode(vistaNode)
-    if outLinkIDList[-1] not in vistaSubset.linkMap:
-        vistaSubset.addLink(graph.GraphLink(outLinkIDList[-1], vistaNodePrior, vistaNode))
+    vistaNode = graph.GraphNode(ourGTFSNode.pointOnLink.link.destNode.id, ourGTFSNode.pointOnLink.link.destNode.gpsLat, ourGTFSNode.pointOnLink.link.destNode.gpsLng)
+    vistaNode.coordX, vistaNode.coordY = ourGTFSNode.pointOnLink.link.destNode.coordX, ourGTFSNode.pointOnLink.link.destNode.coordY
+    newLink = graph.GraphLink(outLinkIDList[-1], vistaNodePrior, vistaNode)
+    vistaSubset.addLink(newLink)
+    newLink.distance = prevLink.distance
 
     return vistaSubset, outLinkIDList
 
@@ -277,19 +276,25 @@ def prepareMapStops(treeNodes, stopTimes, dummyFlag=True):
     
     if dummyFlag:
         # Append an initial dummy shape to force routing through the path start:
-        gtfsShapes.append(gtfs.ShapesEntry(stopTimes[0].trip.tripID, -1, treeNodes[0].pointOnLink.link.origNode.gpsLat,
-                                            treeNodes[0].pointOnLink.link.origNode.gpsLng))
+        newShapesEntry = gtfs.ShapesEntry(stopTimes[0].trip.tripID, -1, treeNodes[0].pointOnLink.link.origNode.gpsLat,
+            treeNodes[0].pointOnLink.link.origNode.gpsLng)
+        newShapesEntry.pointX, newShapesEntry.pointY = treeNodes[0].pointOnLink.link.origNode.pointX, treeNodes[0].pointOnLink.link.origNode.pointY
+        gtfsShapes.append(newShapesEntry)
     
     # Append all of the stops:
     for gtfsStopTime in stopTimes:
         "@type gtfsStopTime: gtfs.StopTimesEntry"
-        gtfsShapes.append(gtfs.ShapesEntry(gtfsStopTime.trip.tripID, gtfsStopTime.stopSeq, gtfsStopTime.stop.gpsLat, gtfsStopTime.stop.gpsLng))
+        newShapesEntry = gtfs.ShapesEntry(gtfsStopTime.trip.tripID, gtfsStopTime.stopSeq, gtfsStopTime.stop.gpsLat, gtfsStopTime.stop.gpsLng)
+        newShapesEntry.pointX, newShapesEntry.pointY = gtfsStopTime.stop.pointX, gtfsStopTime.stop.pointY
+        gtfsShapes.append(newShapesEntry)
         gtfsStopsLookup[gtfsStopTime.stopSeq] = gtfsStopTime
 
     if dummyFlag:
         # Append a trailing dummy shape to force routing through the path end:
-        gtfsShapes.append(gtfs.ShapesEntry(stopTimes[0].trip.tripID, -1, treeNodes[-1].pointOnLink.link.destNode.gpsLat,
-                                            treeNodes[-1].pointOnLink.link.destNode.gpsLng))
+        newShapesEntry = gtfs.ShapesEntry(stopTimes[0].trip.tripID, -1, treeNodes[-1].pointOnLink.link.destNode.gpsLat,
+            treeNodes[-1].pointOnLink.link.destNode.gpsLng)
+        newShapesEntry.pointX, newShapesEntry.pointY = treeNodes[-1].pointOnLink.link.destNode.pointX, treeNodes[-1].pointOnLink.link.destNode.pointY
+        gtfsShapes.append(newShapesEntry)
 
     return gtfsShapes, gtfsStopsLookup
 

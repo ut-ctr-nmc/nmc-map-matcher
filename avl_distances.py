@@ -207,7 +207,7 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
         
         # Step 1: Find the longest distance of contiguous valid links within the shape for each trip:
         # Step 2: Ignore routes that are entirely outside our valid time interval.
-        ourGTFSNodes, longestStart = transit_gtfs.treeContiguous(gtfsNodes[gtfsTrips[tripID].shapeEntries[0].shapeID], vistaNetwork, 
+        ourGTFSNodes, _ = transit_gtfs.treeContiguous(gtfsNodes[gtfsTrips[tripID].shapeEntries[0].shapeID], vistaNetwork, 
             stopTimes)
         if ourGTFSNodes is None:
             continue        
@@ -215,15 +215,26 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
         # Step 3: Match up stops to that contiguous list:
         # At this point, we're doing something with this.
         print("INFO: -- Matching stops for trip %d --" % tripID, file=sys.stderr)
-        vistaSubset, outLinkIDList = transit_gtfs.buildSubset(ourGTFSNodes, vistaNetwork)
+        vistaSubset, _ = transit_gtfs.buildSubset(ourGTFSNodes, vistaNetwork)
+        linkList = vistaSubset.linkMap.values()
+        startPointOnLink = None
+        endPointOnLink = None
+        if len(linkList) > 0:
+            # Express the exact start and end locations in terms of links that were created for the subset.
+            startPointOnLink = graph.PointOnLink(linkList[0], ourGTFSNodes[0].pointOnLink.dist, ourGTFSNodes[0].pointOnLink.nonPerpPenalty,
+                ourGTFSNodes[0].pointOnLink.refDist)
+            startPointOnLink.pointX, startPointOnLink.pointY = ourGTFSNodes[0].pointOnLink.pointX, ourGTFSNodes[0].pointOnLink.pointY 
+            endPointOnLink = graph.PointOnLink(linkList[-1], ourGTFSNodes[-1].pointOnLink.dist, ourGTFSNodes[-1].pointOnLink.nonPerpPenalty,
+                ourGTFSNodes[-1].pointOnLink.refDist)
+            endPointOnLink.pointX, endPointOnLink.pointY = ourGTFSNodes[-1].pointOnLink.pointX, ourGTFSNodes[-1].pointOnLink.pointY 
 
         # Then, prepare the stops as GTFS shapes entries:
         print("INFO: Mapping stops to VISTA network...", file=sys.stderr)
-        gtfsShapes, gtfsStopsLookup = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes, False)
+        gtfsShapes, _ = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes, False)
         #gtfsShapes, gtfsStopsLookup = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes)
 
         # Find a path through our prepared node map subset:
-        resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset, ourGTFSNodes[0].pointOnLink, ourGTFSNodes[-1].pointOnLink)
+        resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset, startPointOnLink, endPointOnLink)
         #resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset)
         "@type resultTree: list<path_engine.PathEnd>"
         
@@ -381,7 +392,7 @@ def main(argv):
         # Read stop times information:
         print("INFO: Read GTFS stop times...", file=sys.stderr)
         gtfsStopTimes = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs)
-    "@type gtfsStopTimes: dict<gtfs.TripsEntry, list<StopTimesEntry>>"
+        "@type gtfsStopTimes: dict<gtfs.TripsEntry, list<StopTimesEntry>>"
         
     # Output the route distance information:
     if not problemReport:

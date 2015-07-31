@@ -119,27 +119,33 @@ class GraphLib:
     
     @ivar gps: Reference GPS center coordinates plus calculator
     @type gps: gps.GPS
-    @ivar nodeMap: Collection of nodes
+    @ivar nodeMap: Collection of nodes if we are creating a graph-based network, None if single-path.
     @type nodeMap: dict<int, GraphNode>
     @ivar linkMap: Collection of links
     @type linkMap: dict<int, GraphLink>
+    @ivar prevLinkID: Previous link ID for cases where we are dealing with single-path.
     """
-    def __init__(self, gpsCtrLat, gpsCtrLng):
+    def __init__(self, gpsCtrLat, gpsCtrLng, singlePath=False):
         """
         @type gpsCtrLat: float
         @type gpsCtrLng: float
         """
         self.gps = gps.GPS(gpsCtrLat, gpsCtrLng)
-        self.nodeMap = {}
+        if not singlePath:
+            self.nodeMap = {}
+        else:
+            self.nodeMap = None
         self.linkMap = {}
+        self.prevLinkID = 0
 
     def addNode(self, node):
         """
-        addNode adds a node to the GraphLib and translates its coordinates to feet.
+        addNode adds a node to the GraphLib and translates its coordinates to feet. Not supported for single-path.
         @type node: GraphNode
         """
-        (node.coordX, node.coordY) = self.gps.gps2feet(node.gpsLat, node.gpsLng)
-        self.nodeMap[node.id] = node
+        if self.nodeMap is not None:
+            (node.coordX, node.coordY) = self.gps.gps2feet(node.gpsLat, node.gpsLng)
+            self.nodeMap[node.id] = node
         
     def addLink(self, link):
         """
@@ -147,12 +153,18 @@ class GraphLib:
         addNode first.
         @type link: GraphLink
         """
-        if link.origNode.id not in self.nodeMap:
+        if self.nodeMap is not None and link.origNode.id not in self.nodeMap:
             print('WARNING: Node %d is not present.' % link.origNode, file = sys.stderr)
             return
         link.distance = linear.getNorm(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY)
-        self.linkMap[link.id] = link
-        self.nodeMap[link.origNode.id].outgoingLinkMap[link.id] = link
+        if self.nodeMap is not None:
+            ourID = link.id
+            self.prevLinkID = link.id
+        else:
+            ourID = self.prevLinkID
+            self.prevLinkID += 1
+        self.linkMap[ourID] = link
+        link.origNode.outgoingLinkMap[link.id] = link
         
     def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints = sys.maxint):
         """
@@ -223,7 +235,7 @@ class WalkPathProcessor:
     @ivar pointOnLinkDest: For internal record-keeping
     @type pointOnLinkDest: PointOnLink
     """        
-    def __init__(self, limitRadius, limitDistance, limitRadiusRev, limitSteps):
+    def __init__(self, limitRadius, limitDistance, limitRadiusRev, limitSteps, allowUTurns=True):
         """
         This sets the parameters that are final for the entire walkPath algorithm execution:
         @type limitRadius: float
@@ -240,6 +252,7 @@ class WalkPathProcessor:
 
         # walkPath cache:
         self.backCache = {}
+        self.allowUTurns = allowUTurns
         
         # Keep the running score:
         self.backtrackScore = limitDistance
@@ -381,11 +394,10 @@ class WalkPathProcessor:
         else:
             myList = walkPathElem.incomingLink.destNode.outgoingLinkMap.values()
         for link in myList:
-            """
-            # Filter out U-turns:
-            if walkPathElem.incomingLink.isComplementary(link):
-                continue
-            """
+            if not self.allowUTurns:
+                # Filter out U-turns:
+                if walkPathElem.incomingLink.isComplementary(link):
+                    continue
             
             # Had we visited this before?
             if link.id in walkPathElem.backtrackSet:
