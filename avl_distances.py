@@ -181,6 +181,8 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
                                         stopSearchRadius, 1, 1.5, 1.5, sys.maxint, sys.maxint)
     pathEngine.limitClosestPoints = 12
     pathEngine.limitSimultaneousPaths = 12
+    pathEngine.limitLinearDist = 5 * 5280
+    pathEngine.limitDirectDist = 4 * 5280
     pathEngine.maxHops = 50
     pathEngine.logFile = None # Suppress the log outputs for the path engine; enough stuff will come from other sources.
 
@@ -234,15 +236,17 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
         #gtfsShapes, gtfsStopsLookup = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes)
 
         # Find a path through our prepared node map subset:
-        resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset, startPointOnLink, endPointOnLink)
-        #resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset)
+        resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset, startPointOnLink, endPointOnLink, 0.2)
         "@type resultTree: list<path_engine.PathEnd>"
+        
+        if resultTree is None:
+            # constructPath() must have tossed this path out.
+            print("WARNING: The path constructor tossed out Trip ID %d." % tripID, file=sys.stderr)
+            continue
         
         # Strip off the dummy ends:
         del resultTree[-1]
         del resultTree[0]
-        if len(resultTree) > 0:
-            resultTree[0].prevTreeNode = None
         
         # So now we should have one tree entry per matched stop.
 
@@ -255,6 +259,7 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
         # Dump out the output:
         distance = 0
         ctr = 0
+        # TODO: See if we can get away with not using lastPos, etc., because prevTreeNode should be valid.
         lastPos = ourGTFSNodes[0].pointOnLink.dist
         lastLink = ourGTFSNodes[0].pointOnLink.link
         lastPoint = ourGTFSNodes[0].pointOnLink
@@ -266,6 +271,7 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
                 procLinks = pathEnd.routeInfo[:]
                 procLinks.append(pathEnd.pointOnLink.link)
                 for link in procLinks:
+                    # TODO: Check to see if the watch out statement on the next line is true.
                     if link.id != lastLink.id: # Watch out! Link objects for vistaSubset are different instanciations than those in PathEnds.
                         distance += lastLink.distance - lastPos
                         lastPos = 0
@@ -274,8 +280,24 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
                         lastPos = pathEnd.pointOnLink.dist
                     lastLink = link
             else:
-                print("WARNING: Trip ID %d, stop index %d had restarted; using direct distance." % (tripID, index), file=sys.stderr)
-                distance += math.sqrt((pathEnd.pointOnLink.pointX - lastPoint.pointX) ** 2 + (pathEnd.pointOnLink.pointY - lastPoint.pointY) ** 2)
+                # Check to see if the restart happens on a single path. This would be true if we are doing bus stop matching:
+                restartLink = pathEnd.prevTreeNode.pointOnLink.link
+                restartDistance = restartLink.distance - pathEnd.prevTreeNode.pointOnLink.dist
+                cannotRestartFlag = False
+                while restartLink is not pathEnd.pointOnLink.link:
+                    if len(restartLink.destNode.outgoingLinkMap) != 1 or len(restartLink.destNode.outgoingLinkMap) == 0:
+                        # Forget that idea... we have multiple links or a dead-end.
+                        cannotRestartFlag = True
+                        break
+                    restartLink = restartLink.destNode.outgoingLinkMap.itervalues().next()
+                    restartDistance += restartLink.distance
+                if not cannotRestartFlag:
+                    restartDistance -= restartLink.distance - pathEnd.pointOnLink.dist
+                    distance += restartDistance
+                    print("WARNING: Trip ID %d, stop index %d had restarted; successfully computed linear distance." % (tripID, index), file=sys.stderr)
+                else:
+                    print("WARNING: Trip ID %d, stop index %d had restarted; using direct distance." % (tripID, index), file=sys.stderr)
+                    distance += math.sqrt((pathEnd.pointOnLink.pointX - lastPoint.pointX) ** 2 + (pathEnd.pointOnLink.pointY - lastPoint.pointY) ** 2)
                 lastLink = pathEnd.pointOnLink.link
             lastPoint = pathEnd.pointOnLink
             index += 1

@@ -193,7 +193,7 @@ class PathEngine:
                     if shapeEntry.hintFlag:
                         shapeTypeStr = "hint"
                     print("WARNING: No VISTA paths were found for %s %s, sequence %d." \
-                          % (shapeTypeStr, str(shapeEntry.shapeID), shapeEntry.shapeSeq), file = self.logFile)
+                          % (shapeTypeStr, str(shapeEntry.shapeID), shapeEntry.shapeSeq), file=self.logFile)
             
             # Figure out which if the previous paths is the cheapest.
             gtfsPointRestart = None
@@ -225,7 +225,7 @@ class PathEngine:
             
         return gtfsPoints            
 
-    def constructPath(self, shapeEntries, vistaGraph, forceStartPoint=None, forceEndPoint=None):
+    def constructPath(self, shapeEntries, vistaGraph, forceStartPoint=None, forceEndPoint=None, tossRatio=1.0):
         """
         constructPath goes through a list of shapeEntries and finds the shortest path through the given vistaGraph.
         This roughly corresponds with algorithms "WalkTrack" and "TrackpointArrives" in Figure 2 of Perrine et al. 2015.
@@ -251,17 +251,25 @@ class PathEngine:
             shapeEntry.pointX, shapeEntry.pointY = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
             gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, [PathEnd(shapeEntry, forceStartPoint)],
                 vistaGraph)
-            
+
+            # Sanity check on the start anchor:
+            if linear.getNorm(shapeEntry.pointX, shapeEntry.pointY, shapeEntries[0].pointX, shapeEntries[0].pointY) > self.limitDirectDist:
+                print("WARNING: No georeference points were found near the start path anchor for ID %s." % str(shapeEntry.shapeID), file=sys.stderr)
+                        
         shapeCtr = 0
+        startInvalidCheckFlag = True
+        startValidIndex = 0
+        lastValidIndex = -1
+        invalidCtr = 0
         if self.logFile is not None:
-            print("INFO: Building path...", file = self.logFile)
+            print("INFO: Building path...", file=self.logFile)
             
         for shapeEntry in shapeEntries:
             "@type shapeEntry: ShapesEntry"
             shapeCtr = shapeCtr + 1
             if shapeCtr % 10 == 0:
                 if self.logFile is not None:
-                    print("INFO:   ... %d of %d" % (shapeCtr, len(shapeEntries)), file = self.logFile)
+                    print("INFO:   ... %d of %d" % (shapeCtr, len(shapeEntries)), file=self.logFile)
 
             (pointX, pointY) = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
             closestVISTA = vistaGraph.findPointsOnLinks(pointX, pointY, self.pointSearchRadius, self.pointSearchPrimary,
@@ -270,10 +278,17 @@ class PathEngine:
             "@type closestVISTA: list<graph.PointOnLink>"
             
             if len(closestVISTA) == 0:
+                lastValidIndex = shapeCtr
+                invalidCtr += 1
                 if self.logFile is not None:
                     print("WARNING: No closest VISTA points were found for GTFS shape %s, sequence %d." \
-                          % (str(shapeEntry.shapeID), shapeEntry.shapeSeq), file = self.logFile)
+                          % (str(shapeEntry.shapeID), shapeEntry.shapeSeq), file=self.logFile)
                 continue
+            else:
+                if startInvalidCheckFlag:
+                    startInvalidCheckFlag = False
+                    startValidIndex = lastValidIndex
+                invalidCtr = 0
             
             # Initialize blank GTFS tree entries:
             gtfsPoints = []
@@ -287,15 +302,40 @@ class PathEngine:
             # PathEnd.prevTreeNode)
             gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, vistaGraph)
 
+        if startInvalidCheckFlag:
+            startValidIndex = len(shapeEntries)
+
         # Finalize path with ending anchor if it is specified:
         if forceEndPoint is not None:
             shapeEntry = gtfs.ShapesEntry(shapeEntries[0].shapeID, -1, forceEndPoint.link.origNode.gpsLat, forceEndPoint.link.origNode.gpsLng)
+            shapeEntry.pointX, shapeEntry.pointY = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
             gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, [PathEnd(shapeEntry, forceEndPoint)],
                 vistaGraph)
 
+            # Sanity check on the end anchor:
+            if linear.getNorm(shapeEntry.pointX, shapeEntry.pointY, shapeEntries[-1].pointX, shapeEntries[-1].pointY) > self.limitDirectDist:
+                print("WARNING: No georeference points were found near the end path anchor for ID %s." % str(shapeEntry.shapeID), file=sys.stderr)
+                    
+        # Additional reporting on points found and not found:
+        reportStr = ""
+        missingEnds = 0
+        if startValidIndex > 0:
+            reportStr = "%d are missing from the start" % startValidIndex
+            missingEnds = startValidIndex
+        if lastValidIndex == len(shapeEntries) and startValidIndex < len(shapeEntries):
+            if startValidIndex > 0:
+                reportStr += " and"
+            reportStr += " %d are missing from the end" % invalidCtr
+            missingEnds += invalidCtr
+        if len(reportStr) > 0:
+            print("WARNING: Out of %d georeference points, %s." % (len(shapeEntries), reportStr), file=sys.stderr)
+        if float(missingEnds) / len(shapeEntries) > tossRatio:
+            print("WARNING: Aborting ID %s." % str(shapeEntry.shapeID), file=sys.stderr)
+            return None
+
         # Now, extract the shortest path.  First, find the end that has the cheapest cost:
         if self.logFile is not None:
-            print("INFO: Finishing path...", file = self.logFile)
+            print("INFO: Finishing path...", file=self.logFile)
         gtfsPoint = None
         "@type gtfsPoint: PathEnd"
         if len(gtfsPointsPrev) > 0:
@@ -394,7 +434,7 @@ class PathEngine:
                     if hintIndex + 1 > hintStatus:
                         hintStatus = hintIndex + 1
                         print("INFO: Enter hint# %d zone at shapeID %s, seq %d..." % (hintEntries[hintStatus].shapeSeq,
-                            str(oldTreeNode.shapeEntry.shapeID), oldTreeNode.shapeEntry.shapeSeq), file = self.logFile)
+                            str(oldTreeNode.shapeEntry.shapeID), oldTreeNode.shapeEntry.shapeSeq), file=self.logFile)
                     
                     # TODO: Cache these so that we don't need to find the points for each hint again.
                     closestVISTA = vistaGraph.findPointsOnLinks(hintEntry.pointX, hintEntry.pointY, self.pointSearchRadius,
@@ -404,7 +444,7 @@ class PathEngine:
                     if len(closestVISTA) == 0:
                         if self.logFile is not None:
                             print("WARNING: No closest VISTA points were found for hint for shape %s, sequence %d." \
-                                  % (str(hintEntry.shapeID), hintEntry.shapeSeq), file = self.logFile)
+                                  % (str(hintEntry.shapeID), hintEntry.shapeSeq), file=self.logFile)
                     else:
                         # Initialize blank GTFS tree entries for each found hint proximity point:
                         gtfsPoints = []
@@ -516,7 +556,7 @@ class PathEngine:
         @rtype: list<PathEnd>
         """
         if self.logFile is not None:
-            print("INFO: Refining path...", file = self.logFile)
+            print("INFO: Refining path...", file=self.logFile)
             
         treeNodes = []
         hintStatus = -1
@@ -552,7 +592,7 @@ class PathEngine:
                     if (evalCode == 0):
                         evalCode = 1 # Full reevaluation
                         print("INFO: Enter restart zone at shapeID %s, seq %d..." % (str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID),
-                            oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq), file = self.logFile)
+                            oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq), file=self.logFile)
                 else:
                     # Tie up loose ends if the previous round had new points found.
                     if evalCode == 1 and hintStatus == -1:
@@ -561,10 +601,10 @@ class PathEngine:
                         if oldGTFSPath[oldTreeNodeIndex].shapeEntry.hintFlag:
                             shapeTypeStr = "hint"
                         print("INFO: Exiting zone at %s %s, seq %d..." % (shapeTypeStr, str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID),
-                            oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq), file = self.logFile)
+                            oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq), file=self.logFile)
                         
                 if evalCode == 1:
-                    print("INFO:   ... shape seq. %d" % oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq, file = self.logFile)
+                    print("INFO:   ... shape seq. %d" % oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq, file=self.logFile)
 
                 # TODO: Also if a shape point is flagged to be reevaluated.
             
@@ -591,14 +631,14 @@ class PathEngine:
                     if not flag:
                         print("WARNING: No VISTA path found into GTFS shpaeID %s, seq %d; restarting." \
                             % (str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID), oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq),
-                            file = self.logFile)
+                            file=self.logFile)
                 firstFlag = False                
             oldTreeNodeIndex += 1
             
         # Now, extract the shortest path.  First, find the end that has the cheapest cost:
         # TODO: Check to see if all of the hints were traversed.
         if self.logFile is not None:
-            print("INFO: Finishing path...", file = self.logFile)
+            print("INFO: Finishing path...", file=self.logFile)
         gtfsPoint = None
         "@type gtfsPoint: PathEnd"
         if len(treeNodes) > 0:
@@ -617,13 +657,13 @@ class PathEngine:
         # Reverse the order of the list to go from start to end.
         return ret[::-1]
             
-def dumpStandardHeader(outFile = sys.stdout):
+def dumpStandardHeader(outFile=sys.stdout):
     """
     Outputs the CSV header that precedes the info from dumpStandardInfo().
     """
-    print("shapeID,shapeSeq,shapeType,linkID,linkDist,totalDist,numLinksTrav,linksTrav", file = outFile)
+    print("shapeID,shapeSeq,shapeType,linkID,linkDist,totalDist,numLinksTrav,linksTrav", file=outFile)
 
-def dumpStandardInfo(treeNodes, outFile = sys.stdout):
+def dumpStandardInfo(treeNodes, outFile=sys.stdout):
     """
     Outputs the body of a CSV format of VISTA path information.
     @type treeNodes: list<PathEnd>
@@ -644,7 +684,7 @@ def dumpStandardInfo(treeNodes, outFile = sys.stdout):
             for routeTraverse in gtfsNode.routeInfo:
                 "@type routeTraverse: graph.GraphLink"
                 outStr = outStr + ",%d" % routeTraverse.id
-        print(outStr, file = outFile)
+        print(outStr, file=outFile)
 
 def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: int(x)):
     """
@@ -662,7 +702,7 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
     # Sanity check:
     fileLine = inFile.readline()
     if not fileLine.startswith("shapeID,shapeSeq,shapeType,linkID,linkDist,totalDist,numLinksTrav,linksTrav"):
-        print("ERROR: The path match file doesn't have the expected header.", file = sys.stderr)
+        print("ERROR: The path match file doesn't have the expected header.", file=sys.stderr)
         return None
         
     # Storage place for sequence numbers:
@@ -695,7 +735,7 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
             for index in range(0, len(linksTrav)):
                 linksTravID = int(lineElems[index + 7])
                 if linksTravID not in vistaGraph.linkMap:
-                    print("WARNING: The path match file refers to a nonexistent link ID %d." % linksTravID, file = sys.stderr)
+                    print("WARNING: The path match file refers to a nonexistent link ID %d." % linksTravID, file=sys.stderr)
                     contFlag = True
                     break
                 linksTrav[index] = vistaGraph.linkMap[linksTravID]
@@ -705,7 +745,7 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
 
             # Resolve the shapeID list:
             if shapeID not in gtfsShapes:
-                print("WARNING: The path match file refers to a nonexistent shape ID %s." % str(shapeID), file = sys.stderr)
+                print("WARNING: The path match file refers to a nonexistent shape ID %s." % str(shapeID), file=sys.stderr)
                 continue
             shapeElems = gtfsShapes[shapeID]
             "@type shapeElems: list<gtfs.ShapesEntry>"
@@ -720,7 +760,7 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
                 
             # Resolve the link object:
             if linkID not in vistaGraph.linkMap:
-                print("WARNING: The path match file refers to a nonexistent link ID %d." % linkID, file = sys.stderr)
+                print("WARNING: The path match file refers to a nonexistent link ID %d." % linkID, file=sys.stderr)
                 continue
             link = vistaGraph.linkMap[linkID]
             "@type link: graph.GraphLink"
@@ -736,7 +776,7 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
                         break
                 if shapeEntry is None:
                     print("WARNING: No GTFS shape entry for shape ID: %s, seq: %d; check for out of order."
-                          % (str(shapeID), shapeSeq), file = sys.stderr)
+                          % (str(shapeID), shapeSeq), file=sys.stderr)
                     continue
             else:
                 # Reconstruct the hint:
@@ -750,7 +790,7 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
                     (shapeEntry.pointX, shapeEntry.pointY) = (pointX, pointY)
                 else:
                     print("WARNING: Hint entry may be out of order: Shape: %s, seq: %d.  Hint will not be used."
-                          % (str(shapeID), shapeSeq), file = sys.stderr)
+                          % (str(shapeID), shapeSeq), file=sys.stderr)
                     continue
             
             # Recalculate parameters needed for the tree node:
@@ -772,7 +812,7 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
                 ret[shapeID] = []
             else:
                 # Restore the previous tree entry linkage:
-                newEntry.prevTreeNode = ret[shapeID][len(ret[shapeID]) - 1]
+                newEntry.prevTreeNode = ret[shapeID][-1]
             ret[shapeID].append(newEntry)
 
     # Return the tree nodes:
