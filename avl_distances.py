@@ -1,6 +1,9 @@
 """
 avl_distances.py performs a distance analysis over a given shape and
-outputs the distance traveled from the start of the shape.
+outputs the distance traveled from the start of the shape. This is
+set up to use the format of CapMetrics files at
+https://github.com/scascketta/CapMetrics
+
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
@@ -154,6 +157,16 @@ def readAVLCSV(avlCSVFile, gtfsTrips, gps, routeID=None, routeHeadsign=None):
     # Return the fake stop times:
     return ret
 
+def format24Time(timeValue):
+    """
+    Note that the GTFS stopTimes input uses hours greater than 23 to express next early morning service.
+    In gtfs.fillStopTimes(), this has been adapted to datetime by incrementing the day and doing a mod 24 on the hours.
+    Already, stop times are stored relative to the day the epoch 1/1/1900.
+    @type timeValue: datetime
+    @rtype str
+    """
+    return "%02d:%02d:%02d" % ((timeValue.day - 1) * 24 + timeValue.hour, timeValue.minute, timeValue.second)
+
 def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSearchRadius, problemReport, stopsFlag=False,
                      outFile=sys.stdout):
     """
@@ -257,29 +270,12 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
             problemReportNodes[tripID if not stopsFlag else 0] = transit_gtfs.assembleProblemReport(resultTree, vistaNetwork) 
         
         # Dump out the output:
-        distance = 0
-        ctr = 0
-        # TODO: See if we can get away with not using lastPos, etc., because prevTreeNode should be valid.
-        lastPos = ourGTFSNodes[0].pointOnLink.dist
-        lastLink = ourGTFSNodes[0].pointOnLink.link
-        lastPoint = ourGTFSNodes[0].pointOnLink
+        distCorrection = 0.0
         
         index = 0
         for pathEnd in resultTree:
             "@type pathEnd: path_engine.PathEnd"
-            if not pathEnd.restart:
-                procLinks = pathEnd.routeInfo[:]
-                procLinks.append(pathEnd.pointOnLink.link)
-                for link in procLinks:
-                    # TODO: Check to see if the watch out statement on the next line is true.
-                    if link.id != lastLink.id: # Watch out! Link objects for vistaSubset are different instanciations than those in PathEnds.
-                        distance += lastLink.distance - lastPos
-                        lastPos = 0
-                    else:
-                        distance += pathEnd.pointOnLink.dist - lastPos
-                        lastPos = pathEnd.pointOnLink.dist
-                    lastLink = link
-            else:
+            if pathEnd.restart:
                 # Check to see if the restart happens on a single path. This would be true if we are doing bus stop matching:
                 restartLink = pathEnd.prevTreeNode.pointOnLink.link
                 restartDistance = restartLink.distance - pathEnd.prevTreeNode.pointOnLink.dist
@@ -293,29 +289,28 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
                     restartDistance += restartLink.distance
                 if not cannotRestartFlag:
                     restartDistance -= restartLink.distance - pathEnd.pointOnLink.dist
-                    distance += restartDistance
-                    print("WARNING: Trip ID %d, stop index %d had restarted; successfully computed linear distance." % (tripID, index), file=sys.stderr)
+                    # We add a correction that expresses the difference between the total distance computed by direct linear distance
+                    # (from the path matcher) and the total distance computed by graph subset traversal.
+                    distCorrection += (pathEnd.prevTreeNode.totalDist + restartDistance) - pathEnd.totalDist
+                    print("WARNING: Trip ID %d, stop index %d had restarted; successfully computed linear path distance." % (tripID, index), file=sys.stderr)
                 else:
                     print("WARNING: Trip ID %d, stop index %d had restarted; using direct distance." % (tripID, index), file=sys.stderr)
-                    distance += math.sqrt((pathEnd.pointOnLink.pointX - lastPoint.pointX) ** 2 + (pathEnd.pointOnLink.pointY - lastPoint.pointY) ** 2)
-                lastLink = pathEnd.pointOnLink.link
-            lastPoint = pathEnd.pointOnLink
-            index += 1
 
             if not problemReport:            
                 if not stopsFlag:
                     # Recall that because of transit_gtfs.prepareMapStops() the shapeID is the trips ID.
-                    # And, recall that because of readAVLCSV(), stopName is the speed value. 
-                    print ("%d,%f,%s,%s" % (pathEnd.shapeEntry.shapeID, distance, stopTimes[ctr].arrivalTime.strftime("%Y-%m-%dT%H:%M:%S"),
-                        stopTimes[ctr].stop.stopName), file=outFile);
+                    # And, recall that because of readAVLCSV(), stopName is the speed value.
+                    # TODO: Fix the system to represent night-owl trips with hours 24 and greater. Can use format24Time().
+                    # Currently, the CapMetrics data presumably doesn't have the night-owl trips in the same day, so there
+                    # would need to be some processing of the next date file. 
+                    print ("%d,%f,%s,%s" % (pathEnd.shapeEntry.shapeID, pathEnd.totalDist + distCorrection, stopTimes[index].arrivalTime.strftime("%Y-%m-%dT%H:%M:%S"),
+                        stopTimes[index].stop.stopName), file=outFile);
                 else:
-                    print ("%d,%d,%d,%f,%s,%s,%s" % (pathEnd.shapeEntry.shapeID, stopTimes[ctr].stop.stopID, stopTimes[ctr].stopSeq, distance,
-                        stopTimes[ctr].arrivalTime.strftime("%H:%M:%S"), stopTimes[ctr].departureTime.strftime("%H:%M:%S"), 
-                        stopTimes[ctr].stop.stopName), file=outFile);
-                    # TODO: Note that the GTFS stopTimes input uses hours greater than 23 to express next early morning service.
-                    # In gtfs.fillStopTimes(), this has been adapted to datetime by incrementing the day and doing a mod 24 on the hours.
-                    # Already, stop times are stored relative to the day the epoch 1/1/1900. Maybe a new function call will do the trick.
-            ctr += 1
+                    # TODO: Fix the system to represent night-owl trips with hours 24 and greater. Can use format24Time().
+                    print ("%d,%d,%d,%f,%s,%s,%s" % (pathEnd.shapeEntry.shapeID, stopTimes[index].stop.stopID, stopTimes[index].stopSeq,
+                        pathEnd.totalDist + distCorrection, stopTimes[index].arrivalTime.strftime("%H:%M:%S"), stopTimes[index].departureTime.strftime("%H:%M:%S"), 
+                        stopTimes[index].stop.stopName), file=outFile);
+            index += 1
         ret[tripID] = resultTree
     
     # Deal with Problem Report:

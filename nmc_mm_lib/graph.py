@@ -42,6 +42,7 @@ class GraphLink:
         
         # Placeholders for efficiency of measurement:
         self.distance = 0.0
+        self.uid = -1
         
     def isComplementary(self, otherLink):
         """
@@ -152,6 +153,7 @@ class GraphLib:
         addLink adds a link to the GraphLib and updates its respective nodes.  Call 
         addNode first.
         @type link: GraphLink
+        @return the unique ID for the link
         """
         if self.nodeMap is not None and link.origNode.id not in self.nodeMap:
             print('WARNING: Node %d is not present.' % link.origNode, file = sys.stderr)
@@ -159,12 +161,15 @@ class GraphLib:
         link.distance = linear.getNorm(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY)
         if self.nodeMap is not None:
             ourID = link.id
+            link.uid = link.id
             self.prevLinkID = link.id
         else:
             ourID = self.prevLinkID
+            link.uid = self.prevLinkID
             self.prevLinkID += 1
         self.linkMap[ourID] = link
         link.origNode.outgoingLinkMap[link.id] = link
+        return link.uid
         
     def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints = sys.maxint):
         """
@@ -311,9 +316,9 @@ class WalkPathProcessor:
             # Make a copy of the set only if it is to change, and add in the new incoming link ID:
             oldBacktrackSet = prevStruct.backtrackSet if prevStruct is not None else set()
             "@type oldBacktrackSet: set<int>"
-            if incomingLink.id not in oldBacktrackSet: 
+            if incomingLink.uid not in oldBacktrackSet: 
                 self.backtrackSet = set(oldBacktrackSet)
-                self.backtrackSet.add(incomingLink.id)
+                self.backtrackSet.add(incomingLink.uid)
             else:
                 self.backtrackSet = oldBacktrackSet
     
@@ -385,18 +390,18 @@ class WalkPathProcessor:
             self.backtrackScore = walkPathElem.distance
             
             # Log the winner into the cache by looking at all of the parent elements:
-            if self.pointOnLinkDest.link.id not in self.backCache:
-                self.backCache[self.pointOnLinkDest.link.id] = {}
-            mappings = self.backCache[self.pointOnLinkDest.link.id]
+            if self.pointOnLinkDest.link.uid not in self.backCache:
+                self.backCache[self.pointOnLinkDest.link.uid] = {}
+            mappings = self.backCache[self.pointOnLinkDest.link.uid]
             "@type mappings: dict<int, GraphLink>"
             if walkPathElem.prevStruct is not None:
                 element = walkPathElem.prevStruct
                 "@type element: _WalkPathNext"
                 while element.prevStruct is not None:
-                    if (element.prevStruct.incomingLink.id in mappings) \
-                            and (mappings[element.prevStruct.incomingLink.id] is element.incomingLink):
+                    if (element.prevStruct.incomingLink.uid in mappings) \
+                            and (mappings[element.prevStruct.incomingLink.uid] is element.incomingLink):
                         break
-                    mappings[element.prevStruct.incomingLink.id] = element.incomingLink
+                    mappings[element.prevStruct.incomingLink.uid] = element.incomingLink
                     element = element.prevStruct
                 
             # Process the next queue element:
@@ -404,9 +409,9 @@ class WalkPathProcessor:
         
         # Look at each link that comes out from the current node.
         # First, see if there is a shortcut to our destination already in the cache:
-        if (self.pointOnLinkDest.link.id in self.backCache) and \
-                (walkPathElem.incomingLink.id in self.backCache[self.pointOnLinkDest.link.id]):
-            myList = [self.backCache[self.pointOnLinkDest.link.id][walkPathElem.incomingLink.id]]
+        if (self.pointOnLinkDest.link.uid in self.backCache) and \
+                (walkPathElem.incomingLink.uid in self.backCache[self.pointOnLinkDest.link.uid]):
+            myList = [self.backCache[self.pointOnLinkDest.link.uid][walkPathElem.incomingLink.uid]]
         else:
             myList = walkPathElem.incomingLink.destNode.outgoingLinkMap.values()
         for link in myList:
@@ -416,7 +421,7 @@ class WalkPathProcessor:
                     continue
             
             # Had we visited this before?
-            if link.id in walkPathElem.backtrackSet:
+            if link.uid in walkPathElem.backtrackSet:
                 continue
             
             # Add to the queue for processing later:
