@@ -23,8 +23,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-from collections import deque
 import linear, gps, sys, math, operator
+from collections import deque
 
 class GraphLink:
     """
@@ -245,6 +245,8 @@ class WalkPathProcessor:
     WalkPathProcessor contains methods used to conduct the walkPath algorithm.  It maintains a cache that
     persists in-between individual pathfinding operations.
     
+    @ivar pathEngine: A reference to the object that instanciates this class.
+    @type pathEngine: path_engine.PathEngine
     @ivar backCache: Caches previous walkPath operations to accelerate processing a little bit 
     @type backCache: dict<int, dict<int, GraphLink>>
     @ivar winner: Records the winning queue element 
@@ -256,14 +258,17 @@ class WalkPathProcessor:
     @ivar pointOnLinkDest: For internal record-keeping
     @type pointOnLinkDest: PointOnLink
     """        
-    def __init__(self, limitRadius, limitDistance, limitRadiusRev, limitSteps, allowUTurns=True):
+    def __init__(self, pathEngine, limitRadius, limitDistance, limitRadiusRev, limitSteps, allowUTurns=True):
         """
         This sets the parameters that are final for the entire walkPath algorithm execution:
+        @type pathEngine: path_engine.PathEngine
         @type limitRadius: float
         @type limitDistance: float
         @type limitRadiusRev: float
         @type limitSteps: int
+        @type allowUTurns: bool
         """
+        self.pathEngine = pathEngine
         self.limitDistance = limitDistance
         self.limitRadiusRev = limitRadiusRev
         self.limitSteps = limitSteps
@@ -285,17 +290,35 @@ class WalkPathProcessor:
         self.processingQueue = None
         self.pointOnLinkOrig = None
         self.pointOnLinkDest = None
+        self.taskNumber = 0
         
     class _WalkPathNext:
         """
-        _WalkPathNext allows walk_path requests to be queued.
+        _WalkPathNext allows path match requests to be queued. Each of these represents a traversal from the
+        start of incomingLink to the starts of the next possible links. The walkPath() method will create new
+        _WalkPathNext instances for each of those possible links and enqueues them in the priority queue that
+        coordinates the pathfinding operations.
+        @ivar prevStruct: The previous _WalkPathNext object that represents the link traversal for the previous
+            link in the path.
+        @type prevStruct: _WalkPathNext
+        @ivar incomingLink: The link that we are to traverse.
+        @type incomingLink: GraphLink
+        @ivar distance: The total distance from the origin PointOnLink to the current location.
+        @type distance: float
+        @ivar cost: The total calculated cost from the origin PointOnLink to the current location.
+        @type cost: float
+        @ivar stepCount: The number of steps traversed from the origin PointOnLink to incomingLink.
+        @type stepCount: int
+        @ivar backtrackSet: A set of link unique IDs for all links that had already been traversed.
+        @ivar backtrackSet: set<int>
         """
-        def __init__(self, processor, prevStruct, incomingLink):
+        def __init__(self, processor, prevStruct, incomingLink, startupCost=0.0):
             """
             This initializes the elements that are stored within this object.
             @type processor: WalkPathProcessor
             @type prevStruct: _WalkPathNext
             @type incomingLink: GraphLink
+            @type startupCost: float
             """
             self.prevStruct = prevStruct
             self.incomingLink = incomingLink
@@ -306,13 +329,32 @@ class WalkPathProcessor:
             else:
                 self.distance = prevStruct.distance + incomingLink.distance
                 self.stepCount = prevStruct.stepCount + 1
-                
-            # Last-time initialization; we have hit the destination link:
+
             if incomingLink is processor.pointOnLinkDest.link:
+                # Last-time initialization; we have hit the destination link:
                 # We are stopping midway through this link.  So, subtract off the distance from the
                 # end that we aren't traversing.
                 self.distance -= processor.pointOnLinkDest.link.distance - processor.pointOnLinkDest.dist
-            
+                self.cost = startupCost + processor.pathEngine.scoreFunction(processor.pointOnLinkOrig, self.distance, processor.pointOnLinkDest)
+            else:
+                # Normal operation; we hadn't encountered the destination link yet:
+                self.cost = startupCost + processor.pathEngine.scoreFunction(processor.pointOnLinkOrig, self.distance, None)
+
+            # Establish a priority metric here, favoring a destination node straight ahead and close.
+            self.dotMag = 0.0
+            """
+            This seems to just make the system worse.
+            if incomingLink is not processor.pointOnLinkDest.link:
+                oPointX, oPointY = incomingLink.origNode.coordX, incomingLink.origNode.coordY
+                dPointX, dPointY = incomingLink.destNode.coordX, incomingLink.destNode.coordY
+                fPointX, fPointY = processor.pointOnLinkDest.link.origNode.coordX, processor.pointOnLinkDest.link.origNode.coordY
+                mag = math.sqrt((fPointX - oPointX) ** 2 + (fPointY - oPointY) ** 2) * incomingLink.distance
+                if mag > 0.0001:
+                    dot = ((dPointX - oPointX) * (fPointX - oPointX) + (dPointY - oPointY) * (fPointY - oPointY)) / mag
+                    theta = math.acos(dot) if dot < 0.999 else 0
+                    self.dotMag = theta * mag
+            """
+                                            
             # Make a copy of the set only if it is to change, and add in the new incoming link ID:
             oldBacktrackSet = prevStruct.backtrackSet if prevStruct is not None else set()
             "@type oldBacktrackSet: set<int>"
@@ -331,26 +373,42 @@ class WalkPathProcessor:
         origin.
         @type pointOnLinkOrig: PointOnLink
         @type pointOnLinkDest: PointOnLink
-        @rtype list<GraphLink>, float
+        @return List of new GraphLinks traversed, distance, and cost 
+        @rtype list<GraphLink>, float, float
         """
         # Initializations:
         self.pointOnLinkOrig = pointOnLinkOrig
         self.pointOnLinkDest = pointOnLinkDest
         self.winner = None
         self.backtrackScore = self.limitDistance
+        self.taskNumber = 0
         
         # Are the points too far away to begin with?
-        if (self.pointOnLinkDest.pointX - self.pointOnLinkOrig.pointX) ** 2 \
-                + (self.pointOnLinkDest.pointY - self.pointOnLinkOrig.pointY) ** 2 > self.limitRadiusSq:
-            return (None, 0)
+        origDestDistSq = linear.getNormSq(self.pointOnLinkDest.pointX, self.pointOnLinkDest.pointY, self.pointOnLinkOrig.pointX, self.pointOnLinkOrig.pointY)
+        if origDestDistSq > self.limitRadiusSq:
+            return (None, 0.0, 0.0)
+        
+        # Set a reasonable bound for the expected distance in this path search:
+        self.backtrackScore = self.limitDistance
 
         # Set up a queue for the search.  Preload the queue with the first starting location:
+        """
+        self.processingQueue = Queue.PriorityQueue()
+        struct = self._WalkPathNext(self, None, self.pointOnLinkOrig.link)        
+        self.processingQueue.put((struct.dotMag, self.taskNumber, struct))
+        self.taskNumber += 1
+        """
         self.processingQueue = deque()
         self.processingQueue.append(self._WalkPathNext(self, None, self.pointOnLinkOrig.link))
         
         # Do the breadth-first search:
-        while len(self.processingQueue) > 0:
+        while not len(self.processingQueue) == 0:
             self._walkPath(self.processingQueue.popleft())
+        """
+        while not self.processingQueue.empty():
+            _, _, struct = self.processingQueue.get_nowait()
+            self._walkPath(struct)
+        """
         
         # Set up the return:
         if self.winner is not None:
@@ -364,10 +422,10 @@ class WalkPathProcessor:
                 retList.append(element.incomingLink)
                 element = element.prevStruct
             retList.reverse()
-            return (retList, self.winner.distance)
+            return (retList, self.winner.distance, self.winner.cost)
         else:
             # We didn't find anything.
-            return (None, 0)
+            return (None, 0.0, 0.0)
         
     # _walkPath is called internally by walkPath().
     def _walkPath(self, walkPathElem):
@@ -381,6 +439,10 @@ class WalkPathProcessor:
         
         # Check total distance; we are not interested if we exceed our previous best score:
         if walkPathElem.distance >= self.backtrackScore:
+            return
+        
+        # Do we exceed the worst cost in the list of simultaneous costs?
+        if self.pathEngine.exceedsPreviousCosts(walkPathElem.cost):
             return
                     
         # Are we at the destination?
@@ -426,3 +488,8 @@ class WalkPathProcessor:
             
             # Add to the queue for processing later:
             self.processingQueue.append(self._WalkPathNext(self, walkPathElem, link))
+            """
+            struct = self._WalkPathNext(self, walkPathElem, link)        
+            self.processingQueue.put((struct.dotMag, self.taskNumber, struct))
+            self.taskNumber += 1
+            """

@@ -88,6 +88,9 @@ class PathEngine:
         @type nonPerpPenalty: float
         @type limitClosestPoints: int
         @type limitSimultaneousPaths: int
+        @ivar prevCosts: A list of limitSimultaneousPaths cost values that can be used to determine if proposed paths are
+            worth traversing.
+        @type prevCosts: list<float>
         """
         self.pointSearchRadius = pointSearchRadius
         self.pointSearchPrimary = pointSearchPrimary
@@ -100,6 +103,7 @@ class PathEngine:
         self.nonPerpPenalty = nonPerpPenalty
         self.limitClosestPoints = limitClosestPoints
         self.limitSimultaneousPaths = limitSimultaneousPaths
+        self.prevCosts = None
         
         self.maxHops = 12 # Limits the number of nodes to be traversed in path-finding.
         self.limitHintClosest = 4 # Number of hint closest points and closest previous track points
@@ -110,32 +114,46 @@ class PathEngine:
         self.shapeScatterCache = None
         "@type self.shapeScatterCache: list<graph.PointOnLink>"
         
-    def scoreFunction(self, prevVISTAPoint, distance, vistaPoint):
+    def scoreFunction(self, prevGeoPoint, distance, geoPoint):
         """
         scoreFunction calculates a cost value given prior path distance, and deviation from the VISTA link.
         This corresponds with algorithm "ScoreFunction" in Perrine et al., 2015.
-        @type prevGTFSPoint: graph.PointOnLink
+        @type prevGeoPoint: graph.PointOnLink
         @type distance: float
-        @type gtfsPoint: graph.PointOnLink
+        @type geoPoint: graph.PointOnLink
         @rtype float
         """
-        if prevVISTAPoint is None:
+        if prevGeoPoint is None:
             # We are starting anew.  Count the "black line distance" from the VISTA link to the GTFS point:
-            cost = vistaPoint.refDist * self.driftFactor
-            if vistaPoint.nonPerpPenalty:
-                cost = cost * self.nonPerpPenalty
+            if geoPoint is not None:
+                cost = geoPoint.refDist * self.driftFactor
+                if geoPoint.nonPerpPenalty:
+                    cost = cost * self.nonPerpPenalty
+            else:
+                cost = 0.0
             return cost
         else:
             # We're jumping from one link to another, so add the "black line" distance to the total VISTA link distance:
-            cost = vistaPoint.refDist * self.driftFactor
-            if vistaPoint.nonPerpPenalty:
-                cost = cost * self.nonPerpPenalty            
+            if geoPoint is not None:
+                cost = geoPoint.refDist * self.driftFactor
+                if geoPoint.nonPerpPenalty:
+                    cost = cost * self.nonPerpPenalty
+            else:
+                cost = 0.0            
             return cost + distance * self.distanceFactor
+        
+    def exceedsPreviousCosts(self, cost):
+        """
+        Returns true if the given cost value exceeds the most expensive cost already recorded (if the list is
+        limitSimultaneousPaths elements long)
+        @type cost: float
+        """
+        return len(self.prevCosts) >= self.limitSimultaneousPaths and cost > self.prevCosts[-1]
 
     def _findShortestPaths(self, pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, vistaGraph, avoidRestartCode = 0):
         """
         _findShortestPaths coordinates the creation of a list of new tree nodes for each of the reachable new points.
-        This is a brute-force implementation of "FindShortestPath" in Figure 2 of Perrine et al., 2015.
+        This is mostly an implementation of "FindShortestPath" in Figure 2 of Perrine et al., 2015.
         @type pathProcessor: graph.WalkPathProcessor
         @type shapeEntry: ShapesEntry
         @type gtfsPointsPrev: list<PathEnd> 
@@ -145,9 +163,11 @@ class PathEngine:
         @type avoidRestartCode: int
         @rtype list<PathEnd>
         """
+        # Initialize the list of costs that will be used to reduce the number of path-finding iterations:
+        self.prevCosts = []
+        
         # Then, for each previous GTFS tree entry, find the shortest path to each current GTFS tree entry:
         # (On the first time through, this loop will be skipped).
-        
         iterList = gtfsPointsPrev if len(gtfsPointsPrev) > 0 else [None]
         for gtfsPointPrev in iterList:
             "@type gtfsPointPrev: PathEnd"
@@ -155,13 +175,11 @@ class PathEngine:
                 "@type gtfsPoint: PathEnd"
                 # Calculate path from gtfsPointPrev to vistaPoint.
                 if gtfsPointPrev is None:
-                    (traversed, distance) = ([], 0)
+                    traversed, distance, cost = ([], 0.0, self.scoreFunction(None, 0.0, gtfsPoint.pointOnLink))
                 else:
-                    (traversed, distance) = pathProcessor.walkPath(gtfsPointPrev.pointOnLink, gtfsPoint.pointOnLink)
+                    traversed, distance, cost = pathProcessor.walkPath(gtfsPointPrev.pointOnLink, gtfsPoint.pointOnLink)
                 if traversed is not None:
                     # A valid path was found:
-                    cost = self.scoreFunction(gtfsPointPrev.pointOnLink if gtfsPointPrev is not None else None,
-                        distance, gtfsPoint.pointOnLink)
                     if (gtfsPoint.prevTreeNode is None) or ((gtfsPoint.prevTreeNode is not None) \
                                     and (gtfsPointPrev.totalCost + cost < gtfsPoint.totalCost)):
                         # This is the first proposed parent, or the proposed parent is cheaper than what
@@ -174,6 +192,11 @@ class PathEngine:
                         else:
                             gtfsPoint.totalCost = cost
                             gtfsPoint.totalDist = 0
+                        if len(self.prevCosts) < self.limitSimultaneousPaths:
+                            self.prevCosts.append(cost)
+                        else:
+                            self.prevCosts[-1] = cost
+                        self.prevCosts[:] = sorted(self.prevCosts[:])
                         
         # Clean up tree entries that didn't get assigned to a parent:
         if len(gtfsPointsPrev) > 0:
@@ -241,7 +264,7 @@ class PathEngine:
         gtfsPointsPrev = []
         "@type gtfsPointsPrev: list<PathEnd>"
 
-        pathProcessor = graph.WalkPathProcessor(self.limitDirectDist, self.limitLinearDist, self.limitDirectDistRev,
+        pathProcessor = graph.WalkPathProcessor(self, self.limitDirectDist, self.limitLinearDist, self.limitDirectDistRev,
             self.maxHops)
         "@type pathProcessor: graph.WalkPathProcessor"
         
@@ -270,6 +293,11 @@ class PathEngine:
             if shapeCtr % 10 == 0:
                 if self.logFile is not None:
                     print("INFO:   ... %d of %d" % (shapeCtr, len(shapeEntries)), file=self.logFile)
+                    
+                    ""
+                    if shapeCtr == 40:
+                        exit(0)
+                    ""
 
             (pointX, pointY) = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
             closestVISTA = vistaGraph.findPointsOnLinks(pointX, pointY, self.pointSearchRadius, self.pointSearchPrimary,
@@ -564,7 +592,7 @@ class PathEngine:
         prevOldShape = None
         "@type prevOldShape: gtfs.ShapesEntry"
         
-        pathProcessor = graph.WalkPathProcessor(self.limitDirectDist, self.limitLinearDist, self.limitDirectDistRev,
+        pathProcessor = graph.WalkPathProcessor(self, self.limitDirectDist, self.limitLinearDist, self.limitDirectDistRev,
             self.maxHops)
         "@type pathProcessor: graph.WalkPathProcessor"
 
