@@ -26,6 +26,9 @@ from __future__ import print_function
 import linear, gps, sys, math, operator
 from collections import deque
 
+"The number of feet per division of the optimized QuadSet lookup."
+DEFAULT_QUAD_RES = 500.0 
+
 class GraphLink:
     """
     GraphLink is a link that connects one node to another.
@@ -124,9 +127,11 @@ class GraphLib:
     @type nodeMap: dict<int, GraphNode>
     @ivar linkMap: Collection of links
     @type linkMap: dict<int, GraphLink>
-    @ivar prevLinkID: Previous link ID for cases where we are dealing with single-path.
+    @ivar prevLinkID: Previous link ID for cases where we are dealing with single-paths
+    @ivar quadResultion: The resolution to create the QuadSet lookup optimization scheme.
+    @ivar quadSet: The linear.QuadSet object that assists in finding lines of closest perpendicular distances
     """
-    def __init__(self, gpsCtrLat, gpsCtrLng, singlePath=False):
+    def __init__(self, gpsCtrLat, gpsCtrLng, quadResolution=DEFAULT_QUAD_RES, singlePath=False):
         """
         @type gpsCtrLat: float
         @type gpsCtrLng: float
@@ -138,6 +143,8 @@ class GraphLib:
             self.nodeMap = None
         self.linkMap = {}
         self.prevLinkID = 0
+        self.quadResolution = quadResolution
+        self.quadSet = None
 
     def addNode(self, node):
         """
@@ -145,7 +152,7 @@ class GraphLib:
         @type node: GraphNode
         """
         if self.nodeMap is not None:
-            (node.coordX, node.coordY) = self.gps.gps2feet(node.gpsLat, node.gpsLng)
+            node.coordX, node.coordY = self.gps.gps2feet(node.gpsLat, node.gpsLng)
             self.nodeMap[node.id] = node
         
     def addLink(self, link):
@@ -170,13 +177,29 @@ class GraphLib:
         self.linkMap[ourID] = link
         link.origNode.outgoingLinkMap[link.id] = link
         return link.uid
+    
+    def generateQuadSet(self):
+        minX = sys.float_info.max
+        minY = sys.float_info.max
+        maxX = sys.float_info.min
+        maxY = sys.float_info.min
+        for node in self.nodeMap.values():
+            minX = min(minX, node.coordX)
+            minY = min(minY, node.coordY)
+            maxX = max(maxX, node.coordX)
+            maxY = max(maxY, node.coordY)
+        
+        self.quadSet = linear.QuadSet(self.quadResolution, minX, minY, maxX, maxY)
+        for link in self.linkMap.values():
+            self.quadSet.storeLine(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY, link)
         
     def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints = sys.maxint):
         """
         findPointsOnLinks searches through the graph and finds all PointOnLinks that are within the radius.
         Then, eligible links are proposed primaryRadius distance around the GTFS point, or secondaryRadius
         distance from the previous VISTA points.  Returns an empty list if none are found.  This corresponds
-        with algorithm "FindPointsOnLinks" in Figure 1 of Perrine, et al. 2015.
+        with algorithm "FindPointsOnLinks" in Figure 1 of Perrine, et al. 2015. This expects that
+        generateQuadSet has already been run.
         @type pointX: float
         @type pointY: float
         @type radius: float
@@ -186,59 +209,45 @@ class GraphLib:
         @type limitClosestPoints: int
         @rtype list<PointOnLink>
         """
-        # TODO: This brute-force implementation can be more efficient with quad trees, etc. rather than
-        # scanning through all elements.
-        radiusSq = radius ** 2
-        primaryRadiusSq = primaryRadius ** 2
         secondaryRadiusSq = secondaryRadius ** 2
-        retSet = set()
-        
+        retList = []
+
         # Find perpendicular and non-perpendicular PointOnLinks that are within radius.
-        for link in self.linkMap.values():
-            "@type link: graph.GraphLink"
-            (distSq, linkDist, perpendicular) = linear.pointDistSq(pointX, pointY, link.origNode.coordX, link.origNode.coordY,
-                                                                   link.destNode.coordX, link.destNode.coordY, link.distance)
-            if distSq <= radiusSq:
-                pointOnLink = PointOnLink(link, linkDist, not perpendicular, math.sqrt(distSq))
+        latestMinDist = 0.0
+        numValidEntries = 0
+        for refDist, minDist, linkDist, perpendicular, link in self.quadSet.retrieveLines(pointX, pointY, radius):
+            if minDist > latestMinDist:
+                if numValidEntries >= limitClosestPoints:
+                    break
+                latestMinDist = minDist
+
+            pointOnLink = PointOnLink(link, linkDist, not perpendicular, refDist)
+            
+            # We are within the initial search radius. Are we then within the primary radius?
+            flag = False
+            if refDist <= primaryRadius:
+                # Yes, easy. Add to the list eventually:
+                flag = True
+            else:
+                # Check to see if the point is close to a previous point:
+                for prevPoint in prevPoints:
+                    "@type prevPoint: PointOnLink"
+                    distSq = linear.getNormSq(pointOnLink.pointX, pointOnLink.pointY, prevPoint.pointX, prevPoint.pointY)
+                    if (distSq < secondaryRadiusSq):
+                        # We have a winner:
+                        flag = True
+                        break
                 
-                # We are within the initial search radius.  Are we then within the primary radius?
-                if distSq <= primaryRadiusSq:
-                    # Yes, easy.  Add to the list:
-                    retSet.add(pointOnLink)
-                else:
-                    # Check to see if the point is close to a previous point:
-                    for prevPoint in prevPoints:
-                        "@type prevPoint: PointOnLink"
-                        distSq = linear.getNormSq(pointOnLink.pointX, pointOnLink.pointY, prevPoint.pointX, prevPoint.pointY)
-                        if (distSq < secondaryRadiusSq):
-                            # We have a winner:
-                            retSet.add(pointOnLink)
-                            break
-                   
-        # Filter out duplicate locations represented by a nonperpendicular match to the end of one link and a nonperpendicular
-        # match to the start of the following link. Keep the upstream one:
-        nonPerpSetStarts = {}
-        nonPerpSetEnds = set()
-        for pointOnLink in retSet:
-            if pointOnLink.nonPerpPenalty:
-                if pointOnLink.dist == 0:
-                    if pointOnLink.link.origNode not in nonPerpSetStarts:
-                        nonPerpSetStarts[pointOnLink.link.origNode] = set()
-                    nonPerpSetStarts[pointOnLink.link.origNode].add(pointOnLink)
-                elif pointOnLink.dist == pointOnLink.link.distance:
-                    nonPerpSetEnds.add(pointOnLink)
-        for endingPointOnLink in nonPerpSetEnds:
-            if endingPointOnLink.link.destNode in nonPerpSetStarts:
-                for pointOnLink in nonPerpSetStarts[endingPointOnLink.link.destNode]:
-                    if endingPointOnLink.refDist == pointOnLink.refDist:
-                        if pointOnLink in retSet:
-                            retSet.remove(pointOnLink) 
-                    
-        ret = list(retSet)
+            # Filter out duplicate locations represented by a nonperpendicular match to the end of one link and a
+            # nonperpendicular match to the start of the following link. Keep the downstream one:
+            if flag and not perpendicular and pointOnLink.dist > 0 and len(pointOnLink.link.destNode.outgoingLinkMap) > 0:
+                continue
+            
+            retList.append(pointOnLink)
         
         # Keep limited number of closest values 
-        ret.sort(key = operator.attrgetter('refDist'))
-        return ret[0:limitClosestPoints]
+        retList.sort(key = operator.attrgetter('refDist'))
+        return retList[0:limitClosestPoints]
 
 class WalkPathProcessor:
     """
@@ -290,7 +299,6 @@ class WalkPathProcessor:
         self.processingQueue = None
         self.pointOnLinkOrig = None
         self.pointOnLinkDest = None
-        self.taskNumber = 0
         
     class _WalkPathNext:
         """
@@ -340,21 +348,6 @@ class WalkPathProcessor:
                 # Normal operation; we hadn't encountered the destination link yet:
                 self.cost = startupCost + processor.pathEngine.scoreFunction(processor.pointOnLinkOrig, self.distance, None)
 
-            # Establish a priority metric here, favoring a destination node straight ahead and close.
-            self.dotMag = 0.0
-            """
-            This seems to just make the system worse.
-            if incomingLink is not processor.pointOnLinkDest.link:
-                oPointX, oPointY = incomingLink.origNode.coordX, incomingLink.origNode.coordY
-                dPointX, dPointY = incomingLink.destNode.coordX, incomingLink.destNode.coordY
-                fPointX, fPointY = processor.pointOnLinkDest.link.origNode.coordX, processor.pointOnLinkDest.link.origNode.coordY
-                mag = math.sqrt((fPointX - oPointX) ** 2 + (fPointY - oPointY) ** 2) * incomingLink.distance
-                if mag > 0.0001:
-                    dot = ((dPointX - oPointX) * (fPointX - oPointX) + (dPointY - oPointY) * (fPointY - oPointY)) / mag
-                    theta = math.acos(dot) if dot < 0.999 else 0
-                    self.dotMag = theta * mag
-            """
-                                            
             # Make a copy of the set only if it is to change, and add in the new incoming link ID:
             oldBacktrackSet = prevStruct.backtrackSet if prevStruct is not None else set()
             "@type oldBacktrackSet: set<int>"
@@ -381,7 +374,6 @@ class WalkPathProcessor:
         self.pointOnLinkDest = pointOnLinkDest
         self.winner = None
         self.backtrackScore = self.limitDistance
-        self.taskNumber = 0
         
         # Are the points too far away to begin with?
         origDestDistSq = linear.getNormSq(self.pointOnLinkDest.pointX, self.pointOnLinkDest.pointY, self.pointOnLinkOrig.pointX, self.pointOnLinkOrig.pointY)
@@ -392,23 +384,12 @@ class WalkPathProcessor:
         self.backtrackScore = self.limitDistance
 
         # Set up a queue for the search.  Preload the queue with the first starting location:
-        """
-        self.processingQueue = Queue.PriorityQueue()
-        struct = self._WalkPathNext(self, None, self.pointOnLinkOrig.link)        
-        self.processingQueue.put((struct.dotMag, self.taskNumber, struct))
-        self.taskNumber += 1
-        """
         self.processingQueue = deque()
         self.processingQueue.append(self._WalkPathNext(self, None, self.pointOnLinkOrig.link))
         
         # Do the breadth-first search:
         while not len(self.processingQueue) == 0:
             self._walkPath(self.processingQueue.popleft())
-        """
-        while not self.processingQueue.empty():
-            _, _, struct = self.processingQueue.get_nowait()
-            self._walkPath(struct)
-        """
         
         # Set up the return:
         if self.winner is not None:
@@ -488,8 +469,3 @@ class WalkPathProcessor:
             
             # Add to the queue for processing later:
             self.processingQueue.append(self._WalkPathNext(self, walkPathElem, link))
-            """
-            struct = self._WalkPathNext(self, walkPathElem, link)        
-            self.processingQueue.put((struct.dotMag, self.taskNumber, struct))
-            self.taskNumber += 1
-            """

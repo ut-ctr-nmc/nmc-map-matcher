@@ -253,6 +253,9 @@ def buildSubset(treeNodes, vistaNetwork):
     vistaNode.coordX, vistaNode.coordY = ourGTFSNode.pointOnLink.link.destNode.coordX, ourGTFSNode.pointOnLink.link.destNode.coordY
     newLink = graph.GraphLink(outLinkIDList[-1], vistaNodePrior, vistaNode)
     vistaSubset.addLink(newLink)
+    
+    # Optimize the subset for future lookups:
+    vistaSubset.generateQuadSet()
 
     return vistaSubset, outLinkIDList
 

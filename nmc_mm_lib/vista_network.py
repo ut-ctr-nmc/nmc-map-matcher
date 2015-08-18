@@ -70,5 +70,8 @@ def fillGraph(database):
         #link.distance = row[3] # Use reported distance rather than measured distance.
         graphLib.addLink(link)
         
+    # Optimize the graph for lookups:
+    graphLib.generateQuadSet()
+        
     # There we are.
     return graphLib
