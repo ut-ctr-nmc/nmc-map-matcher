@@ -193,7 +193,7 @@ class GraphLib:
         for link in self.linkMap.values():
             self.quadSet.storeLine(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY, link)
         
-    def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints = sys.maxint):
+    def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints=sys.maxint):
         """
         findPointsOnLinks searches through the graph and finds all PointOnLinks that are within the radius.
         Then, eligible links are proposed primaryRadius distance around the GTFS point, or secondaryRadius
@@ -209,13 +209,48 @@ class GraphLib:
         @type limitClosestPoints: int
         @rtype list<PointOnLink>
         """
+        retList = []
+        secondaryRadiusSq = secondaryRadius ** 2
+
+        # Find perpendicular and non-perpendicular PointOnLinks that are within radius.
+        for refDist, linkDist, perpendicular, link in self.quadSet.retrieveLines(pointX, pointY, radius):
+            # Everything coming back from retrieveLines is sorted according to the distance from point to
+            # line, and is limited to the given radius. Are we done?
+            if len(retList) >= limitClosestPoints:
+                break
+            
+            # Filter out duplicate locations represented by a nonperpendicular match to the end of one link and a
+            # nonperpendicular match to the start of the following link. Keep the downstream one:                
+            if not perpendicular and linkDist > 0 and len(link.destNode.outgoingLinkMap) > 0:
+                continue
+            
+            # Here is a candidate.
+            pointOnLink = PointOnLink(link, linkDist, not perpendicular, refDist)
+            if refDist <= primaryRadius:
+                retList.append(pointOnLink)
+            else:
+                # Check to see if the point is close to a previous point. This allows candidate links to be tracked
+                # that can possibly correspond with missing geometry, such as a bus going through a parking lot that
+                # isn't represented in the underlying map.
+                for prevPoint in prevPoints:
+                    "@type prevPoint: PointOnLink"
+                    distSq = linear.getNormSq(pointOnLink.pointX, pointOnLink.pointY, prevPoint.pointX, prevPoint.pointY)
+                    if (distSq < secondaryRadiusSq):
+                        # We have a winner:
+                        retList.append(pointOnLink)
+                        break
+
+        # Return the limitClosestPoints number of points: 
+        return retList
+    
+        """
         secondaryRadiusSq = secondaryRadius ** 2
         retList = []
 
         # Find perpendicular and non-perpendicular PointOnLinks that are within radius.
         latestMinDist = 0.0
         numValidEntries = 0
-        for refDist, minDist, linkDist, perpendicular, link in self.quadSet.retrieveLines(pointX, pointY, radius):
+        for refDist, linkDist, perpendicular, link in self.quadSet.retrieveLines(pointX, pointY, radius):
             if minDist > latestMinDist:
                 if numValidEntries >= limitClosestPoints:
                     break
@@ -248,6 +283,7 @@ class GraphLib:
         # Keep limited number of closest values 
         retList.sort(key = operator.attrgetter('refDist'))
         return retList[0:limitClosestPoints]
+        """
 
 class WalkPathProcessor:
     """

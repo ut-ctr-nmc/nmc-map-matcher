@@ -23,6 +23,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 import sys, math, unittest
+from collections import deque
+from heapq import heappush, heappop
 
 def pointDistSq(pointX, pointY, lineX1, lineY1, lineX2, lineY2, norm):
     """
@@ -187,11 +189,32 @@ class QuadSet:
         """
         Sets up a generator that returns all line objects roughly in order of perpendicular distance from the
         point. Also returns the minimal distance to each quad so as to allow for early termination of the
-        series. The yield is the tuple (refDistance, minDistance, obj) 
+        series. The yield is the tuple (refDistance, minDistance, lineDist, perpendicular, obj) 
         """
         maxRadiusSq = maxRadius ** 2 if maxRadius is not None else sys.float_info.max
-        for refDistance, minDistance, lineDist, perpendicular, obj in self.quadElement.retrieveLines(pointX, pointY, maxRadiusSq):
-            yield (refDistance, minDistance, lineDist, perpendicular, obj)
+        heap = []
+        traversedSet = set()
+        heappush(heap, (0.0, self.quadElement))
+        
+        while len(heap) > 0:
+            distSq, element = heappop(heap)
+            if isinstance(element, _QuadElement):
+                # Process the next layer
+                for quadElement in element.members:
+                    if quadElement is not None:
+                        distSq = quadElement.minimalDistanceSq(pointX, pointY)
+                        if distSq <= maxRadiusSq:
+                            heappush(heap, (distSq, quadElement))
+            elif isinstance(element, _QuadBottom):
+                # We got to the bottom; evaluate all lines that intersect the rectangle:
+                for line in element.members:
+                    distSq, lineDist, perpendicular = pointDistSq(pointX, pointY, line.pointX1, line.pointY1, line.pointX2,
+                                                                  line.pointY2, line.norm)
+                    if distSq <= maxRadiusSq and line not in traversedSet:
+                        heappush(heap, (distSq, (lineDist, perpendicular, line.obj)))
+            else: # It's a line, annotated with the stuff that was computed earlier:
+                lineDist, perpendicular, lineObj = element
+                yield (math.sqrt(distSq), lineDist, perpendicular, lineObj)
 
 class _QuadElementLine:
     """
@@ -230,32 +253,64 @@ class _QuadBase:
         self.lCornerX = lCornerX
         self.lCornerY = lCornerY
 
+    """
     def centralRadiusSq(self, pointX, pointY):
-        """
+        ""
         Returns the distance from the given point to the center of this rectangle. 
-        """
+        ""
         return getNormSq(pointX, pointY, (self.lCornerX - self.uCornerX) / 2, (self.lCornerY - self.uCornerY) / 2)
-"""        
-        if abs(self.uCornerX - pointX) < abs(self.lCornerX - pointX):
-            if abs(self.uCornerY - pointY) < abs(self.lCornerY - pointY):
-                ourRadius = getNormSq(pointX, pointY, self.uCornerX, self.uCornerY)
-            else:
-                ourRadius = getNormSq(pointX, pointY, self.uCornerX, self.lCornerY)
+    """
+    
+    def minimalDistanceSq(self, pointX, pointY, pad=1.0):
+        """
+        Returns the squared distance from the given point to the nearest side or corner of this rectangle, adjusted
+        for padding. If the point is in the rectangle, then 0.0 is returned.
+        """
+        if pointX < self.lCornerX and pointX >= self.uCornerX and pointY < self.lCornerY and pointY >= self.uCornerX:
+            # We are inside the rectangle. Return 0.0.
+            return 0.0
         else:
-            if abs(self.uCornerY - pointY) < abs(self.lCornerY - pointY):
-                ourRadius = getNormSq(pointX, pointY, self.lCornerX, self.uCornerY)
+            edgeNorm = self.lCornerX - self.uCornerX - 2 * pad
+            distSq1, _, _ = pointDistSq(pointX, pointY, self.uCornerX + pad, self.uCornerY + pad,
+                self.lCornerX - pad, self.uCornerY + pad, edgeNorm)
+            distSq2, _, _ = pointDistSq(pointX, pointY, self.lCornerX - pad, self.uCornerY + pad,
+                self.lCornerX - pad, self.lCornerY - pad, edgeNorm)
+            distSq3, _, _ = pointDistSq(pointX, pointY, self.lCornerX - pad, self.lCornerY - pad,
+                self.uCornerX + pad, self.lCornerY - pad, edgeNorm)
+            distSq4, _, _ = pointDistSq(pointX, pointY, self.uCornerX + pad, self.lCornerY - pad,
+                self.uCornerX + pad, self.uCornerY + pad, edgeNorm)
+            return min(distSq1, distSq2, distSq3, distSq4)
+    
+    """
+    def minimalRadiusSq(self, pointX, pointY, pad=1.0):
+        ""
+        Returns the squared distance from the given point to the nearest corner of this rectangle, adjusted for padding.
+        If the point is in the rectangle, then 0.0 is returned.
+        ""
+        if pointX < self.lCornerX and pointX >= self.uCornerX and pointY < self.lCornerY and pointY >= self.uCornerX:
+            # We are inside the rectangle. Return 0.0.
+            ourRadius = 0.0
+        else:
+            if abs(self.uCornerX - pointX) < abs(self.lCornerX - pointX):
+                if abs(self.uCornerY - pointY) < abs(self.lCornerY - pointY):
+                    ourRadius = getNormSq(pointX, pointY, self.uCornerX + pad, self.uCornerY + pad)
+                else:
+                    ourRadius = getNormSq(pointX, pointY, self.uCornerX + pad, self.lCornerY - pad)
             else:
-                ourRadius = getNormSq(pointX, pointY, self.lCornerX, self.lCornerY)
+                if abs(self.uCornerY - pointY) < abs(self.lCornerY - pointY):
+                    ourRadius = getNormSq(pointX, pointY, self.lCornerX - pad, self.uCornerY + pad)
+                else:
+                    ourRadius = getNormSq(pointX, pointY, self.lCornerX - pad, self.lCornerY - pad)
         return ourRadius
-"""
+    """
 
-"""
+    """
     def intersectsRadiusSq(self, pointX, pointY, radiusSq):
         ""
         Returns true if this _QuadElement intersects the circle depicted by the given radius squared. 
         ""
         return self.minimalRadiusSq(pointX, pointY) <= radiusSq
-"""
+    """
 
     def intersectsLine(self, pointX1, pointY1, pointX2, pointY2):
         """
@@ -317,18 +372,31 @@ class _QuadElement(_QuadBase):
             if quadElement is not None:
                 quadElement.storeLine(line)
 
+    """
     def retrieveLines(self, pointX, pointY, maxRadiusSq, traversedSet=set()):
-        """
+        ""
         Continues the generation of perpendicular points. The yield is the tuple (refDistance, minDistance, perpendicular, obj) 
-        """
+        ""
+        for quadElement in self.members:
+            heappush(self.quadSet.heap, (quadElement.minimalRadiusSq(pointX, pointY), quadElement))
+        
+        # Process the lowest-scoring item in the heap.
+        # *** WHILE?
+        _, bestQuadElement = heappop(self.quadSet.heap) 
+        for refDistance, minDistance, lineDist, perpendicular, obj in bestQuadElement.retrieveLines(pointX, pointY, maxRadiusSq, traversedSet):
+            yield (refDistance, minDistance, lineDist, perpendicular, obj)
+        
+        ""
         radii = []
         for quadElement in self.members:
             if quadElement is not None:
-                radii.append((quadElement.centralRadiusSq(pointX, pointY), quadElement))
+                radii.append((quadElement.minimalRadiusSq(pointX, pointY), quadElement))
         radii[:] = sorted(radii)
         for _, quadElement in radii:
             for refDistance, minDistance, lineDist, perpendicular, obj in quadElement.retrieveLines(pointX, pointY, maxRadiusSq, traversedSet):
                 yield (refDistance, minDistance, lineDist, perpendicular, obj)
+        ""
+    """
             
 class _QuadBottom(_QuadBase):
     """
@@ -344,18 +412,19 @@ class _QuadBottom(_QuadBase):
         @type lCornerY: float
         """
         _QuadBase.__init__(self, quadSet, layer, uCornerX, uCornerY, lCornerX, lCornerY)
-        self.members = set()
+        self.members = []
     
     def storeLine(self, line):
         """
         Stores the given line in this _QuadBottom.
         """
-        self.members.add(line)
+        self.members.append(line)
 
+    """
     def retrieveLines(self, pointX, pointY, maxRadiusSq, traversedSet=set()):
-        """
+        ""
         Continues the generation of perpendicular points. The yield is the tuple (refDistance, minDistance, perpendicular, obj) 
-        """
+        ""
         refDists = []
         for line in self.members:
             distSq, lineDist, perpendicular = pointDistSq(pointX, pointY, line.pointX1, line.pointY1, line.pointX2, line.pointY2, line.norm)
@@ -364,9 +433,10 @@ class _QuadBottom(_QuadBase):
                 traversedSet.add(line)
         if len(refDists) > 0:
             refDists[:] = sorted(refDists)
-            minDistance = math.sqrt(self.centralRadiusSq(pointX, pointY))
+            minDistance = math.sqrt(self.minimalRadiusSq(pointX, pointY))
             for distSq, lineDist, perpendicular, line in refDists:
                 yield (math.sqrt(distSq), minDistance, lineDist, perpendicular, line.obj)
+    """
 
 class TestLinear(unittest.TestCase):
 
