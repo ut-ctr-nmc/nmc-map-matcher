@@ -115,17 +115,66 @@ def getNormSq(lineX1, lineY1, lineX2, lineY2):
     norm = (lineX2 - lineX1) ** 2 + (lineY2 - lineY1) ** 2
     return norm
 
+"SQRT2 = math.sqrt(2)"
+
+def _calcY(xVal, pointX1, pointY1, pointX2, pointY2):
+    if pointX2 == pointX1:
+        return None
+    return pointY1 + (xVal - pointX1) * (pointY2 - pointY1) / (pointX2 - pointX1)
+
+def _calcX(yVal, pointX1, pointY1, pointX2, pointY2):
+    if pointY2 == pointY1:
+        return None
+    return pointX1 + (yVal - pointY1) * (pointX2 - pointX1) / (pointY2 - pointY1)
+
 def lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, uCornerX, uCornerY, lCornerX, lCornerY):
     """
     Returns true if the given line intersects the given rectangle. Lifted from 
-    http://stackoverflow.com/questions/5514366/how-to-know-if-a-line-intersects-a-rectangle
+    http://stackoverflow.com/questions/1354472/detect-if-line-segment-intersects-square
     """
-    return lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, uCornerX, uCornerY, lCornerX, uCornerY) \
-        or lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, lCornerX, uCornerY, lCornerX, lCornerY) \
-        or lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, lCornerX, lCornerY, uCornerX, lCornerY) \
-        or lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, uCornerX, lCornerY, uCornerX, uCornerY) \
-        or pointInRectangle(pointX1, pointY1, uCornerX, uCornerY, lCornerX, lCornerY)
+    # Part 1: See if beginning or end of line is in the rectangle. Then we intersect.
+    if pointInRectangle(pointX1, pointY1, uCornerX, uCornerY, lCornerX, lCornerY) \
+            or pointInRectangle(pointX2, pointY2, uCornerX, uCornerY, lCornerX, lCornerY):
+        return True
+    
+    # Part 2: Check if we intersect the rectangle:
+    if lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, uCornerX, uCornerY, lCornerX, uCornerY) \
+            or lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, lCornerX, uCornerY, lCornerX, lCornerY) \
+            or lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, lCornerX, lCornerY, uCornerX, lCornerY) \
+            or lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, uCornerX, lCornerY, uCornerX, uCornerY):
+        return True
+    """
+    lY = _calcX(lCornerY, pointX1, pointY1, pointX2, pointY2)
+    uY = _calcX(uCornerY, pointX1, pointY1, pointX2, pointY2)
+    uX = _calcY(uCornerX, pointX1, pointY1, pointX2, pointY2)
+    lX = _calcY(lCornerX, pointX1, pointY1, pointX2, pointY2)    
+    return lY is not None and lY < lCornerX and lY >= uCornerX \
+        or uY is not None and uY < lCornerX and uY >= uCornerX \
+        or uX is not None and uX < lCornerY and uX >= uCornerY \
+        or lX is not None and lX < lCornerY and lX >= uCornerY
+    """
+    
+    
+    """
+    # Part 1: See if beginning or end of line is in the rectangle. Then we intersect.
+    if pointInRectangle(pointX1, pointY1, uCornerX, uCornerY, lCornerX, lCornerY) \
+            or pointInRectangle(pointX2, pointY2, uCornerX, uCornerY, lCornerX, lCornerY):
+        return True
+    
+    # Part 2: Check if we intersect the rectangle:
+    """
 
+    """
+        # Now check for line-to-rectangle intersection 
+        if lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, uCornerX, uCornerY, lCornerX, uCornerY) \
+                or lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, lCornerX, uCornerY, lCornerX, lCornerY) \
+                or lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, lCornerX, lCornerY, uCornerX, lCornerY) \
+                or lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, uCornerX, lCornerY, uCornerX, uCornerY):
+            return True
+    """
+        
+    "return False"
+        
 def lineIntersectsLine(pointAX1, pointAY1, pointAX2, pointAY2, pointBX1, pointBY1, pointBX2, pointBY2):
     """
     Returns true if the two given lines intersects. Lifted from
@@ -311,11 +360,13 @@ class _QuadBase:
         return self.minimalRadiusSq(pointX, pointY) <= radiusSq
     """
 
+    """
     def intersectsLine(self, pointX1, pointY1, pointX2, pointY2):
-        """
+        ""
         Returns true if this _QuadElement intersects the given line.
-        """
+        ""
         return lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, self.uCornerX, self.uCornerY, self.lCornerX, self.lCornerY)
+    """
         
 class _QuadElement(_QuadBase):
     """
