@@ -27,7 +27,7 @@ import linear, gps, sys, math, operator
 from collections import deque
 
 "The number of feet per division of the optimized QuadSet lookup."
-DEFAULT_QUAD_RES = 500.0 
+DEFAULT_QUAD_LIMIT = 200 
 
 class GraphLink:
     """
@@ -128,10 +128,10 @@ class GraphLib:
     @ivar linkMap: Collection of links
     @type linkMap: dict<int, GraphLink>
     @ivar prevLinkID: Previous link ID for cases where we are dealing with single-paths
-    @ivar quadResultion: The resolution to create the QuadSet lookup optimization scheme.
+    @ivar quadLimit: The maximum number of points allowed at a QuadSet layer.
     @ivar quadSet: The linear.QuadSet object that assists in finding lines of closest perpendicular distances
     """
-    def __init__(self, gpsCtrLat, gpsCtrLng, quadResolution=DEFAULT_QUAD_RES, singlePath=False):
+    def __init__(self, gpsCtrLat, gpsCtrLng, quadLimit=DEFAULT_QUAD_LIMIT, singlePath=False):
         """
         @type gpsCtrLat: float
         @type gpsCtrLng: float
@@ -143,7 +143,7 @@ class GraphLib:
             self.nodeMap = None
         self.linkMap = {}
         self.prevLinkID = 0
-        self.quadResolution = quadResolution
+        self.quadLimit = quadLimit
         self.quadSet = None
 
     def addNode(self, node):
@@ -189,7 +189,7 @@ class GraphLib:
             maxX = max(maxX, node.coordX)
             maxY = max(maxY, node.coordY)
         
-        self.quadSet = linear.QuadSet(self.quadResolution, minX, minY, maxX, maxY)
+        self.quadSet = linear.QuadSet(self.quadLimit, minX, minY, maxX, maxY)
         for link in self.linkMap.values():
             self.quadSet.storeLine(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY, link)
         

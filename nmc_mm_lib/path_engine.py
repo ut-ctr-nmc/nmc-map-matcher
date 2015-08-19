@@ -293,12 +293,6 @@ class PathEngine:
             if shapeCtr % 10 == 0:
                 if self.logFile is not None:
                     print("INFO:   ... %d of %d" % (shapeCtr, len(shapeEntries)), file=self.logFile)
-                    
-                    ""
-                    if shapeCtr == 40:
-                        exit(0)
-                    ""
-
             (pointX, pointY) = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
             closestVISTA = vistaGraph.findPointsOnLinks(pointX, pointY, self.pointSearchRadius, self.pointSearchPrimary,
                                 self.pointSearchSecondary, [gtfsPointPrev.pointOnLink for gtfsPointPrev in gtfsPointsPrev],
