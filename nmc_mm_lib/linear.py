@@ -121,11 +121,12 @@ def _calcY(xVal, pointX1, pointY1, pointX2, pointY2):
     if pointX2 == pointX1:
         return None
     return pointY1 + (xVal - pointX1) * (pointY2 - pointY1) / (pointX2 - pointX1)
-
+"""
 def _calcX(yVal, pointX1, pointY1, pointX2, pointY2):
     if pointY2 == pointY1:
         return None
     return pointX1 + (yVal - pointY1) * (pointX2 - pointX1) / (pointY2 - pointY1)
+"""
 
 def lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, uCornerX, uCornerY, lCornerX, lCornerY):
     """
@@ -138,23 +139,67 @@ def lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, uCornerX, uCorne
         return True
     
     # Part 2: Check if we intersect the rectangle:
+    """
     if lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, uCornerX, uCornerY, lCornerX, uCornerY) \
             or lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, lCornerX, uCornerY, lCornerX, lCornerY) \
             or lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, lCornerX, lCornerY, uCornerX, lCornerY) \
             or lineIntersectsLine(pointX1, pointY1, pointX2, pointY2, uCornerX, lCornerY, uCornerX, uCornerY):
-        return True
+        #return True
+        flag=True
+    else:
+        flag=False
     """
+    
+    # Part 2: Check if we intersect the rectangle:
+    if pointX2 > pointX1:
+        if uCornerX > pointX2 or lCornerX < pointX1:
+            return False
+    else:
+        if uCornerX > pointX1 or lCornerX < pointX2:
+            return False
+        
+    if pointY2 > pointY1:
+        if uCornerY > pointY2 or lCornerY < pointY1:
+            return False
+    else:
+        if uCornerY > pointY1 or lCornerY < pointY2:
+            return False
+        
+    if pointX2 == pointX1:
+        lineYuCornerX = pointY1
+        lineYlCornerX = pointY2
+    else:
+        slope = (pointY2 - pointY1) / (pointX2 - pointX1)
+        lineYuCornerX = slope * (uCornerX - pointX1) + pointY1
+        lineYlCornerX = slope * (lCornerX - pointX1) + pointY1
+    if lineYlCornerX < lineYuCornerX:
+        lineYuCornerX, lineYlCornerX = (lineYlCornerX, lineYuCornerX)
+    return uCornerY > lineYuCornerX and uCornerY < lineYlCornerX \
+            or lCornerY > lineYuCornerX and lCornerY < lineYlCornerX \
+            or uCornerY < lineYuCornerX and lCornerY > lineYlCornerX
+        
+    """
+        if lCornerY > lineYlCornerX and lCornerY > lineYuCornerX:
+            flag2=False
+        elif uCornerY < lineYlCornerX and uCornerY < lineYuCornerX:
+            flag2=False
+    """
+    
+    """    
     lY = _calcX(lCornerY, pointX1, pointY1, pointX2, pointY2)
     uY = _calcX(uCornerY, pointX1, pointY1, pointX2, pointY2)
     uX = _calcY(uCornerX, pointX1, pointY1, pointX2, pointY2)
     lX = _calcY(lCornerX, pointX1, pointY1, pointX2, pointY2)    
-    return lY is not None and lY < lCornerX and lY >= uCornerX \
+    flag2 = lY is not None and lY < lCornerX and lY >= uCornerX \
         or uY is not None and uY < lCornerX and uY >= uCornerX \
         or uX is not None and uX < lCornerY and uX >= uCornerY \
         or lX is not None and lX < lCornerY and lX >= uCornerY
     """
-    
-    
+    """
+    if flag != flag2:
+        print("Hey!")
+    return flag
+    """
     """
     # Part 1: See if beginning or end of line is in the rectangle. Then we intersect.
     if pointInRectangle(pointX1, pointY1, uCornerX, uCornerY, lCornerX, lCornerY) \
