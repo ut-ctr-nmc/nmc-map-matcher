@@ -120,8 +120,8 @@ def lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, uCornerX, uCorne
     http://stackoverflow.com/questions/5514366/how-to-know-if-a-line-intersects-a-rectangle
     """
     # Part 1: See if beginning or end of line is in the rectangle. Then we intersect.
-    if pointInRectangle(pointX1, pointY1, uCornerX, uCornerY, lCornerX, lCornerY) \
-            or pointInRectangle(pointX2, pointY2, uCornerX, uCornerY, lCornerX, lCornerY):
+    if pointX1 >= uCornerX and pointX1 <= lCornerX and pointY1 >= uCornerY and pointY1 <= lCornerY \
+            or pointX2 >= uCornerX and pointX2 <= lCornerX and pointY2 >= uCornerY and pointY2 <= lCornerY:
         return True
     
     # Part 2: Check if we intersect the rectangle:
@@ -152,20 +152,18 @@ def lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, uCornerX, uCorne
             or lCornerY > lineYuCornerX and lCornerY < lineYlCornerX \
             or uCornerY < lineYuCornerX and lCornerY > lineYlCornerX
             
-def pointInRectangle(pointX, pointY, uCornerX, uCornerY, lCornerX, lCornerY):
-    """
-    Returns true if the given point is inside the given rectangle.
-    """
-    return pointX >= uCornerX and pointX <= lCornerX and pointY >= uCornerY and pointY <= lCornerY
-
 class QuadSet:
     """
     A quasi-quad tree implementation to accelerate the searching of points-on-lines.
+    @ivar pointLimit: The maximum allowed points within a quad before a subdivision happens.
+    @ivar quadElement: A _QuadElement that is the topmost member of this quadtree
+    @ivar prevQuadElement: For optimization purposes in adding lines to this quadtree, a shortcut for small links that
+        are entirely contained is facilitated by storing the previously updated _QuadElement.
     """
     def __init__(self, pointLimit, uCornerX, uCornerY, lCornerX, lCornerY):
         """
         Sets up a QuadSet quadtree such that the maximum number of points stored at a given location is limited to pointLimit.
-        @type resolution: float
+        @type pointLimit: int
         @type uCornerX: float
         @type uCornerY: float
         @type lCornerX: float
@@ -176,6 +174,7 @@ class QuadSet:
         centerX = (uCornerX + lCornerX) / 2
         centerY = (uCornerY + lCornerY) / 2
         self.quadElement = _QuadElement(self, 1, centerX - dimension, centerY - dimension, centerX + dimension, centerY + dimension)
+        self.prevQuadElement = None
 
     def storeLine(self, pointX1, pointY1, pointX2, pointY2, obj):
         """
@@ -186,7 +185,17 @@ class QuadSet:
         @type pointY2: float
         @type obj: ?
         """
-        self.quadElement.storeLine(_QuadElementLine(pointX1, pointY1, pointX2, pointY2, obj))
+        # Do a quick test first to see if the line we're attempting to add is entirely contained by the
+        # previously written quad:
+        if self.prevQuadElement is not None and \
+                pointX1 >= self.prevQuadElement.uCornerX and pointX1 <= self.prevQuadElement.lCornerX \
+                and pointY1 >= self.prevQuadElement.uCornerY and pointY1 <= self.prevQuadElement.lCornerY \
+                and pointX2 >= self.prevQuadElement.uCornerX and pointX2 <= self.prevQuadElement.lCornerX \
+                and pointY2 >= self.prevQuadElement.uCornerY and pointY2 <= self.prevQuadElement.lCornerY:
+            self.prevQuadElement.storeLine(_QuadElementLine(pointX1, pointY1, pointX2, pointY2, obj))
+        else:
+            # Nope, do the normal searching and storing:
+            self.quadElement.storeLine(_QuadElementLine(pointX1, pointY1, pointX2, pointY2, obj))
 
     def retrieveLines(self, pointX, pointY, maxRadius=None):
         """
@@ -251,6 +260,8 @@ class _QuadElement:
         @type uCornerY: float
         @type lCornerX: float
         @type lCornerY: float
+        @type centerX: float
+        @type centerY: float
         """
         self.members = []
         self.bottomLayer = True
@@ -260,13 +271,15 @@ class _QuadElement:
         self.uCornerY = uCornerY
         self.lCornerX = lCornerX
         self.lCornerY = lCornerY
-
+        self.centerX = (uCornerX + lCornerX) / 2
+        self.centerY = (uCornerY + lCornerY) / 2
+        
     def minimalDistanceSq(self, pointX, pointY, pad=0.01):
         """
         Returns the squared distance from the given point to the nearest side or corner of this rectangle, adjusted
         for padding. If the point is in the rectangle, then 0.0 is returned.
         """
-        if pointInRectangle(pointX, pointY, self.uCornerX, self.uCornerY, self.lCornerX, self.lCornerY):
+        if pointX >= self.uCornerX and pointX <= self.lCornerX and pointY >= self.uCornerY and pointY <= self.lCornerY: 
             # We are inside the rectangle. Return 0.0.
             return 0.0
         else:
@@ -289,28 +302,33 @@ class _QuadElement:
         if self.bottomLayer:
             if len(self.members) < self.quadSet.pointLimit:
                 self.members.append(line)
+                self.quadSet.prevQuadElement = self
             else:
                 # Promote this layer to be above the bottom:
                 self._promote()
             
         if not self.bottomLayer:
-            centerX = (self.uCornerX + self.lCornerX) / 2
-            centerY = (self.uCornerY + self.lCornerY) / 2
-            for index in range(0, 4):
-                quadElement = None
-                if index == 0:
-                    if lineIntersectsRectangle(line.pointX1, line.pointY1, line.pointX2, line.pointY2, self.uCornerX, self.uCornerY, centerX, centerY):
-                        quadElement = self._prepareBelow(0, self.uCornerX, self.uCornerY, centerX, centerY)
-                elif index == 1:
-                    if lineIntersectsRectangle(line.pointX1, line.pointY1, line.pointX2, line.pointY2, centerX, self.uCornerY, self.lCornerX, centerY):
-                        quadElement = self._prepareBelow(1, centerX, self.uCornerY, self.lCornerX, centerY)
-                elif index == 2:
-                    if lineIntersectsRectangle(line.pointX1, line.pointY1, line.pointX2, line.pointY2, centerX, centerY, self.lCornerX, self.lCornerY):
-                        quadElement = self._prepareBelow(2, centerX, centerY, self.lCornerX, self.lCornerY)
-                elif index == 3:
-                    if lineIntersectsRectangle(line.pointX1, line.pointY1, line.pointX2, line.pointY2, self.uCornerX, centerY, centerX, self.lCornerY):
-                        quadElement = self._prepareBelow(3, self.uCornerX, centerY, centerX, self.lCornerY)
-                
+            # Get local copies for optimization purposes:
+            centerX, centerY = (self.centerX, self.centerY)
+            pointX1, pointY1, pointX2, pointY2 = (line.pointX1, line.pointY1, line.pointX2, line.pointY2)
+            uCornerX, uCornerY, lCornerX, lCornerY = (self.uCornerX, self.uCornerY, self.lCornerX, self.lCornerY)
+            _prepareBelow = self._prepareBelow
+            
+            # Check if there is intersection in any of these rectangles:
+            if lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, uCornerX, uCornerY, centerX, centerY):
+                quadElement = _prepareBelow(0, uCornerX, uCornerY, centerX, centerY)
+                if quadElement is not None:
+                    quadElement.storeLine(line)
+            if lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, centerX, uCornerY, lCornerX, centerY):
+                quadElement = _prepareBelow(1, centerX, uCornerY, lCornerX, centerY)
+                if quadElement is not None:
+                    quadElement.storeLine(line)
+            if lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, centerX, centerY, lCornerX, lCornerY):
+                quadElement = _prepareBelow(2, centerX, centerY, lCornerX, lCornerY)
+                if quadElement is not None:
+                    quadElement.storeLine(line)
+            if lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, uCornerX, centerY, centerX, lCornerY):
+                quadElement = _prepareBelow(3, uCornerX, centerY, centerX, lCornerY)
                 if quadElement is not None:
                     quadElement.storeLine(line)
 
