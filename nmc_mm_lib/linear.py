@@ -23,7 +23,6 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 import sys, math, unittest
-from collections import deque
 from heapq import heappush, heappop
 
 def pointDistSq(pointX, pointY, lineX1, lineY1, lineX2, lineY2, norm):

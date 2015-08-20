@@ -23,10 +23,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-import linear, gps, sys, math, operator
-from collections import deque
+import linear, gps, sys
+from heapq import heappush, heappop
 
-"The number of feet per division of the optimized QuadSet lookup."
+"The maximum number of lines allowed in a quad for optimized QuadSet lookup."
 DEFAULT_QUAD_LIMIT = 200 
 
 class GraphLink:
@@ -297,7 +297,7 @@ class WalkPathProcessor:
     @ivar winner: Records the winning queue element 
     @type winner: _WalkPathNext
     @ivar processingQueue: Processing queue to facilitate the breadth-first search
-    @type processingQueue: deque
+    @type processingQueue: []
     @ivar pointOnLinkOrig: For internal record-keeping    
     @type pointOnLinkOrig: PointOnLink
     @ivar pointOnLinkDest: For internal record-keeping
@@ -335,6 +335,9 @@ class WalkPathProcessor:
         self.processingQueue = None
         self.pointOnLinkOrig = None
         self.pointOnLinkDest = None
+        
+        # For tie-breaking when dealing with the priority queue.
+        self.queueCounter = 0
         
     class _WalkPathNext:
         """
@@ -393,7 +396,7 @@ class WalkPathProcessor:
             else:
                 self.backtrackSet = oldBacktrackSet
     
-    def walkPath(self, pointOnLinkOrig, pointOnLinkDest):
+    def walkPath(self, pointOnLinkOrig, pointOnLinkDest, startupCost=0.0):
         """
         walkPath uses a breadth-first search to find the shortest distance from a given PointOnLink to another PointOnLink and
         returns a list of links representing nodes and following links encountered.  Specify a limiting radius for
@@ -420,12 +423,13 @@ class WalkPathProcessor:
         self.backtrackScore = self.limitDistance
 
         # Set up a queue for the search.  Preload the queue with the first starting location:
-        self.processingQueue = deque()
-        self.processingQueue.append(self._WalkPathNext(self, None, self.pointOnLinkOrig.link))
+        self.processingQueue = []
+        heappush(self.processingQueue, (0.0, 0, self._WalkPathNext(self, None, self.pointOnLinkOrig.link, startupCost)))
+        self.queueCounter = 0
         
         # Do the breadth-first search:
         while not len(self.processingQueue) == 0:
-            self._walkPath(self.processingQueue.popleft())
+            self._walkPath(heappop(self.processingQueue)[-1])
         
         # Set up the return:
         if self.winner is not None:
@@ -504,4 +508,5 @@ class WalkPathProcessor:
                 continue
             
             # Add to the queue for processing later:
-            self.processingQueue.append(self._WalkPathNext(self, walkPathElem, link))
+            self.queueCounter += 1
+            heappush(self.processingQueue, (walkPathElem.cost, self.queueCounter, self._WalkPathNext(self, walkPathElem, link, walkPathElem.cost)))

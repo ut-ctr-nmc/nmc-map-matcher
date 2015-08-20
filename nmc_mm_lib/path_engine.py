@@ -177,7 +177,7 @@ class PathEngine:
                 if gtfsPointPrev is None:
                     traversed, distance, cost = ([], 0.0, self.scoreFunction(None, 0.0, gtfsPoint.pointOnLink))
                 else:
-                    traversed, distance, cost = pathProcessor.walkPath(gtfsPointPrev.pointOnLink, gtfsPoint.pointOnLink)
+                    traversed, distance, cost = pathProcessor.walkPath(gtfsPointPrev.pointOnLink, gtfsPoint.pointOnLink, gtfsPoint.totalCost)
                 if traversed is not None:
                     # A valid path was found:
                     if (gtfsPoint.prevTreeNode is None) or ((gtfsPoint.prevTreeNode is not None) \
