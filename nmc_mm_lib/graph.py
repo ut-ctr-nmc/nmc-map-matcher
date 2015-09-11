@@ -43,6 +43,9 @@ class GraphLink:
         self.origNode = origNode
         self.destNode = destNode
         
+        # The head of the linked-list of member vertices within this Link
+        self.virtexStart = None
+        
         # Placeholders for efficiency of measurement:
         self.distance = 0.0
         self.uid = -1
@@ -52,7 +55,40 @@ class GraphLink:
         Return True if the given link directly flows in the opposite direction of this link.
         @type otherLink: GraphLink
         """
+        blah
+        # TODO: Maybe have isComplementary compare the vertices.
+        
         return otherLink.destNode is self.origNode and otherLink.origNode is self.destNode
+    
+class GraphLinkVirtex:
+    """
+    GraphLinkVirtex is a virtex possibly among several for a GraphLink. Use GraphLib.addVerticesToLink()
+    to associate this with the parent link and compute coordinates.
+    @ivar gpsLat: float
+    @ivar gpsLng: float
+    @ivar pointX: float
+    @ivar pointY: float
+    @ivar distance: float
+    @ivar parentLink: GraphLink
+    @ivar nextVirtex: GraphLinkVirtex
+    """
+    def __init__(self, gpsLat, gpsLng, prevGraphVirtex=None):
+        """
+        Sets the next virtex to allow for a segment to be expressed between this object and nextVirtex.
+        @type gpsLat: float
+        @type gpsLng: float
+        @type prevGraphVirtex: GraphVertex         
+        """
+        self.gpsLat = gpsLat
+        self.gpsLng = gpsLng
+        self.pointX = 0.0
+        self.pointY = 0.0
+        self.distance = 0.0
+        self.parentLink = None
+        self.nextVirtex = None
+        
+        if prevGraphVirtex is not None:
+            prevGraphVirtex.nextVirtex = self
 
 class GraphNode:
     """
@@ -178,19 +214,61 @@ class GraphLib:
         link.origNode.outgoingLinkMap[link.id] = link
         return link.uid
     
+    def makeVerticesForLink(self, link):
+        """
+        For links that are straight and have no curvature, creates a pair of vertices that correspond
+        with the given link, drawing a line from the origin node to the destination node.
+        @type link: GraphLink
+        """
+        linkVirtex = GraphLinkVirtex(link.origNode.gpsLat, link.origNode.gpsLng, None)
+        linkVirtex.nextVirtex = GraphLinkVirtex(link.destNode.gpsLat, link.destNode.gpsLng, linkVirtex)
+        self.addVerticesToLink(link, linkVirtex)
+    
+    def addVerticesToLink(self, link, linkVirtex):
+        """
+        Adds the linked list of vertices to the given link, computing coordinates and distances along
+        the way.
+        @type link: GraphLink
+        @type linkVirtex: GraphLinkVirtex
+        """
+        linkVirtex.pointX, linkVirtex.pointY = self.gps.gps2feet(linkVirtex.lat, linkVirtex.lng)
+        linkVirtex.parentLink = link
+        link.virtexStart = linkVirtex
+        nextVirtex = linkVirtex.nextVirtex
+        while nextVirtex is not None:
+            nextVirtex.pointX, nextVirtex.pointY = self.gps.gps2feet(nextVirtex.lat, nextVirtex.lng)
+            nextVirtex.distance = linkVirtex.distance + linear.getNorm(linkVirtex.pointX, linkVirtex.pointY,
+                nextVirtex.pointX, nextVirtex.pointY) 
+            nextVirtex.parentLink = link
+            nextVirtex = linkVirtex.nextVirtex
+    
     def generateQuadSet(self):
+        """
+        This performs the task of generating the quadtree for this GraphLib. Calls to addVerticesToLink()
+        should have been made, or if there are no vertices, makeVerticesForLink() will be called to create
+        straight segments between nodes.
+        """
         minX = sys.float_info.max
         minY = sys.float_info.max
         maxX = sys.float_info.min
         maxY = sys.float_info.min
-        for node in self.nodeMap.values():
-            minX = min(minX, node.coordX)
-            minY = min(minY, node.coordY)
-            maxX = max(maxX, node.coordX)
-            maxY = max(maxY, node.coordY)
+        for link in self.linkMap.values():
+            if link.virtexStart is None:
+                self.makeVerticesForLink(link)
+            linkVirtex = link.virtexStart
+            while linkVirtex is not None:
+                minX = min(minX, linkVirtex.coordX)
+                minY = min(minY, linkVirtex.coordY)
+                maxX = max(maxX, linkVirtex.coordX)
+                maxY = max(maxY, linkVirtex.coordY)
+                linkVirtex = linkVirtex.nextVirtex
         
         self.quadSet = linear.QuadSet(self.quadLimit, minX, minY, maxX, maxY)
         for link in self.linkMap.values():
+            
+            blah
+            # Deal with vertices here.
+            
             self.quadSet.storeLine(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY, link)
         
     def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints=sys.maxint):
