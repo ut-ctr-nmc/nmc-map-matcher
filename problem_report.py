@@ -37,7 +37,7 @@ def problemReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
     @type gtfsNodes: dict<?, path_engine.PathEnd>
     @type vistaGraph: graph.GraphLib  
     """
-    print("shapeID,shapeSeq,linkID,linkDist,problemCode,gtfsCoords,vistaCoords", file = outFile)
+    print("shapeID,shapeSeq,linkID,linkDist,problemCode,gtfsLatLon,vistaLatLon", file = outFile)
 
     shapeIDs = gtfsNodes.keys()
     shapeIDs.sort()
