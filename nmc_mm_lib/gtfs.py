@@ -281,7 +281,7 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs):
         # Sanity check:
         fileLine = inFile.readline()
         if not fileLine.startswith("trip_id,arrival_time,departure_time,stop_id"):
-            print("ERROR: The stop_times.txt file doesn't have the expected header.", file = sys.stderr)
+            print("ERROR: The stop_times.txt file doesn't have the expected header.", file=sys.stderr)
             return None
         
         # Go through the lines of the file:
@@ -297,7 +297,8 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs):
                             badTrips.add(tripID)
                         continue
                     
-                    # Split apart time string because hours can roll around.
+                    # Split apart time string this way and count from epoch because GTFS stops may express times for
+                    # early morning service with hours being greater than 23.
                     timeElems = lineElems[1].split(':')
                     timeHour = int(timeElems[0])
                     timeDays = timeHour / 24
