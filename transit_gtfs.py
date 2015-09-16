@@ -373,7 +373,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
 
     # Initialize the path engine for use later:
     pathEngine = path_engine.PathEngine(stopSearchRadius, stopSearchRadius, stopSearchRadius, sys.float_info.max, sys.float_info.max,
-                                        stopSearchRadius, 1, 1, 1, sys.maxint, sys.maxint)
+                                        stopSearchRadius, DISTANCE_FACTOR, DRIFT_FACTOR, NON_PERP_PENALTY, sys.maxint, sys.maxint)
     pathEngine.limitClosestPoints = 8
     pathEngine.limitSimultaneousPaths = 6
     pathEngine.maxHops = 12
