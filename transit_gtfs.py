@@ -454,19 +454,17 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
                 if stopMatchIndex < len(stopMatches) and treeEntry == stopMatches[stopMatchIndex]:
                     foundStopSet.add(treeEntry.shapeEntry.shapeSeq) # Check off this stop sequence.
                     foundValidStop = True
+                    stopID = gtfsStopsLookup[treeEntry.shapeEntry.shapeSeq].stop.stopID
                     print('"%d","%d","%d","%d","%d",' % (tripID, outSeqCtr, treeEntry.pointOnLink.link.id,
-                        gtfsStopsLookup[treeEntry.shapeEntry.shapeSeq].stop.stopID, DWELLTIME_DEFAULT), file=outFile)
-                    if gtfsStopsLookup[treeEntry.shapeEntry.shapeSeq].stop.stopID in ret \
-                            and ret[gtfsStopsLookup[treeEntry.shapeEntry.shapeSeq].stop.stopID].link.id \
-                                != treeEntry.pointOnLink.link.id:
+                        stopID, DWELLTIME_DEFAULT), file=outFile)
+                    if stopID in ret and ret[stopID].link.id != treeEntry.pointOnLink.link.id:
                         print("WARNING: stopID %d is attempted to be assigned to linkID %d, but it had already been assigned to linkID %d." \
-                            % (gtfsStopsLookup[treeEntry.shapeEntry.shapeSeq].stop.stopID, treeEntry.pointOnLink.link.id,
-                               ret[gtfsStopsLookup[treeEntry.shapeEntry.shapeSeq].stop.stopID].link.id), file=sys.stderr)
+                            % (stopID, treeEntry.pointOnLink.link.id, ret[stopID].link.id), file=sys.stderr)
                         # TODO: This is a tricky problem. This means that among multiple bus routes, the same stop had been
                         # found to best fit two different links. I don't exactly know the best way to resolve this, other
                         # than (for NMC analyses) to create a "fake" stop that's tied with the new link. 
                     else:
-                        ret[gtfsStopsLookup[treeEntry.shapeEntry.shapeSeq].stop.stopID] = treeEntry.pointOnLink
+                        ret[stopID] = treeEntry.pointOnLink
                         
                     # Check on the minimum/maximum time range:
                     gtfsStopTime = gtfsStopsLookup[treeEntry.shapeEntry.shapeSeq]
