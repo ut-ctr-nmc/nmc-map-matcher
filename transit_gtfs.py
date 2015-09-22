@@ -507,18 +507,19 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         ourGTFSNodes, longestStart = treeContiguous(gtfsNodes[gtfsTrips[tripID].shapeEntries[0].shapeID], vistaNetwork,
             gtfsStopTimes[gtfsTrips[tripID]], startTime, endTime)
         if ourGTFSNodes is None:
-            continue        
+            continue                
             
-        # Step 3: Embellish the contiguous list with incoming and outgoing links because we may need to
-        # move around ambiguously matched bus stop locations later.
-        
-            
-        # Step 4: Match up stops to that contiguous list:
-        # At this point, we're doing something with this.
+        # Step 3: Build a new subset network with new links and nodes that represents the single-path
+        # specified by the GTFS shape (for bus route):
         print("INFO: -- Matching stops for trip %d --" % tripID, file = sys.stderr)
         subset, outLinkList = buildSubset(ourGTFSNodes, vistaNetwork)
+        
+        # Step 4: Embellish the single-path subset with incoming and outgoing links because we may need to
+        # move around ambiguously matched bus stop locations later.
         embellishSubset(subset, outLinkList, vistaNetwork)
 
+        # Step 5: Match up stops to that contiguous list:
+        # At this point, we're doing something with this.
         stopTimes = gtfsStopTimes[gtfsTrips[tripID]]
         "@type stopTimes: list<gtfs.StopTimesEntry>"
         
