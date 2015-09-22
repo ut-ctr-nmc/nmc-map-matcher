@@ -33,19 +33,26 @@ import problem_report, sys, time
 from datetime import datetime, timedelta
 
 DWELLTIME_DEFAULT = 0
-"@var DWELLTIME_DEFAULT The dwell time to report in the bus_route_link.csv file output."
+"@var DWELLTIME_DEFAULT: The dwell time to report in the bus_route_link.csv file output."
 
 STOP_SEARCH_RADIUS = 800
-"@var STOP_SEARCH_RADIUS 'k': Radius (ft) to search from GTFS point to perpendicular VISTA links"
+"@var STOP_SEARCH_RADIUS: 'k': Radius (ft) to search from GTFS point to perpendicular VISTA links"
 
 DISTANCE_FACTOR = 1.0
-"@var DISTANCE_FACTOR 'f_d': Cost multiplier for Linear path distance in stop matching"
+"@var DISTANCE_FACTOR: 'f_d': Cost multiplier for Linear path distance in stop matching"
 
 DRIFT_FACTOR = 1.5
-"@var DRIFT_FACTOR 'f_r': Cost multiplier for distance from GTFS point to its VISTA link in stop matching"
+"@var DRIFT_FACTOR: 'f_r': Cost multiplier for distance from GTFS point to its VISTA link in stop matching"
 
 NON_PERP_PENALTY = 1.5
-"@var NON_PERP_PENALTY 'f_p': Penalty multiplier for GTFS points that aren't perpendicular to VISTA links"
+"@var NON_PERP_PENALTY: 'f_p': Penalty multiplier for GTFS points that aren't perpendicular to VISTA links"
+
+EMBELLISH_COUNT = 2
+"""@var EMBELLISH_COUNT: The number of nodes at the beginning, and then again the number of nodes at the end
+    of each path matched trip to add incoming links and outgoing links."""
+
+EMBELLISH_DEPTH = 1
+"@var EMBELLISH_DEPTH: The depth at which embellished links are added to the single bus route network."
 
 problemReport = False
 "@var problemReport is set to true when the -p parameter is specified."
@@ -216,30 +223,30 @@ def buildSubset(treeNodes, vistaNetwork):
     @type treeNodes: list<path_engine.PathEnd>
     @type vistaNetwork: graph.GraphLib
     @return The network subset and list of link IDs
-    @rtype (graph.GraphLib, list<int>)
+    @rtype (graph.GraphLib, list<graph.GraphLink>)
     """
     # We are going to recreate a small VISTA network from ourGTFSNodes and then match up the stops to that.
     # First, prepare the small VISTA network:
-    vistaSubset = graph.GraphLib(vistaNetwork.gps.latCtr, vistaNetwork.gps.lngCtr, True)
-    "@type vistaNodePrior: graph.GraphNode"
+    subset = graph.GraphLib(vistaNetwork.gps.latCtr, vistaNetwork.gps.lngCtr, True)
     
     # Build a list of links:
-    outLinkIDList = []
-    "@type outLinkList: list<int>"
+    outLinkList = []
+    "@type outLinkList: list<graph.GraphLink>"
     
     # Plop in the start node:
-    vistaNodePrior = graph.GraphNode(treeNodes[0].pointOnLink.link.origNode.id,
+    subsetNodePrior = graph.GraphNode(treeNodes[0].pointOnLink.link.origNode.id,
         treeNodes[0].pointOnLink.link.origNode.gpsLat, treeNodes[0].pointOnLink.link.origNode.gpsLng)
-    vistaNodePrior.coordX, vistaNodePrior.coordY = treeNodes[0].pointOnLink.link.origNode.coordX, treeNodes[0].pointOnLink.link.origNode.coordY
-    outLinkIDList.append(treeNodes[0].pointOnLink.link.id)
+    "@type subsetNodePrior: graph.GraphNode"
+    subsetNodePrior.coordX, subsetNodePrior.coordY = treeNodes[0].pointOnLink.link.origNode.coordX, treeNodes[0].pointOnLink.link.origNode.coordY
+    prevLinkID = treeNodes[0].pointOnLink.link.id
     
     # Link together nodes as we traverse through them:
     for ourGTFSNode in treeNodes:
         "@type ourGTFSNode: path_engine.PathEnd"
         # There should only be one destination link per VISTA node because this comes form our tree.
         # If there is no link or we're repeating the first one, then there were no new links assigned.
-        if (len(ourGTFSNode.routeInfo) < 1) or ((len(outLinkIDList) == 1) \
-                and (ourGTFSNode.routeInfo[0].id == treeNodes[0].pointOnLink.link.id)):
+        if len(ourGTFSNode.routeInfo) < 1 or (len(outLinkList) == 1 \
+                and ourGTFSNode.routeInfo[0].id == treeNodes[0].pointOnLink.link.id):
             continue
         for link in ourGTFSNode.routeInfo:
             "@type link: graph.GraphLink"
@@ -251,22 +258,127 @@ def buildSubset(treeNodes, vistaNetwork):
             "@type origVistaLink: graph.GraphLink"
             
             # Create a new node, even if the node had been visited before. We are creating a single-path and need a separate instance:
-            vistaNode = graph.GraphNode(origVistaLink.origNode.id, origVistaLink.origNode.gpsLat, origVistaLink.origNode.gpsLng)
-            vistaNode.coordX, vistaNode.coordY = origVistaLink.origNode.coordX, origVistaLink.origNode.coordY
+            subsetNode = graph.GraphNode(origVistaLink.origNode.id, origVistaLink.origNode.gpsLat, origVistaLink.origNode.gpsLng)
+            subsetNode.coordX, subsetNode.coordY = origVistaLink.origNode.coordX, origVistaLink.origNode.coordY
+            # We don't add nodes to single-path graphs.
                 
             # We shall label our links as indices into the stage we're at in ourGTFSNodes links.  This will allow for access later.
-            newLink = graph.GraphLink(outLinkIDList[-1], vistaNodePrior, vistaNode)
-            vistaSubset.addLink(newLink)
-            vistaNodePrior = vistaNode
-            outLinkIDList.append(link.id)
+            newLink = graph.GraphLink(prevLinkID, subsetNodePrior, subsetNode)
+            subset.addLink(newLink)
+            outLinkList.append(newLink)
+            subsetNodePrior = subsetNode
+            prevLinkID = link.id
             
     # And then finish off the graph with the last link:
-    vistaNode = graph.GraphNode(ourGTFSNode.pointOnLink.link.destNode.id, ourGTFSNode.pointOnLink.link.destNode.gpsLat, ourGTFSNode.pointOnLink.link.destNode.gpsLng)
-    vistaNode.coordX, vistaNode.coordY = ourGTFSNode.pointOnLink.link.destNode.coordX, ourGTFSNode.pointOnLink.link.destNode.coordY
-    newLink = graph.GraphLink(outLinkIDList[-1], vistaNodePrior, vistaNode)
-    vistaSubset.addLink(newLink)
+    subsetNode = graph.GraphNode(ourGTFSNode.pointOnLink.link.destNode.id, ourGTFSNode.pointOnLink.link.destNode.gpsLat, ourGTFSNode.pointOnLink.link.destNode.gpsLng)
+    subsetNode.coordX, subsetNode.coordY = ourGTFSNode.pointOnLink.link.destNode.coordX, ourGTFSNode.pointOnLink.link.destNode.coordY
+    newLink = graph.GraphLink(prevLinkID, subsetNodePrior, subsetNode)
+    subset.addLink(newLink)
+    outLinkList.append(newLink)
     
-    return vistaSubset, outLinkIDList
+    return subset, outLinkList
+
+def embellishSubset(subset, linkList, vistaNetwork, embellishCount=EMBELLISH_COUNT, embellishDepth=EMBELLISH_DEPTH):
+    """
+    embellishSubset adds adjoining links to the start and end of the subset as defined by linkList.
+    @type subset: graph.GraphLib
+    @type linkList: list<graph.GraphLink>
+    @type vistaNetwork: graph.GraphLib
+    @type embellishCount: int
+    @type embellishDepth: int
+    """
+    usedNodes = {}
+    "@type usedNodes: dict<int, graph.GraphNode>"
+    usedLinkIDs = set() # We keep a separate set of these rather than using the ones in subset linkMap because
+                        # the one in linkMap is referred by uid's, whereas we pick the first encountered ID
+                        # in this case (or last encountered on the other end) because of the possibility of
+                        # there being repeated visits to nodes and links because of looping. 
+    "@type usedLinkIDs: set<int>"
+    if len(linkList) > 0:
+        usedNodes[linkList[0].origNode.id] = linkList[0].origNode 
+    midpoint = len(linkList) / 2
+    # Add the beginning in forward order in case connections are duplicate nodes because of loops.
+    for index in range(0, midpoint):
+        if linkList[index].destNode.id not in usedNodes:
+            usedNodes[linkList[index].destNode.id] = linkList[index].destNode
+            usedLinkIDs.add(linkList[index].id)
+    # Add the ending in reverse order for the same reason.
+    for index in range(len(linkList) - 1, midpoint - 1, -1):
+        if linkList[index].destNode.id not in usedNodes:
+            usedNodes[linkList[index].destNode.id] = linkList[index].destNode
+            usedLinkIDs.add(linkList[index].id)
+
+    # TODO: Consider adding incomingLinkMap lists to all GraphNodes, then we don't have to build this nodeLinkMap.
+    # As it is, it is run on each trip and assembles together the exact same data each time. 
+    nodeLinkMap = {} # This is the map that allows one to know all of the links that enter into a node.
+                        # This is node ID mapped to list of incoming link IDs.
+    "@type nodeLinkMap: dict<int, list<int>>"
+    for vistaLink in vistaNetwork.linkMap.itervalues():
+        "@type vistaLink: graph.GraphLink"
+        if vistaLink.destNode.id not in nodeLinkMap:
+            nodeLinkMap[vistaLink.destNode.id] = []
+        nodeLinkMap[vistaLink.destNode.id].append(vistaLink.id)
+    
+    # Now, add in the new connecting nodes coming into the starting nodes:
+    for index in range(0, min(len(linkList), embellishCount)):
+        _embellishIn(subset, vistaNetwork, linkList[index].origNode.id, embellishDepth, usedNodes, usedLinkIDs, nodeLinkMap)
+    # Then, add in the new connecting nodes leaving from the ending nodes:
+    for index in range(len(linkList) - 1, max(-1, len(linkList) - 1 - embellishCount), -1):
+        _embellishOut(subset, vistaNetwork, linkList[index].destNode.id, embellishDepth, usedNodes, usedLinkIDs)
+    
+def _embellishIn(subset, vistaNetwork, nodeID, curDepth, usedNodes, usedLinkIDs, nodeLinkMap):
+    """
+    Internal function called by embellishSubset() that begins at subsetNode and performs
+    the addition of joining links in the incoming direction. If curDepth >= 1 then this function is called recursively.
+    @type subset: graph.GraphLib
+    @type vistaNetwork: graph.GraphLib
+    @type nodeID: int
+    @type curDepth: int
+    @type usedNodes: dict<int, graph.GraphNode>
+    @type usedLinkIDs: set<int>
+    @type nodeLinkMap: dict<int, list<int>>
+    """
+    if curDepth <= 0:
+        return
+    for linkID in nodeLinkMap[nodeID]:
+        if linkID not in usedLinkIDs:
+            vistaLink = vistaNetwork.linkMap[linkID]
+            if vistaLink.origNode.id not in usedNodes:
+                subsetOrigNode = graph.GraphNode(vistaLink.origNode.id, vistaLink.origNode.gpsLat, vistaLink.origNode.gpsLng)
+                subsetOrigNode.coordX, subsetOrigNode.coordY = vistaLink.origNode.coordX, vistaLink.origNode.coordY
+                usedNodes[subsetOrigNode.id] = subsetOrigNode
+            else:
+                subsetOrigNode = usedNodes[vistaLink.origNode.id] 
+            subsetLink = graph.GraphLink(linkID, subsetOrigNode, usedNodes[nodeID])
+            subset.addLink(subsetLink)
+            usedLinkIDs.add(linkID)
+            _embellishIn(subset, vistaNetwork, subsetOrigNode.id, curDepth - 1, usedNodes, usedLinkIDs, nodeLinkMap)
+
+def _embellishOut(subset, vistaNetwork, nodeID, curDepth, usedNodes, usedLinkIDs):
+    """
+    Internal function called by embellishSubset() that begins at subsetNode and performs
+    the addition of joining links in the outgoing direction. If curDepth >= 1 then this function is called recursively.
+    @type subset: graph.GraphLib
+    @type vistaNetwork: graph.GraphLib
+    @type nodeID: int
+    @type curDepth: int
+    @type usedNodes: dict<int, graph.GraphNode>
+    @type usedLinkIDs: set<int>
+    """
+    if curDepth <= 0:
+        return
+    for vistaLink in vistaNetwork.nodeMap[nodeID].outgoingLinkMap.itervalues():
+        if vistaLink.id not in usedLinkIDs:
+            if vistaLink.destNode.id not in usedNodes:
+                subsetDestNode = graph.GraphNode(vistaLink.destNode.id, vistaLink.destNode.gpsLat, vistaLink.destNode.gpsLng)
+                subsetDestNode.coordX, subsetDestNode.coordY = vistaLink.destNode.coordX, vistaLink.destNode.coordY
+                usedNodes[subsetDestNode.id] = subsetDestNode
+            else:
+                subsetDestNode = usedNodes[vistaLink.destNode.id] 
+            subsetLink = graph.GraphLink(vistaLink.id, usedNodes[nodeID], subsetDestNode)
+            subset.addLink(subsetLink)
+            usedLinkIDs.add(vistaLink.id)
+            _embellishOut(subset, vistaNetwork, subsetDestNode.id, curDepth - 1, usedNodes, usedLinkIDs)
 
 def prepareMapStops(treeNodes, stopTimes, dummyFlag=True):
     """
@@ -390,17 +502,22 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
             print("WARNING: Skipping route for trip %d because no points are available." % tripID, file = sys.stderr)
             continue
         
-        # Step 1: Find the longest distance of contiguous valid links within the shape for each trip:
+        # Step 1: Find the longest distance of contiguous valid links within the shape for each trip. And,
         # Step 2: Ignore routes that are entirely outside our valid time interval.
         ourGTFSNodes, longestStart = treeContiguous(gtfsNodes[gtfsTrips[tripID].shapeEntries[0].shapeID], vistaNetwork,
             gtfsStopTimes[gtfsTrips[tripID]], startTime, endTime)
         if ourGTFSNodes is None:
             continue        
             
-        # Step 3: Match up stops to that contiguous list:
+        # Step 3: Embellish the contiguous list with incoming and outgoing links because we may need to
+        # move around ambiguously matched bus stop locations later.
+        
+            
+        # Step 4: Match up stops to that contiguous list:
         # At this point, we're doing something with this.
         print("INFO: -- Matching stops for trip %d --" % tripID, file = sys.stderr)
-        vistaSubset, outLinkIDList = buildSubset(ourGTFSNodes, vistaNetwork)
+        subset, outLinkList = buildSubset(ourGTFSNodes, vistaNetwork)
+        embellishSubset(subset, outLinkList, vistaNetwork)
 
         stopTimes = gtfsStopTimes[gtfsTrips[tripID]]
         "@type stopTimes: list<gtfs.StopTimesEntry>"
@@ -410,7 +527,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         gtfsShapes, gtfsStopsLookup = prepareMapStops(ourGTFSNodes, gtfsStopTimes[gtfsTrips[tripID]])
 
         # Find a path through our prepared node map subset:
-        resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset)
+        resultTree = pathEngine.constructPath(gtfsShapes, subset)
         "@type resultTree: list<path_engine.PathEnd>"
         
         # Strip off the dummy ends:
@@ -427,7 +544,9 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         if problemReport:
             problemReportNodes[gtfsTrips[tripID].shapeEntries[0].shapeID] = assembleProblemReport(resultTree, vistaNetwork)
         
-        # Walk through our output link list and see where the resultTree entries occur:
+        # Walk through our output link list and see when in time the resultTree entries occur. Keep those
+        # that fall within our given time interval and entirely bail out on this trip if we are entirely
+        # outside of the time range.
         stopMatches = []
         "@type stopMatches: list<path_engine.PathEnd>"
         rejectFlag = False
