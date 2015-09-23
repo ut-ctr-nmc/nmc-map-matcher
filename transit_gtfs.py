@@ -504,26 +504,23 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         
         # Step 1: Find the longest distance of contiguous valid links within the shape for each trip. And,
         # Step 2: Ignore routes that are entirely outside our valid time interval.
+        print("INFO: -- Matching stops for trip %d --" % tripID, file = sys.stderr)
         ourGTFSNodes, longestStart = treeContiguous(gtfsNodes[gtfsTrips[tripID].shapeEntries[0].shapeID], vistaNetwork,
             gtfsStopTimes[gtfsTrips[tripID]], startTime, endTime)
         if ourGTFSNodes is None:
+            print("INFO: Skipped because all stops fall outside of the valid time range, or there are no stops.", file = sys.stderr)
             continue                
             
         # Step 3: Build a new subset network with new links and nodes that represents the single-path
         # specified by the GTFS shape (for bus route):
-        print("INFO: -- Matching stops for trip %d --" % tripID, file = sys.stderr)
         subset, outLinkList = buildSubset(ourGTFSNodes, vistaNetwork)
         
-        # Step 4: Embellish the single-path subset with incoming and outgoing links because we may need to
-        # move around ambiguously matched bus stop locations later.
+        # Step 4: Embellish the single-path subset with incoming and outgoing links at the beginning and ending areas
+        # because we may need to move ambiguously matched bus stop locations around later. (We also find in GTFS sets that
+        # occasionally GTFS shapes don't quite specify the respective bus route far enough).
         embellishSubset(subset, outLinkList, vistaNetwork)
 
         # Step 5: Match up stops to that contiguous list:
-        # At this point, we're doing something with this.
-        stopTimes = gtfsStopTimes[gtfsTrips[tripID]]
-        "@type stopTimes: list<gtfs.StopTimesEntry>"
-        
-        # Then, prepare the stops as GTFS shapes entries:
         print("INFO: Mapping stops to VISTA network...", file = sys.stderr)
         gtfsShapes, gtfsStopsLookup = prepareMapStops(ourGTFSNodes, gtfsStopTimes[gtfsTrips[tripID]])
 
@@ -544,10 +541,12 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         # However; we will not have gotten here if the trip was entirely outside of it. 
         if problemReport:
             problemReportNodes[gtfsTrips[tripID].shapeEntries[0].shapeID] = assembleProblemReport(resultTree, vistaNetwork)
-        
+            
         # Walk through our output link list and see when in time the resultTree entries occur. Keep those
         # that fall within our given time interval and entirely bail out on this trip if we are entirely
-        # outside of the time range.
+        # outside of the time range. We do this here because of the possibility that a route is shortened
+        # because we are trying to match to, say, a subnetwork of a regional network. We had to have done
+        # the steps above in order to know this.
         stopMatches = []
         "@type stopMatches: list<path_engine.PathEnd>"
         rejectFlag = False
@@ -555,22 +554,31 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
             gtfsStopTime = gtfsStopsLookup[treeEntry.shapeEntry.shapeSeq]
             if excludeBegin and gtfsStopTime.arrivalTime < startTime or excludeEnd and gtfsStopTime.arrivalTime > endTime:
                 # Throw away this entire route because it is excluded and part of it falls outside:
-                print("INFO: Excluded because of activity outside of the valid time range.", file = sys.stderr)
+                print("INFO: Excluded because activity happens outside of the valid time range.", file = sys.stderr)
                 del stopMatches[:]
                 rejectFlag = True
                 break
             elif (widenBegin or gtfsStopTime.arrivalTime >= startTime) and (widenEnd or gtfsStopTime.arrivalTime <= endTime):
                 stopMatches.append(treeEntry)
                 
-        # Then, output the results out if we are supposed to.
+        # Then, output the results if we had not been rejected:
         foundStopSet = set()
         if not rejectFlag:
+            if len(gtfsStopsLookup) > 0 and len(stopMatches) == 0:
+                # TODO: Because of a continue further above, this should never happen. 
+                print("INFO: No stops fall within the valid time range.")
             outSeqCtr = longestStart
             minTime = warmupStartTime
             maxTime = cooldownEndTime
             foundValidStop = False
             stopMatchIndex = 0
-            for treeEntry in resultTree:    
+            for treeEntry in resultTree:
+                # First, output the links leading up to this stop:
+                if len(treeEntry.routeInfo) - 1 > 0:
+                    for routeInfoElem in treeEntry.routeInfo[0:-1]:
+                        print('"%d","%d","%d",,,' % (tripID, outSeqCtr, routeInfoElem.id), file=outFile)
+                        outSeqCtr += 1
+                    
                 if stopMatchIndex < len(stopMatches) and treeEntry == stopMatches[stopMatchIndex]:
                     foundStopSet.add(treeEntry.shapeEntry.shapeSeq) # Check off this stop sequence.
                     foundValidStop = True
@@ -604,6 +612,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
             cooldownEndTime = max(maxTime, cooldownEndTime)
 
         # Are there any stops left over?  If so, report them to say that they aren't in the output file.
+        stopTimes = gtfsStopTimes[gtfsTrips[tripID]]
+        "@type stopTimes: list<gtfs.StopTimesEntry>"
         startGap = -1
         endGap = -1
         for gtfsStopTime in stopTimes:
