@@ -24,7 +24,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-import graph, linear, gtfs, operator, sys, copy
+import graph, linear, gtfs, operator, math, sys, copy
 
 INSUFFICIENT_HINT_PENALTY = 5000
 "@var INSUFFICIET_HINT_PENALTY: The score to add to paths when a hint zone is exited and not all of the hints were traversed."
@@ -109,6 +109,9 @@ class PathEngine:
         
         self.shapeScatterCache = None
         "@type self.shapeScatterCache: list<graph.PointOnLink>"
+        
+        self.forceLinks = None
+        "@type self.forceLinkMatch: list<graph.GraphLink>"
         
     def scoreFunction(self, prevVISTAPoint, distance, vistaPoint):
         """
@@ -321,10 +324,19 @@ class PathEngine:
         self.hintRefactorRadius = hintRefactorRadius
         self.termRefactorRadius = termRefactorRadius
         self.hintRefactorRadiusSq = hintRefactorRadius ** 2
-        self.termRefactorRadiusSq = termRefactorRadius ** 2        
+        self.termRefactorRadiusSq = termRefactorRadius ** 2
+        
+    def setForceLinks(self, forceLinks):
+        """
+        Forces refinePath() to use specific links.
+        @param forceLinks: A list of links or None values where each element corresponds with the oldGTFSPath
+                list passed into refinePath(). Set to None to disable entirely (default).
+        @type forceLinks: list<graph.GraphLink>
+        """
+        self.forceLinks = forceLinks
 
     def _tryTreeStack(self, pathProcessor, oldTreeNode, prevOldShape, prevTreeNodes, hintEntries, hintStatus, vistaGraph,
-            evalCode, firstFlag):
+            evalCode, firstFlag, pathIndex=None):
         """
         _tryTreeStack() is a potentially recursively called internal worker method that reevaluates tree indices and
         generates new tree nodes.
@@ -338,6 +350,8 @@ class PathEngine:
         @param evalCode: Use 0: no evaluation, 1: full evaluation, 2: wrap up loose ends
         @type evalCode: int
         @type firstFlag: bool
+        @param pathIndex: This must be provided for path refining that uses forced links.
+        @type pathIndex: int
         @return The list of new tree nodes as well as an integer expressing the first active hint, or -1 for none, and
             then the eval code that was most recently used. 
         @rtype: list<PathEnd>, int, int        
@@ -376,7 +390,7 @@ class PathEngine:
                         hintStatus = hintIndex + 1
                         print("INFO: Enter hint# %d zone at shapeID %s, seq %d..." % (hintEntries[hintStatus].shapeSeq,
                             str(oldTreeNode.shapeEntry.shapeID), oldTreeNode.shapeEntry.shapeSeq), file = self.logFile)
-                    
+
                     # TODO: Cache these so that we don't need to find the points for each hint again.
                     closestVISTA = vistaGraph.findPointsOnLinks(hintEntry.pointX, hintEntry.pointY, self.pointSearchRadius,
                         self.pointSearchPrimary, self.pointSearchSecondary, prevPointsOnLinks, self.limitHintClosest)
@@ -408,15 +422,23 @@ class PathEngine:
                         evalCode = 1 # Stomp return for children; force this to 1 as before.                        
                         hitHint = True
                     
-            # Are we in an area that requires reevaluation?  Deal with shape points here:
+            # Are we in an area that requires reevaluation (e.g. restart)?  Deal with shape points here:
             if evalCode > 0:
                 if evalCode == 1:
                     # Check if we had found all of the shape proximity points already:
                     if self.shapeScatterCache is None:
-                        # Search for nearest points to the shape point:
-                        self.shapeScatterCache = vistaGraph.findPointsOnLinks(oldTreeNode.shapeEntry.pointX,
-                            oldTreeNode.shapeEntry.pointY, self.pointSearchRadius, self.pointSearchPrimary,
-                            self.pointSearchSecondary, prevPointsOnLinks, self.limitClosestPoints)
+                        if pathIndex is not None and self.forceLinks is not None and pathIndex < len(self.forceLinks) \
+                                and self.forceLinks[pathIndex] is not None:
+                            # Specialized operation: force the use of the given link:
+                            link = self.forceLinks[pathIndex]
+                            distSq, linkDist, perpendicular = linear.pointDistSq(oldTreeNode.shapeEntry.pointX, oldTreeNode.shapeEntry.pointY,
+                                link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY, link.distance)
+                            self.shapeScatterCache = [graph.PointOnLink(link, linkDist, not perpendicular, math.sqrt(distSq))]
+                        else:
+                            # Normal operation: find closest limitClosestPoints points to the shape point among all links: 
+                            self.shapeScatterCache = vistaGraph.findPointsOnLinks(oldTreeNode.shapeEntry.pointX,
+                                oldTreeNode.shapeEntry.pointY, self.pointSearchRadius, self.pointSearchPrimary,
+                                self.pointSearchSecondary, prevPointsOnLinks, self.limitClosestPoints)
                     
                     # Create new PathEnd objects:
                     gtfsPoints = len(self.shapeScatterCache) * []
@@ -487,7 +509,7 @@ class PathEngine:
         
         return (curListAll, hintStatus, evalCode)
 
-    def refinePath(self, oldGTFSPath, vistaGraph, hintEntries):
+    def refinePath(self, oldGTFSPath, vistaGraph, hintEntries=list()):
         """
         refinePath goes through existing GTFS points and uses hints to redo sections of paths.  It also
         tries to route from a restart.  Uses hintRefactorRadius and termRefactorRadius.
@@ -532,8 +554,9 @@ class PathEngine:
                             oldGTFSPath[nextRestartIndex + 1].pointOnLink.pointY) < self.termRefactorRadiusSq)):
                     if (evalCode == 0):
                         evalCode = 1 # Full reevaluation
-                        print("INFO: Enter restart zone at shapeID %s, seq %d..." % (str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID),
-                            oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq), file = self.logFile)
+                        if self.logFile is not None:
+                            print("INFO: Enter restart zone at shapeID %s, seq %d..." % (str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID),
+                                oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq), file = self.logFile)
                 else:
                     # Tie up loose ends if the previous round had new points found.
                     if evalCode == 1 and hintStatus == -1:
@@ -541,11 +564,13 @@ class PathEngine:
                         shapeTypeStr = "GTFS shape"
                         if oldGTFSPath[oldTreeNodeIndex].shapeEntry.hintFlag:
                             shapeTypeStr = "hint"
-                        print("INFO: Exiting zone at %s %s, seq %d..." % (shapeTypeStr, str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID),
-                            oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq), file = self.logFile)
+                        if self.logFile is not None:
+                            print("INFO: Exiting zone at %s %s, seq %d..." % (shapeTypeStr, str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID),
+                                oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq), file = self.logFile)
                         
                 if evalCode == 1:
-                    print("INFO:   ... shape seq. %d" % oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq, file = self.logFile)
+                    if self.logFile is not None:
+                        print("INFO:   ... shape seq. %d" % oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq, file = self.logFile)
 
                 # TODO: Also if a shape point is flagged to be reevaluated.
             
