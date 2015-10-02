@@ -500,6 +500,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
     "@type allSubsets: dict<int, graph.GraphLib>"
     allUsedTripIDs = []
     "@type allUsedTripIDs: list<int>"
+    allStopsLookups = {}
+    "@type allStopsLookups: dict<int, dict<int, gtfs.StopTimesEntry>>"
     
     print("INFO: ** INITIAL BUS STOP MATCHING STAGE **", file=sys.stderr)
     tripIDs = gtfsTrips.keys()
@@ -543,6 +545,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         allResultTrees[tripID] = resultTree
         allSubsets[tripID] = subset
         allUsedTripIDs.append(tripID)
+        allStopsLookups[tripID] = gtfsStopsLookup
+        del resultTree, subset, gtfsStopsLookup
             
     # Now figure out where stop locations differ among multiple routes that share the same stop.
     print("INFO: ** END INITIAL BUS STOP MATCHING STAGE **", file=sys.stderr)
@@ -572,6 +576,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
     for tripID in allUsedTripIDs:
         resultTree = allResultTrees[tripID]
         treeEntryIndex = 1
+        gtfsStopsLookup = allStopsLookups[tripID]
         for treeEntry in resultTree[1:-1]:
             "@type treeEntry: path_engine.PathEnd"
             stopID = gtfsStopsLookup[treeEntry.shapeEntry.shapeSeq].stop.stopID
@@ -598,11 +603,12 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
     # In preparation for the next step, capture a set of links that are in each subset:
     allSubsetLinks = {}
     "@type allSubsetLinks: dict<int, set(int)>"
-    for tripID, subset in allSubsets:
+    for tripID, subset in allSubsets.iteritems():
         subsetLinks = set()
         for subsetLink in subset.linkMap.itervalues():
             subsetLinks.add(subsetLink.uid)
         allSubsetLinks[tripID] = subsetLinks
+    del subsetLinks
     
     # Count how many times each link exists in each trip: 
     for stopRecord in stopRecords.itervalues():
@@ -613,24 +619,24 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
                     stopRecord.linkPresetCnt[linkID] += 1
                     
     # Vote on the most popular links:
-    for stopRecord in stopRecords.itervalues():
+    for stopID, stopRecord in stopRecords.iteritems():
         if len(stopRecord.linkCounts) <= 1:
             continue # All routes use the same link for the stop.
         sortList = []
-        for linkID, linkPresentCount in stopRecord.linkPresentCnt:
+        for linkID, linkPresentCount in stopRecord.linkPresentCnt.iteritems():
             sortList.append((linkPresentCount, stopRecord.linkCounts[linkID], linkID))
             
-        # sortList will now have the most popular link at the top: 
-        sortList = sortList.sort(reverse=True)
+        # sortList will now have the most popular link at the bottom: 
+        sortList = sortList.sort()
         
         linkAssignmentCount = 0
         while len(sortList) > 0 and linkAssignmentCount < stopRecord.refCount:
-            for tripID, treeEntryIndices in stopRecord.referents:
+            for tripID, treeEntryIndices in stopRecord.referents.iteritems():
                 "@type treeEntryIndices: list<int>"
                 for treeEntryIndex in treeEntryIndices:
                     resultTree = allResultTrees[tripID]
                     
-                    # Check to see if the link number needs to be reassigned and if the ideal link number is:
+                    # Check to see if the link number needs to be reassigned and if the ideal link number is present:
                     if resultTree[treeEntryIndex].pointOnLink.link.uid != sortList[-1][2]:
                         if sortList[-1][2] in subsetLinks[tripID]:
                             # If we do need to reassign the link, invalidate the respective path match points. The refine() call
@@ -643,10 +649,13 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
                             linkAssignmentCount += 1
                         # Else, don't increment the linkAssignmentCount because the proposed link isn't in the trip.
                     else:
-                        # The link that's used is the one that's most popular.
+                        # The link that's used is already the one that's most popular.
                         linkAssignmentCount += 1
             # Go to the next most popular link
             del sortList[-1]
+            if len(sortList) > 0 and linkAssignmentCount < stopRecord.refCount:
+                print("INFO: Stop %d cannot be applied to the same link across all routes that use that stop." % stopID, file=sys.stderr)
+        del sortList
             
     print("INFO: ** BEGIN REFINING AND OUTPUT STAGE **", file=sys.stderr)
     pathEngine.setRefineParams(STOP_SEARCH_RADIUS, STOP_SEARCH_RADIUS)
