@@ -133,7 +133,10 @@ class PathEngine:
             cost = vistaPoint.refDist * self.driftFactor
             if vistaPoint.nonPerpPenalty:
                 cost = cost * self.nonPerpPenalty            
-            return cost + distance * self.distanceFactor
+            return cost + abs(distance) * self.distanceFactor
+            # Change from Perrine et al., 2015: Use absolute value of distance here because all movement
+            # should be incrementing even in cases where a proposed path is moving back and forth on a link
+            # because of shape point noise or tiny U-turns.
 
     def _findShortestPaths(self, pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, vistaGraph, avoidRestartCode = 0):
         """

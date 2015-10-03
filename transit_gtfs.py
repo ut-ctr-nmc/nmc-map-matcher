@@ -41,7 +41,7 @@ STOP_SEARCH_RADIUS = 800
 DISTANCE_FACTOR = 1.0
 "@var DISTANCE_FACTOR: 'f_d': Cost multiplier for Linear path distance in stop matching"
 
-DRIFT_FACTOR = 1.5
+DRIFT_FACTOR = 2.0
 "@var DRIFT_FACTOR: 'f_r': Cost multiplier for distance from GTFS point to its VISTA link in stop matching"
 
 NON_PERP_PENALTY = 1.5
@@ -340,6 +340,9 @@ def _embellishIn(subset, vistaNetwork, nodeID, curDepth, usedNodes, usedLinkIDs,
     """
     if curDepth <= 0:
         return
+    if nodeID not in nodeLinkMap:
+        # This happens when we have a node that only has outgoing links.
+        return
     for linkID in nodeLinkMap[nodeID]:
         if linkID not in usedLinkIDs:
             vistaLink = vistaNetwork.linkMap[linkID]
@@ -599,6 +602,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
             
             # Increment the counter for the total number of references.
             stopRecord.refCount += 1
+    del stopRecord, treeEntry
             
     # In preparation for the next step, capture a set of links that are in each subset:
     allSubsetLinks = {}
@@ -608,7 +612,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         for subsetLink in subset.linkMap.itervalues():
             subsetLinks.add(subsetLink.uid)
         allSubsetLinks[tripID] = subsetLinks
-    del subsetLinks
+    del subsetLinks, subset
     
     # Count how many times each link exists in each trip: 
     for stopRecord in stopRecords.itervalues():
@@ -616,7 +620,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
             subsetLinks = allSubsetLinks[tripID]
             for linkID in stopRecord.linkPresentCnt.iterkeys():
                 if linkID in subsetLinks:
-                    stopRecord.linkPresetCnt[linkID] += 1
+                    stopRecord.linkPresentCnt[linkID] += 1
+    del stopRecord, subsetLinks
                     
     # Vote on the most popular links:
     for stopID, stopRecord in stopRecords.iteritems():
@@ -627,11 +632,12 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
             sortList.append((linkPresentCount, stopRecord.linkCounts[linkID], linkID))
             
         # sortList will now have the most popular link at the bottom: 
-        sortList = sortList.sort()
+        sortList = sorted(sortList)
         
         linkAssignmentCount = 0
         while len(sortList) > 0 and linkAssignmentCount < stopRecord.refCount:
             for tripID, treeEntryIndices in stopRecord.referents.iteritems():
+                subset = allSubsets[tripID]
                 "@type treeEntryIndices: list<int>"
                 for treeEntryIndex in treeEntryIndices:
                     resultTree = allResultTrees[tripID]
