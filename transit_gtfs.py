@@ -505,6 +505,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
     "@type allUsedTripIDs: list<int>"
     allStopsLookups = {}
     "@type allStopsLookups: dict<int, dict<int, gtfs.StopTimesEntry>>"
+    allForceLinks = {}
+    "@type allForceLinks: dict<int, list<set<graph.GraphLink>>"
     
     print("INFO: ** INITIAL BUS STOP MATCHING STAGE **", file=sys.stderr)
     tripIDs = gtfsTrips.keys()
@@ -532,6 +534,11 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         # because we may need to move ambiguously matched bus stop locations around later. (We also find in GTFS sets that
         # occasionally GTFS shapes don't quite specify the respective bus route far enough).
         embellishSubset(subset, outLinkList, vistaNetwork)
+        
+        # Then, for the benefit of forcing links below, make a mapping from link IDs to link objects. Most of these
+        # will have one link object, but in cases where links are used again because of a loop in the path, then
+        # there will be multiple entries.
+        subset.buildLinkIDtoUIDs()
 
         # Step 5: Match up stops to that contiguous list:
         print("INFO: Mapping stops to VISTA network...", file=sys.stderr)
@@ -577,6 +584,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
     stopRecords = {}
     "@type stopRecords: dict<int, StopRecord>"
     for tripID in allUsedTripIDs:
+        forceLinks = []
         resultTree = allResultTrees[tripID]
         treeEntryIndex = 1
         gtfsStopsLookup = allStopsLookups[tripID]
@@ -586,7 +594,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
             if stopID not in stopRecords:
                 stopRecords[stopID] = StopRecord()
             stopRecord = stopRecords[stopID]
-            linkID = treeEntry.pointOnLink.link.uid
+            linkID = treeEntry.pointOnLink.link.id
+            # Use the ID here, not UID, so we have a common reference among all subset networks.
             
             # Count that this link is matched to this stop.
             if linkID not in stopRecord.linkCounts:
@@ -600,9 +609,14 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
             stopRecord.referents[tripID].append(treeEntryIndex)
             treeEntryIndex += 1
             
+            # Add in the default entries for forceLinks:
+            forceLinks.append(set())
+            forceLinks[-1].add(treeEntry.pointOnLink.link)
+            
             # Increment the counter for the total number of references.
             stopRecord.refCount += 1
-    del stopRecord, treeEntry
+        allForceLinks[tripID] = forceLinks
+    del stopRecord, treeEntry, forceLinks
             
     # In preparation for the next step, capture a set of links that are in each subset:
     allSubsetLinks = {}
@@ -610,7 +624,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
     for tripID, subset in allSubsets.iteritems():
         subsetLinks = set()
         for subsetLink in subset.linkMap.itervalues():
-            subsetLinks.add(subsetLink.uid)
+            subsetLinks.add(subsetLink.id) # Again, ID not UID.
         allSubsetLinks[tripID] = subsetLinks
     del subsetLinks, subset
     
@@ -638,18 +652,24 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         while len(sortList) > 0 and linkAssignmentCount < stopRecord.refCount:
             for tripID, treeEntryIndices in stopRecord.referents.iteritems():
                 subset = allSubsets[tripID]
+                subsetLinks = allSubsetLinks[tripID]
+                forceLinks = allForceLinks[tripID]
                 "@type treeEntryIndices: list<int>"
                 for treeEntryIndex in treeEntryIndices:
                     resultTree = allResultTrees[tripID]
                     
                     # Check to see if the link number needs to be reassigned and if the ideal link number is present:
-                    if resultTree[treeEntryIndex].pointOnLink.link.uid != sortList[-1][2]:
+                    if resultTree[treeEntryIndex].pointOnLink.link.id != sortList[-1][2]:
                         if sortList[-1][2] in subsetLinks[tripID]:
                             # If we do need to reassign the link, invalidate the respective path match points. The refine() call
                             # will then reevaluate those points along the path.
                             resultTree[treeEntryIndex].restart = True
-                            resultTree[treeEntryIndex].pointOnLink.link = subset.linkMap[sortList[-1][2]]
-                            resultTree[treeEntryIndex].pointOnLink.dist = -1 
+                            
+                            # Now, place all updated candidate links into the forceLinks list. Normally, there will
+                            # just be one candidate, but if a route has any loops in it, then we need a set of link
+                            # object that shares the underlying link.
+                            forceLinks[treeEntryIndex] = subset.linkIDtoUIDs[sortList[-1][2]]
+
                             if treeEntryIndex < len(resultTree) - 1:
                                 resultTree[treeEntryIndex + 1].restart = True
                             linkAssignmentCount += 1
@@ -661,7 +681,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
             del sortList[-1]
             if len(sortList) > 0 and linkAssignmentCount < stopRecord.refCount:
                 print("INFO: Stop %d cannot be applied to the same link across all routes that use that stop." % stopID, file=sys.stderr)
-        del sortList
+        del sortList, forceLinks, subsetLinks, subset
             
     print("INFO: ** BEGIN REFINING AND OUTPUT STAGE **", file=sys.stderr)
     pathEngine.setRefineParams(STOP_SEARCH_RADIUS, STOP_SEARCH_RADIUS)

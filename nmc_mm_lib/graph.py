@@ -125,6 +125,7 @@ class GraphLib:
     @ivar linkMap: Collection of links
     @type linkMap: dict<int, GraphLink>
     @ivar prevLinkID: Previous link ID for cases where we are dealing with single-paths
+    @type linkIDtoUIDs: dict<int, set<GraphLink>>
     """
     def __init__(self, gpsCtrLat, gpsCtrLng, singlePath=False):
         """
@@ -170,6 +171,17 @@ class GraphLib:
         self.linkMap[ourID] = link
         link.origNode.outgoingLinkMap[link.id] = link
         return link.uid
+    
+    def buildLinkIDtoUIDs(self):
+        """
+        Goes through the links that are in this graph and creates a mapping from ID to sets of UIDs. Most will
+        have single UID entries, but those that have multiple visits to a link will have multiple entries.
+        """
+        self.linkIDtoUIDs = {}
+        for link in self.linkMap.itervalues():
+            if link.id not in self.linkIDtoUIDs:
+                self.linkIDtoUIDs[link.id] = set()
+            self.linkIDtoUIDs[link.id].add(link)
         
     def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints = sys.maxint):
         """
@@ -205,7 +217,7 @@ class GraphLib:
                 if distSq <= primaryRadiusSq:
                     # Yes, easy.  Add to the list:
                     retSet.add(pointOnLink)
-                else:
+                elif prevPoints is not None:
                     # Check to see if the point is close to a previous point:
                     for prevPoint in prevPoints:
                         "@type prevPoint: PointOnLink"
