@@ -452,12 +452,13 @@ def assembleProblemReport(resultTree, vistaNetwork):
         revisedNodeList[stopNode.shapeEntry.shapeSeq] = newNode
     return revisedNodeList 
 
-def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSearchRadius, excludeUpstream, userName,
+def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSearchRadius, excludeUpstream, userName,
         networkName, startTime, endTime, widenBegin, widenEnd, excludeBegin, excludeEnd, outFile=sys.stdout):
     """
     dumpBusRouteLinks dumps out a public.bus_route_link.csv file contents. This also will remove all stop times and trips
     that fall outside of the valid evaluation interval as dictated by the exclusion parameters.
     @type gtfsTrips: dict<int, gtfs.TripsEntry>
+    @type gtfsStops: dict<int, StopsEntry>
     @type gtfsStopTimes: dict<TripsEntry, list<gtfs.StopTimesEntry>>
     @type gtfsNodes: dict<int, list<path_engine.PathEnd>>
     @type vistaNetwork: graph.GraphLib
@@ -547,18 +548,22 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         # Find a path through our prepared node map subset:
         resultTree = pathEngine.constructPath(gtfsShapes, subset)
         "@type resultTree: list<path_engine.PathEnd>"
-        
-        # So now we should have one tree entry per matched stop.
 
+        # So now resultTree is one tree entry per matched stop plus dummy ends.
+
+        # While we're at it, initialize the force links list for later:
+        allForceLinks[tripID] = [None] * len(gtfsShapes)
+        
         # Store this for the next step, where we attempt to use the same bus stop location across all routes that use
         # that bus stop.
         allResultTrees[tripID] = resultTree
         allSubsets[tripID] = subset
         allUsedTripIDs.append(tripID)
         allStopsLookups[tripID] = gtfsStopsLookup
-        del resultTree, subset, gtfsStopsLookup
+        del resultTree, subset, gtfsShapes, gtfsStopsLookup
             
-    # Now figure out where stop locations differ among multiple routes that share the same stop.
+    # Now figure out where stop locations differ among multiple routes that share the same stop. This will involve
+    # filling out a StopRecord for each stop and then resolving the discrepancies.
     print("INFO: ** END INITIAL BUS STOP MATCHING STAGE **", file=sys.stderr)
     
     print("INFO: Resolving discrepancies in bus stop locations across all routes...", file=sys.stderr)    
@@ -566,25 +571,26 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         """
         StopRecord is a container for storing all of the information about stops and links so that 
         the link that is used across all routes may be set to be the same.
-        @ivar linkCounts: Stores a reference count for each link referring to this stop.
+        @ivar linkCounts: Stores a reference count for each link referring to this stop. LinkID -> reference count.
         @type linkCounts: dict<int, int>
-        @ivar linkPresentCnt: Identifies for each link how many of the routes each is in.
+        @ivar linkPresentCnt: Identifies for each link how many of the subsets each is in. How many times does this
+                        appear among all subsets? LinkID -> count
         @type linkPresentCnt: dict<int, int>
         @ivar referents: Identifies for each trip the index in the respective treeEntry list addresses the stop.
+                        TripID -> index into tree list
         @type referents: dict<int, list<int>>
         @ivar refCount: The number of referents there are among all trips.
         @type refCount: int
         """
         def __init__(self):
             self.linkCounts = {}
-            self.linkPresentCnt = {}
+            self.linkPresentCnt = {} # TODO: We might not need this.
             self.referents = {}
             self.refCount = 0
     
     stopRecords = {}
     "@type stopRecords: dict<int, StopRecord>"
     for tripID in allUsedTripIDs:
-        forceLinks = []
         resultTree = allResultTrees[tripID]
         treeEntryIndex = 1
         gtfsStopsLookup = allStopsLookups[tripID]
@@ -600,7 +606,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
             # Count that this link is matched to this stop.
             if linkID not in stopRecord.linkCounts:
                 stopRecord.linkCounts[linkID] = 0
-                stopRecord.linkPresentCnt[linkID] = 0
+                stopRecord.linkPresentCnt[linkID] = 0 # TODO: We might not need this.
             stopRecord.linkCounts[linkID] += 1
             
             # Identify where in the resultTree matched stops list this matched stop occurs.
@@ -609,16 +615,12 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
             stopRecord.referents[tripID].append(treeEntryIndex)
             treeEntryIndex += 1
             
-            # Add in the default entries for forceLinks:
-            forceLinks.append(set())
-            forceLinks[-1].add(treeEntry.pointOnLink.link)
-            
             # Increment the counter for the total number of references.
             stopRecord.refCount += 1
-        allForceLinks[tripID] = forceLinks
-    del stopRecord, treeEntry, forceLinks
+    del stopRecord, treeEntry
             
     # In preparation for the next step, capture a set of links that are in each subset:
+    # TODO: We might not need this.
     allSubsetLinks = {}
     "@type allSubsetLinks: dict<int, set(int)>"
     for tripID, subset in allSubsets.iteritems():
@@ -628,7 +630,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         allSubsetLinks[tripID] = subsetLinks
     del subsetLinks, subset
     
-    # Count how many times each link exists in each trip: 
+    # Count how many times each link exists in each trip's subset: 
+    # TODO: We might not need this.
     for stopRecord in stopRecords.itervalues():
         for tripID in stopRecord.referents.iterkeys():
             subsetLinks = allSubsetLinks[tripID]
@@ -636,7 +639,150 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
                 if linkID in subsetLinks:
                     stopRecord.linkPresentCnt[linkID] += 1
     del stopRecord, subsetLinks
-                    
+
+
+
+
+    
+    
+    # Go through each stop and check for discrepancies.
+    pathEngine.setRefineParams(STOP_SEARCH_RADIUS, STOP_SEARCH_RADIUS)
+    for stopID, stopRecord in stopRecords.iteritems():
+        if len(stopRecord.linkPresentCnt) <= 1: # TODO: Probably can simplify:
+            continue # All routes use the same link for the stop. No discrepancies for this stop.
+    
+        # For each trip that uses this stop, discover closest points.
+        stopsEntry = gtfsStops[stopID]
+        "@type stopsEntry: StopsEntry"
+        
+        # Use a StopRecord to keep track of which stop and trips use which matched links
+        stopResolveRecord = StopRecord()
+
+        # This will hold the scores for all of the reference distances. 
+        scores = {}
+        "@type scores: dict<int, float>"                        
+        
+        for tripID, treeEntryIndices in stopRecord.referents.iteritems():
+            subset = allSubsets[tripID]            
+
+            closestLinks = subset.findPointsOnLinks(stopsEntry.pointX, stopsEntry.pointY, pathEngine.pointSearchRadius,
+                pathEngine.pointSearchPrimary, pathEngine.pointSearchSecondary, None, pathEngine.limitClosestPoints)            
+            "@type closestLinks: list<graph.PointOnLink>"
+
+            for pointOnLink in closestLinks:
+                linkID = pointOnLink.link.id
+                # Use the ID here, not UID, so we have a common reference among all subset networks.
+                
+                # Count that this link is matched to this stop.
+                if linkID not in stopResolveRecord.linkCounts:
+                    stopResolveRecord.linkCounts[linkID] = 0
+                    scores[linkID] = pointOnLink.refDist # This should be the same among all subsets. 
+                stopResolveRecord.linkCounts[linkID] += 1
+                
+                # Identify where in the resultTree matched stops list this matched stop occurs.
+                if tripID not in stopResolveRecord.referents:
+                    stopResolveRecord.referents[tripID] = []
+                stopResolveRecord.referents[tripID].append(treeEntryIndex)
+                treeEntryIndex += 1
+                
+                # Increment the counter for the total number of references.
+                stopResolveRecord.refCount += 1
+                
+        # Store the maximum score so that we can invert them to get the sorting right: 
+        scoreMax = max(scores.values())
+                
+        # Build a list for identifying the best links by the refDist perpendicular distance metric:
+        sortList = []
+        for linkID, linkCount in stopResolveRecord.linkCounts.iteritems():
+            sortList.append((linkCount, scoreMax - scores[linkID], linkID))
+        
+        # sortList will now have the links with the most common usage and least original scores at the top: 
+        sortList = sorted(sortList, reverse=True)
+        # TODO: Do we need to truncate the list to speed up processing?
+
+        # This will hold the scores for all of the path tests: 
+        allScores = {} # tripID -> linkID -> float
+        "@type scores: dict<int, dict<int, float>>"                        
+        
+        for sortListIndex in range(0, len(sortList)):
+            # Try out this link by invalidating the stop point and doing a refine cycle in each trip:
+            linkID = sortList[sortListIndex][2]
+            
+            for tripID, treeEntryIndices in stopResolveRecord.referents.iteritems():
+                subset = allSubsets[tripID]
+                if linkID not in subset.linkIDtoUIDs:
+                    continue   
+                resultTree = allResultTrees[tripID]
+                forceLinks = allForceLinks[tripID]
+
+                for treeEntryIndex in treeEntryIndices:
+                    # Invalidate the respective path match point for this stop and trip. The refine() call
+                    # will then reevaluate those points along the path.
+                    resultTree[treeEntryIndex].restart = True
+                            
+                    # Now, place all updated candidate links into the forceLinks list. Normally, there will
+                    # just be one candidate, but if a route has any loops in it and this stop is hit twice, then
+                    # we need a set of link objects that shares the underlying link.
+                    forceLinks[treeEntryIndex] = subset.linkIDtoUIDs[sortList[-1][2]]
+                    pathEngine.setForceLinks(forceLinks)
+
+                    # Refine the path and see what the score is:
+                    resultTreeRefined = pathEngine.refinePath(resultTree, subset) 
+
+                    # Did the refine just flat-out fail? (e.g. do we still have a restart in there?)
+                    if not (treeEntryIndex > 0 and resultTreeRefined[treeEntryIndex - 1].restart or resultTreeRefined[treeEntryIndex].restart):
+                        if tripID not in allScores:
+                            allScores[tripID] = {}
+                        allScores[tripID][linkID] = resultTreeRefined[-1].cost 
+                    del resultTreeRefined
+            del subset, resultTree, forceLinks
+            
+        # Now normalize the link scores for each tripID and multiply by the reference count:
+        scoreSums = {} # linkID -> float
+        "@type scoreSums: dict<int, float>"
+        for tripID, treeEntryIndices in stopRecord.referents.iteritems():
+            scores = allScores[tripID]
+            scoreMax = max(scores.values())
+            for linkID in scores.iterkeys():
+                scores[linkID] = scoreMax - scores[linkID] # Flip it so that the high score is the best.
+                scores[linkID] /= scoreMax if scoreMax > 0.0 else 1.0
+                if linkID not in scoreSums:
+                    scoreSums[linkID] = 0.0
+                scoreSums[linkID] += scores[linkID]
+                
+        # Use the scores for each link to rank the links:
+        sortList = []
+        for linkID, linkPresentCount in stopRecord.linkPresentCnt.iteritems():
+            sortList.append((scoreSums[linkID], linkID))
+            
+        sortList = sorted(sortList)
+        # Now the best-scored link is at the end of the list.
+
+        
+
+
+
+        
+        # For the most popular link:
+            # Set the corresponding force record in each trip to that link.
+            # Invalidate the corresponding point in the tree list.
+            # Perform a refine
+            # Log the average scores among all trips
+            # Try the next most popular link.
+            
+        # Replace the scores in the popularity list with the average scores.
+        
+        # For the most popular link:
+            # Set the corresponding force record in each trip to that link.
+            # Invalidate the corresponding point in the tree list.
+            # Perform a refine
+            # Prevent this trip from being used again
+            # Try the next most popular link until the number of outstanding links are assigned.
+    
+    # We should now have all paths that hopefully minimize the number of bus stop discrepancies. 
+    
+    
+    
     # Vote on the most popular links:
     for stopID, stopRecord in stopRecords.iteritems():
         if len(stopRecord.linkCounts) <= 1:
@@ -944,7 +1090,7 @@ def main(argv):
     # Output the routes_link file:
     print("INFO: Dumping public.bus_route_link.csv...", file=sys.stderr)
     with open("public.bus_route_link.csv", 'w') as outFile:
-        (stopLinkMap, newStartTime, newEndTime) = dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaGraph,
+        (stopLinkMap, newStartTime, newEndTime) = dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaGraph,
             STOP_SEARCH_RADIUS, excludeUpstream, userName, networkName, refTime, endTime, widenBegin, widenEnd,
             excludeBegin, excludeEnd, outFile)
         "@type stopLinkMap: dict<int, graph.PointOnLink>"
