@@ -758,6 +758,13 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         sortList = sorted(sortList)
         # Now the best-scored link is at the end of the list.
 
+        # For the most popular link:
+            # Set the corresponding force record in each trip to that link.
+            # Invalidate the corresponding point in the tree list.
+            # Perform a refine
+            # Prevent this trip from being used again
+            # Try the next most popular link until the number of outstanding links are assigned.
+        
         
 
 
