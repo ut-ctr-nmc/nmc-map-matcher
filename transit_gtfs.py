@@ -495,9 +495,6 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     pathEngine.maxHops = 12
     pathEngine.logFile = None # Suppress the log outputs for the path engine; enough stuff will come from other sources.
 
-    problemReportNodes = {}
-    "@type problemReportNodes: dict<?, path_engine.PathEnd>"
-    
     allResultTrees = {}
     "@type allResultTrees: dict<int, list<path_engine.PathEnd>>"
     allSubsets = {}
@@ -584,12 +581,14 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         """
         def __init__(self):
             self.linkCounts = {}
-            self.linkPresentCnt = {} # TODO: We might not need this.
+            self.linkPresentCnt = {}
             self.referents = {}
             self.refCount = 0
     
     stopRecords = {}
     "@type stopRecords: dict<int, StopRecord>"
+    
+    linkID, stopRecord, treeEntry, treeEntryIndex, gtfsStopsLookup = None
     for tripID in allUsedTripIDs:
         resultTree = allResultTrees[tripID]
         treeEntryIndex = 1
@@ -606,7 +605,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             # Count that this link is matched to this stop.
             if linkID not in stopRecord.linkCounts:
                 stopRecord.linkCounts[linkID] = 0
-                stopRecord.linkPresentCnt[linkID] = 0 # TODO: We might not need this.
+                stopRecord.linkPresentCnt[linkID] = 0
             stopRecord.linkCounts[linkID] += 1
             
             # Identify where in the resultTree matched stops list this matched stop occurs.
@@ -617,38 +616,33 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             
             # Increment the counter for the total number of references.
             stopRecord.refCount += 1
-    del stopRecord, treeEntry
+    del tripID, linkID, stopRecord, treeEntry, treeEntryIndex, gtfsStopsLookup
             
     # In preparation for the next step, capture a set of links that are in each subset:
-    # TODO: We might not need this.
     allSubsetLinks = {}
     "@type allSubsetLinks: dict<int, set(int)>"
+    subsetLinks, subsetLink, subset = None
     for tripID, subset in allSubsets.iteritems():
         subsetLinks = set()
         for subsetLink in subset.linkMap.itervalues():
             subsetLinks.add(subsetLink.id) # Again, ID not UID.
         allSubsetLinks[tripID] = subsetLinks
-    del subsetLinks, subset
+    del subsetLinks, subsetLink, tripID, subset
     
     # Count how many times each link exists in each trip's subset: 
-    # TODO: We might not need this.
+    subsetLinks, tripID, linkID = None
     for stopRecord in stopRecords.itervalues():
         for tripID in stopRecord.referents.iterkeys():
             subsetLinks = allSubsetLinks[tripID]
             for linkID in stopRecord.linkPresentCnt.iterkeys():
                 if linkID in subsetLinks:
                     stopRecord.linkPresentCnt[linkID] += 1
-    del stopRecord, subsetLinks
+    del stopRecord, subsetLinks, tripID, linkID
 
-
-
-
-    
-    
     # Go through each stop and check for discrepancies.
     pathEngine.setRefineParams(STOP_SEARCH_RADIUS, STOP_SEARCH_RADIUS)
     for stopID, stopRecord in stopRecords.iteritems():
-        if len(stopRecord.linkPresentCnt) <= 1: # TODO: Probably can simplify:
+        if len(stopRecord.linkPresentCnt) <= 1:
             continue # All routes use the same link for the stop. No discrepancies for this stop.
     
         # For each trip that uses this stop, discover closest points.
@@ -702,12 +696,13 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
 
         # This will hold the scores for all of the path tests: 
         allScores = {} # tripID -> linkID -> float
-        "@type scores: dict<int, dict<int, float>>"                        
+        "@type allScores: dict<int, dict<int, float>>"                        
         
         for sortListIndex in range(0, len(sortList)):
             # Try out this link by invalidating the stop point and doing a refine cycle in each trip:
             linkID = sortList[sortListIndex][2]
             
+            subset, resultTree, forceLinks = None
             for tripID, treeEntryIndices in stopResolveRecord.referents.iteritems():
                 subset = allSubsets[tripID]
                 if linkID not in subset.linkIDtoUIDs:
@@ -723,7 +718,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                     # Now, place all updated candidate links into the forceLinks list. Normally, there will
                     # just be one candidate, but if a route has any loops in it and this stop is hit twice, then
                     # we need a set of link objects that shares the underlying link.
-                    forceLinks[treeEntryIndex] = subset.linkIDtoUIDs[sortList[-1][2]]
+                    forceLinks[treeEntryIndex] = subset.linkIDtoUIDs[linkID]
                     pathEngine.setForceLinks(forceLinks)
 
                     # Refine the path and see what the score is:
@@ -731,6 +726,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
 
                     # Did the refine just flat-out fail? (e.g. do we still have a restart in there?)
                     if not (treeEntryIndex > 0 and resultTreeRefined[treeEntryIndex - 1].restart or resultTreeRefined[treeEntryIndex].restart):
+                        # No, continue recording (otherwise ignore this test)
                         if tripID not in allScores:
                             allScores[tripID] = {}
                         allScores[tripID][linkID] = resultTreeRefined[-1].cost 
@@ -752,99 +748,71 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                 
         # Use the scores for each link to rank the links:
         sortList = []
-        for linkID, linkPresentCount in stopRecord.linkPresentCnt.iteritems():
+        for linkID in stopRecord.linkPresentCnt.iterkeys():
             sortList.append((scoreSums[linkID], linkID))
             
         sortList = sorted(sortList)
         # Now the best-scored link is at the end of the list.
 
-        # For the most popular link:
-            # Set the corresponding force record in each trip to that link.
-            # Invalidate the corresponding point in the tree list.
-            # Perform a refine
-            # Prevent this trip from being used again
-            # Try the next most popular link until the number of outstanding links are assigned.
-        
-        
+        # Assign links to stops in order of descending popularity until all references are exhausted:
+        tripID, treeEntryIndex, subset, resultTree, resultTreeRefined = None
+        usedTripIDs = set();
+        "@type usedTripIDs: set<int>"
 
-
-
-        
-        # For the most popular link:
-            # Set the corresponding force record in each trip to that link.
-            # Invalidate the corresponding point in the tree list.
-            # Perform a refine
-            # Log the average scores among all trips
-            # Try the next most popular link.
-            
-        # Replace the scores in the popularity list with the average scores.
-        
-        # For the most popular link:
-            # Set the corresponding force record in each trip to that link.
-            # Invalidate the corresponding point in the tree list.
-            # Perform a refine
-            # Prevent this trip from being used again
-            # Try the next most popular link until the number of outstanding links are assigned.
-    
-    # We should now have all paths that hopefully minimize the number of bus stop discrepancies. 
-    
-    
-    
-    # Vote on the most popular links:
-    for stopID, stopRecord in stopRecords.iteritems():
-        if len(stopRecord.linkCounts) <= 1:
-            continue # All routes use the same link for the stop.
-        sortList = []
-        for linkID, linkPresentCount in stopRecord.linkPresentCnt.iteritems():
-            sortList.append((linkPresentCount, stopRecord.linkCounts[linkID], linkID))
-            
-        # sortList will now have the most popular link at the bottom: 
-        sortList = sorted(sortList)
-        
-        linkAssignmentCount = 0
-        while len(sortList) > 0 and linkAssignmentCount < stopRecord.refCount:
-            for tripID, treeEntryIndices in stopRecord.referents.iteritems():
-                subset = allSubsets[tripID]
-                subsetLinks = allSubsetLinks[tripID]
-                forceLinks = allForceLinks[tripID]
-                "@type treeEntryIndices: list<int>"
-                for treeEntryIndex in treeEntryIndices:
+        firstLink = True
+        firstLinkID = -1
+        firstLinkCount = -1
+        while len(usedTripIDs) < stopResolveRecord.refCount:
+            # Find trips that use the linkID
+            for tripID, treeEntryIndex in stopResolveRecord.referents.iteritems():
+                if tripID not in usedTripIDs and sortList[-1][2] in allScores[tripID]:
+                    # This highest scoring linkID is in this trip. Invalidate the corresponding point in the tree list. 
+                    subset = allSubsets[tripID]
                     resultTree = allResultTrees[tripID]
                     
-                    # Check to see if the link number needs to be reassigned and if the ideal link number is present:
+                    # Skip it if we already use the correct linkID:
                     if resultTree[treeEntryIndex].pointOnLink.link.id != sortList[-1][2]:
-                        if sortList[-1][2] in subsetLinks[tripID]:
-                            # If we do need to reassign the link, invalidate the respective path match points. The refine() call
-                            # will then reevaluate those points along the path.
-                            resultTree[treeEntryIndex].restart = True
-                            
-                            # Now, place all updated candidate links into the forceLinks list. Normally, there will
-                            # just be one candidate, but if a route has any loops in it, then we need a set of link
-                            # object that shares the underlying link.
-                            forceLinks[treeEntryIndex] = subset.linkIDtoUIDs[sortList[-1][2]]
+                        resultTree[treeEntryIndex].restart = True;
+                        forceLinks = allForceLinks[tripID]
+                        forceLinks[treeEntryIndex] = subset.linkIDtoUIDs[sortList[-1][2]]
+                        
+                        # Refine the path:
+                        resultTreeRefined = pathEngine.refinePath(resultTree, subset)
 
-                            if treeEntryIndex < len(resultTree) - 1:
-                                resultTree[treeEntryIndex + 1].restart = True
-                            linkAssignmentCount += 1
-                        # Else, don't increment the linkAssignmentCount because the proposed link isn't in the trip.
-                    else:
-                        # The link that's used is already the one that's most popular.
-                        linkAssignmentCount += 1
-            # Go to the next most popular link
-            del sortList[-1]
-            if len(sortList) > 0 and linkAssignmentCount < stopRecord.refCount:
-                print("INFO: Stop %d cannot be applied to the same link across all routes that use that stop." % stopID, file=sys.stderr)
-        del sortList, forceLinks, subsetLinks, subset
+                        # Did the refine fail?
+                        if not (treeEntryIndex > 0 and resultTreeRefined[treeEntryIndex - 1].restart or resultTreeRefined[treeEntryIndex].restart):
+                            # No-- save the result.
+                            allResultTrees[tripID] = resultTreeRefined                    
+                            usedTripIDs.add(tripID)
+                            
+                            # Check to see if this is being saved to another linkID than the first one.
+                            if not firstLink:
+                                print("WARNING: For stopID %d, the match of linkID %d for tripID %d is a different link than the best-scoring linkID %d used by %d other trip(s)."
+                                    % (stopID, sortList[-1][2], tripID, firstLinkID, firstLinkCount), file=sys.stderr)
+            if usedTripIDs:
+                if firstLink:
+                    firstLinkID = sortList[-1][2]
+                    firstLinkCount = len(usedTripIDs)
+                firstLink = False
             
-    print("INFO: ** BEGIN REFINING AND OUTPUT STAGE **", file=sys.stderr)
-    pathEngine.setRefineParams(STOP_SEARCH_RADIUS, STOP_SEARCH_RADIUS)
-    #pathEngine.logFile = None # Prevent the refine cycle from outputting status messages.
+            del sortList[-1]
+            if not sortList and len(usedTripIDs) < stopResolveRecord.refCount:
+                # We have run out of candidates too early:
+                tripIDList = ""
+                for tripID in stopResolveRecord.referents.iterkeys():
+                    if tripID not in usedTripIDs:
+                        if len(tripIDList) > 0:
+                            tripIDList += ", "
+                        tripIDList += str(tripID)
+                print("WARNING: For stopID %d, trip(s) could not be matched: tripIDs %s." % (stopID, stopResolveRecord.refCount - len(usedTripIDs)), file=sys.stderr)
+        del usedTripIDs, firstLink, firstLinkID, firstLinkCount, tripID, treeEntryIndex, subset, resultTree, resultTreeRefined
+            
+    problemReportNodes = {}
+    "@type problemReportNodes: dict<?, path_engine.PathEnd>"
+    
+    print("INFO: ** BEGIN OUTPUT STAGE **", file=sys.stderr)
     for tripID in allUsedTripIDs:
         resultTree = allResultTrees[tripID]
-        pathEngine.setForceLinks([result.pointOnLink.link for result in resultTree])
-        
-        print("INFO: -- Refining stops for trip %d --" % tripID, file=sys.stderr)
-        resultTree = pathEngine.refinePath(resultTree, allSubsets[tripID]) 
         
         # Strip off the dummy ends:
         del resultTree[-1]
