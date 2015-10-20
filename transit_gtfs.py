@@ -588,7 +588,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     stopRecords = {}
     "@type stopRecords: dict<int, StopRecord>"
     
-    linkID, stopRecord, treeEntry, treeEntryIndex, gtfsStopsLookup = None
+    linkID = stopRecord = treeEntry = treeEntryIndex = gtfsStopsLookup = None
     for tripID in allUsedTripIDs:
         resultTree = allResultTrees[tripID]
         treeEntryIndex = 1
@@ -621,7 +621,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     # In preparation for the next step, capture a set of links that are in each subset:
     allSubsetLinks = {}
     "@type allSubsetLinks: dict<int, set(int)>"
-    subsetLinks, subsetLink, subset = None
+    subsetLinks = subsetLink = subset = None
     for tripID, subset in allSubsets.iteritems():
         subsetLinks = set()
         for subsetLink in subset.linkMap.itervalues():
@@ -630,18 +630,19 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     del subsetLinks, subsetLink, tripID, subset
     
     # Count how many times each link exists in each trip's subset: 
-    subsetLinks, tripID, linkID = None
+    subsetLinks = tripID = treeIndexIndices = linkID = None
     for stopRecord in stopRecords.itervalues():
-        for tripID in stopRecord.referents.iterkeys():
+        for tripID, treeIndexIndices in stopRecord.referents.iteritems():
             subsetLinks = allSubsetLinks[tripID]
             for linkID in stopRecord.linkPresentCnt.iterkeys():
                 if linkID in subsetLinks:
-                    stopRecord.linkPresentCnt[linkID] += 1
-    del stopRecord, subsetLinks, tripID, linkID
+                    stopRecord.linkPresentCnt[linkID] += len(treeIndexIndices)
+    del stopRecord, subsetLinks, tripID, treeIndexIndices, linkID
 
-    # Go through each stop and check for discrepancies.
+    # Go through each stop and check for discrepancies. 
     pathEngine.setRefineParams(STOP_SEARCH_RADIUS, STOP_SEARCH_RADIUS)
     for stopID, stopRecord in stopRecords.iteritems():
+        print("INFO: -- Stop %d --" % stopID, file=sys.stderr)
         if len(stopRecord.linkPresentCnt) <= 1:
             continue # All routes use the same link for the stop. No discrepancies for this stop.
     
@@ -656,6 +657,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         scores = {}
         "@type scores: dict<int, float>"                        
         
+        subset = closestLinks = pointOnLink = linkID = None
         for tripID, treeEntryIndices in stopRecord.referents.iteritems():
             subset = allSubsets[tripID]            
 
@@ -671,16 +673,16 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                 if linkID not in stopResolveRecord.linkCounts:
                     stopResolveRecord.linkCounts[linkID] = 0
                     scores[linkID] = pointOnLink.refDist # This should be the same among all subsets. 
-                stopResolveRecord.linkCounts[linkID] += 1
+                stopResolveRecord.linkCounts[linkID] += len(treeEntryIndices)
                 
                 # Identify where in the resultTree matched stops list this matched stop occurs.
                 if tripID not in stopResolveRecord.referents:
                     stopResolveRecord.referents[tripID] = []
-                stopResolveRecord.referents[tripID].append(treeEntryIndex)
-                treeEntryIndex += 1
+                stopResolveRecord.referents[tripID].extend(treeEntryIndices)
                 
                 # Increment the counter for the total number of references.
-                stopResolveRecord.refCount += 1
+                stopResolveRecord.refCount += len(treeEntryIndices)
+        del tripID, treeEntryIndices, subset, closestLinks, pointOnLink, linkID
                 
         # Store the maximum score so that we can invert them to get the sorting right: 
         scoreMax = max(scores.values())
@@ -698,11 +700,11 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         allScores = {} # tripID -> linkID -> float
         "@type allScores: dict<int, dict<int, float>>"                        
         
+        subset = resultTree = forceLinks = None
         for sortListIndex in range(0, len(sortList)):
             # Try out this link by invalidating the stop point and doing a refine cycle in each trip:
             linkID = sortList[sortListIndex][2]
             
-            subset, resultTree, forceLinks = None
             for tripID, treeEntryIndices in stopResolveRecord.referents.iteritems():
                 subset = allSubsets[tripID]
                 if linkID not in subset.linkIDtoUIDs:
@@ -729,14 +731,15 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                         # No, continue recording (otherwise ignore this test)
                         if tripID not in allScores:
                             allScores[tripID] = {}
-                        allScores[tripID][linkID] = resultTreeRefined[-1].cost 
+                        allScores[tripID][linkID] = resultTreeRefined[-1].totalCost 
                     del resultTreeRefined
-            del subset, resultTree, forceLinks
+        del sortList, sortListIndex, subset, resultTree, forceLinks
             
         # Now normalize the link scores for each tripID and multiply by the reference count:
+        scores = scoreMax = linkID = None
         scoreSums = {} # linkID -> float
         "@type scoreSums: dict<int, float>"
-        for tripID, treeEntryIndices in stopRecord.referents.iteritems():
+        for tripID in stopRecord.referents.iterkeys():
             scores = allScores[tripID]
             scoreMax = max(scores.values())
             for linkID in scores.iterkeys():
@@ -745,7 +748,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                 if linkID not in scoreSums:
                     scoreSums[linkID] = 0.0
                 scoreSums[linkID] += scores[linkID]
-                
+        del tripID, scores, scoreMax, linkID
+        
         # Use the scores for each link to rank the links:
         sortList = []
         for linkID in stopRecord.linkPresentCnt.iterkeys():
@@ -755,57 +759,61 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         # Now the best-scored link is at the end of the list.
 
         # Assign links to stops in order of descending popularity until all references are exhausted:
-        tripID, treeEntryIndex, subset, resultTree, resultTreeRefined = None
+        tripID = treeEntryIndices = treeEntryIndex = subset = resultTree = resultTreeRefined = None
         usedTripIDs = set();
         "@type usedTripIDs: set<int>"
 
         firstLink = True
         firstLinkID = -1
         firstLinkCount = -1
-        while len(usedTripIDs) < stopResolveRecord.refCount:
+        while sortList and len(usedTripIDs) < stopResolveRecord.refCount:
             # Find trips that use the linkID
-            for tripID, treeEntryIndex in stopResolveRecord.referents.iteritems():
-                if tripID not in usedTripIDs and sortList[-1][2] in allScores[tripID]:
+            for tripID, treeEntryIndices in stopResolveRecord.referents.iteritems():
+                if tripID not in usedTripIDs and sortList[-1][1] in allScores[tripID]:
                     # This highest scoring linkID is in this trip. Invalidate the corresponding point in the tree list. 
                     subset = allSubsets[tripID]
                     resultTree = allResultTrees[tripID]
                     
-                    # Skip it if we already use the correct linkID:
-                    if resultTree[treeEntryIndex].pointOnLink.link.id != sortList[-1][2]:
-                        resultTree[treeEntryIndex].restart = True;
-                        forceLinks = allForceLinks[tripID]
-                        forceLinks[treeEntryIndex] = subset.linkIDtoUIDs[sortList[-1][2]]
-                        
-                        # Refine the path:
-                        resultTreeRefined = pathEngine.refinePath(resultTree, subset)
-
-                        # Did the refine fail?
-                        if not (treeEntryIndex > 0 and resultTreeRefined[treeEntryIndex - 1].restart or resultTreeRefined[treeEntryIndex].restart):
-                            # No-- save the result.
-                            allResultTrees[tripID] = resultTreeRefined                    
-                            usedTripIDs.add(tripID)
+                    for treeEntryIndex in treeEntryIndices:
+                        # Skip it if we already use the correct linkID:
+                        if resultTree[treeEntryIndex].pointOnLink.link.id != sortList[-1][1]:
+                            resultTree[treeEntryIndex].restart = True;
+                            forceLinks = allForceLinks[tripID]
+                            forceLinks[treeEntryIndex] = subset.linkIDtoUIDs[sortList[-1][1]]
                             
-                            # Check to see if this is being saved to another linkID than the first one.
-                            if not firstLink:
-                                print("WARNING: For stopID %d, the match of linkID %d for tripID %d is a different link than the best-scoring linkID %d used by %d other trip(s)."
-                                    % (stopID, sortList[-1][2], tripID, firstLinkID, firstLinkCount), file=sys.stderr)
+                            # Refine the path:
+                            resultTreeRefined = pathEngine.refinePath(resultTree, subset)
+    
+                            # Did the refine fail?
+                            if not (treeEntryIndex > 0 and resultTreeRefined[treeEntryIndex - 1].restart or resultTreeRefined[treeEntryIndex].restart):
+                                # No-- save the result.
+                                allResultTrees[tripID] = resultTreeRefined                    
+                                usedTripIDs.add(tripID)
+                                
+                                # Check to see if this is being saved to another linkID than the first one.
+                                if not firstLink:
+                                    print("WARNING: For stopID %d, the match of linkID %d for tripID %d is a different link than the best-scoring linkID %d used by %d other trip(s)."
+                                        % (stopID, sortList[-1][1], tripID, firstLinkID, firstLinkCount), file=sys.stderr)
             if usedTripIDs:
                 if firstLink:
-                    firstLinkID = sortList[-1][2]
+                    firstLinkID = sortList[-1][1]
                     firstLinkCount = len(usedTripIDs)
                 firstLink = False
             
             del sortList[-1]
-            if not sortList and len(usedTripIDs) < stopResolveRecord.refCount:
-                # We have run out of candidates too early:
-                tripIDList = ""
-                for tripID in stopResolveRecord.referents.iterkeys():
-                    if tripID not in usedTripIDs:
-                        if len(tripIDList) > 0:
-                            tripIDList += ", "
-                        tripIDList += str(tripID)
-                print("WARNING: For stopID %d, trip(s) could not be matched: tripIDs %s." % (stopID, stopResolveRecord.refCount - len(usedTripIDs)), file=sys.stderr)
-        del usedTripIDs, firstLink, firstLinkID, firstLinkCount, tripID, treeEntryIndex, subset, resultTree, resultTreeRefined
+        if not sortList and len(usedTripIDs) < stopResolveRecord.refCount:
+            # We have run out of candidates too early:
+            tripIDList = ""
+            tripIDCount = 0
+            for tripID in stopResolveRecord.referents.iterkeys():
+                if tripID not in usedTripIDs:
+                    if len(tripIDList) > 0:
+                        tripIDList += ", "
+                    tripIDList += str(tripID)
+                    tripIDCount += 1
+            print("WARNING: For stopID %d, %d trip(s) could not be matched: tripIDs %s." % (stopID, tripIDCount, tripIDList), file=sys.stderr)
+            del tripIDList, tripIDCount
+        del usedTripIDs, firstLink, firstLinkID, firstLinkCount, tripID, treeEntryIndices, treeEntryIndex, subset, resultTree, resultTreeRefined
             
     problemReportNodes = {}
     "@type problemReportNodes: dict<?, path_engine.PathEnd>"
@@ -813,6 +821,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     print("INFO: ** BEGIN OUTPUT STAGE **", file=sys.stderr)
     for tripID in allUsedTripIDs:
         resultTree = allResultTrees[tripID]
+        gtfsStopsLookup = allStopsLookups[tripID]
         
         # Strip off the dummy ends:
         del resultTree[-1]
@@ -948,7 +957,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             problemReportNodesOut[shapeID] = ourTgtList                
         problem_report.problemReport(problemReportNodesOut, vistaNetwork)
     
-    print("INFO: ** END REFINING AND OUTPUT STAGE **", file=sys.stderr)
+    print("INFO: ** END OUTPUT STAGE **", file=sys.stderr)
     return ret, warmupStartTime, cooldownEndTime 
 
 def dumpBusStops(gtfsStops, stopLinkMap, userName, networkName, outFile = sys.stdout):
