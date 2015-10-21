@@ -593,7 +593,7 @@ class PathEngine:
                 # Visit this shape point further and figure out how to reevaluate it.
                 if not firstFlag:                
                     (treeNodes, hintStatus, evalCode) = self._tryTreeStack(pathProcessor, oldGTFSPath[oldTreeNodeIndex],
-                        prevOldShape, treeNodes, hintEntries, hintStatus, vistaGraph, evalCode, True)
+                        prevOldShape, treeNodes, hintEntries, hintStatus, vistaGraph, evalCode, True, oldTreeNodeIndex)
                 else:
                     treeNodes = [oldGTFSPath[0]]
                 prevOldShape = oldGTFSPath[oldTreeNodeIndex].shapeEntry
@@ -610,7 +610,7 @@ class PathEngine:
                         "@type treeNode: PathEnd"
                         if not treeNode.restart:
                             flag = True
-                    if not flag:
+                    if not flag and self.logFile is not None:
                         print("WARNING: No VISTA path found into GTFS shpaeID %s, seq %d; restarting." \
                             % (str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID), oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq),
                             file = self.logFile)

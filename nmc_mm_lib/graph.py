@@ -209,7 +209,7 @@ class GraphLib:
         for link in self.linkMap.values():
             "@type link: graph.GraphLink"
             (distSq, linkDist, perpendicular) = linear.pointDistSq(pointX, pointY, link.origNode.coordX, link.origNode.coordY,
-                                                                   link.destNode.coordX, link.destNode.coordY, link.distance)
+                                                                   link.destNode.coordX, link.destNode.coordY, link.distance)            
             if distSq <= radiusSq:
                 pointOnLink = PointOnLink(link, linkDist, not perpendicular, math.sqrt(distSq))
                 
