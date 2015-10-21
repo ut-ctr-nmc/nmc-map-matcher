@@ -564,6 +564,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         allUsedTripIDs.append(tripID)
         allStopsLookups[tripID] = gtfsStopsLookup
         del resultTree, subset, gtfsShapes, gtfsStopsLookup
+    print("INFO: -- End matching stops --", file=sys.stderr)
             
     # Now figure out where stop locations differ among multiple routes that share the same stop. This will involve
     # filling out a StopRecord for each stop and then resolving the discrepancies.
@@ -622,7 +623,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             # Increment the counter for the total number of references.
             stopRecord.refCount += 1
     del tripID, linkID, stopRecord, treeEntry, treeEntryIndex, gtfsStopsLookup
-            
+    
     # In preparation for the next step, capture a set of links that are in each subset:
     allSubsetLinks = {}
     "@type allSubsetLinks: dict<int, set(int)>"
@@ -648,9 +649,16 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     pathEngine.setRefineParams(STOP_SEARCH_RADIUS, STOP_SEARCH_RADIUS)
     for stopID, stopRecord in stopRecords.iteritems():
         print("INFO: -- Stop %d --" % stopID, file=sys.stderr)
-        if len(stopRecord.linkPresentCnt) <= 1:
+        if len(stopRecord.linkCounts) <= 1:
+            if len(stopRecord.linkCounts) == 1:
+                print("INFO: This already has 1 matched linkID %d. OK." % (stopRecord.linkCounts.keys()[0]), file=sys.stderr)
+            else:
+                print("INFO: This has no links associated with it. Skipping.", file=sys.stderr)
             continue # All routes use the same link for the stop. No discrepancies for this stop.
-    
+
+        print("INFO: There are currently %d matched link(s) among %d trip(s). Disambiguating..." % (len(stopRecords[stopID].linkCounts), len(stopRecords[stopID].referents)),
+              file=sys.stderr)
+                
         # For each trip that uses this stop, discover closest points.
         stopsEntry = gtfsStops[stopID]
         "@type stopsEntry: StopsEntry"
@@ -777,9 +785,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         usedTripIDs = set();
         "@type usedTripIDs: set<int>"
 
-        firstLink = True
-        firstLinkID = -1
-        firstLinkCount = -1
+        firstLink = True        
         while sortList and len(usedTripIDs) < stopResolveRecord.refCount:
             # Find trips that use the linkID
             for tripID, treeEntryIndices in stopResolveRecord.referents.iteritems():
@@ -808,17 +814,16 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                                 
                                 # Check to see if this is being saved to another linkID than the first one.
                                 if not firstLink:
-                                    print("WARNING: For stopID %d, the match of linkID %d for tripID %d is a different link than the best-scoring linkID %d used by %d other trip(s)."
-                                        % (stopID, sortList[-1][1], tripID, firstLinkID, firstLinkCount), file=sys.stderr)
+                                    print("WARNING: The final match of linkID %d for tripID %d is a different link."
+                                        % (sortList[-1][1], tripID), file=sys.stderr)
                             else:
-                                print("WARNING: For stopID %d, the match of linkID %d for tripID %d failed."
-                                    % (stopID, sortList[-1][1], tripID), file=sys.stderr)
+                                print("WARNING: The match of linkID %d for tripID %d failed."
+                                    % (sortList[-1][1], tripID), file=sys.stderr)
                                 resultTree[treeEntryIndex].restart = prevRestart
                                 
             if usedTripIDs:
                 if firstLink:
-                    firstLinkID = sortList[-1][1]
-                    firstLinkCount = len(usedTripIDs)
+                    print("INFO: %d trip(s) were matched to the best-scoring link %d." % (len(usedTripIDs), sortList[-1][1]), file=sys.stderr)
                 firstLink = False
             
             del sortList[-1]
@@ -832,13 +837,14 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                         tripIDList += ", "
                     tripIDList += str(tripID)
                     tripIDCount += 1
-            print("WARNING: For stopID %d, %d trip(s) could not be matched: tripIDs %s." % (stopID, tripIDCount, tripIDList), file=sys.stderr)
+            print("WARNING: %d trip(s) could not be matched: (tripID(s) %s)." % (tripIDCount, tripIDList), file=sys.stderr)
             del tripIDList, tripIDCount
-        del usedTripIDs, firstLink, firstLinkID, firstLinkCount, tripID, treeEntryIndices, treeEntryIndex, subset, resultTree, resultTreeRefined, prevRestart
+        del usedTripIDs, firstLink, tripID, treeEntryIndices, treeEntryIndex, subset, resultTree, resultTreeRefined, prevRestart
             
     problemReportNodes = {}
     "@type problemReportNodes: dict<?, path_engine.PathEnd>"
     
+    print("INFO: -- End stop --", file=sys.stderr)
     print("INFO: Performing final output...", file=sys.stderr)
     for tripID in allUsedTripIDs:
         resultTree = allResultTrees[tripID]
