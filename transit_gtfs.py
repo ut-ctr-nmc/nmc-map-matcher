@@ -525,13 +525,13 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
 
         # Step 5: Match up stops to that contiguous list:
         print("INFO: Mapping stops to VISTA network...", file=sys.stderr)
-        gtfsShapes, gtfsStopsLookup = prepareMapStops(ourGTFSNodes, gtfsStopTimes[gtfsTrips[tripID]])
+        gtfsShapes, gtfsStopsLookup = prepareMapStops(ourGTFSNodes, gtfsStopTimes[gtfsTrips[tripID]], False)
 
         # Find a path through our prepared node map subset:
         resultTree = pathEngine.constructPath(gtfsShapes, subset)
         "@type resultTree: list<path_engine.PathEnd>"
 
-        # So now resultTree is one tree entry per matched stop plus dummy ends.
+        # So now resultTree is one tree entry per matched stop.
 
         # Check if our matched path has any problems:
         if sum([pathEnd.restart for pathEnd in resultTree]) > 0:
@@ -581,9 +581,9 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     linkID = stopRecord = treeEntry = treeEntryIndex = gtfsStopsLookup = None
     for tripID in allUsedTripIDs:
         resultTree = allResultTrees[tripID]
-        treeEntryIndex = 1
+        treeEntryIndex = 0
         gtfsStopsLookup = allStopsLookups[tripID]
-        for treeEntry in resultTree[1:-1]:
+        for treeEntry in resultTree:
             "@type treeEntry: path_engine.PathEnd"
             stopID = gtfsStopsLookup[treeEntry.shapeEntry.shapeSeq].stop.stopID
             if stopID not in stopRecords:
@@ -698,6 +698,12 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         sortList = sorted(sortList)
         # TODO: Do we need to truncate the list to speed up processing?
 
+
+        if stopID == 554:
+            stopID += 0
+
+
+
         # This will hold the scores for all of the path tests: 
         allScores = {} # tripID -> linkID -> float
         "@type allScores: dict<int, dict<int, float>>"                        
@@ -713,6 +719,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                     continue   
                 resultTree = allResultTrees[tripID]
                 forceLinks = allForceLinks[tripID][:]
+                if tripID not in allScores:
+                    allScores[tripID] = {}
 
                 prevRestart = {}
                 for treeEntryIndex in treeEntryIndices:
@@ -734,8 +742,6 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                 # Did the refine just flat-out fail? (e.g. do we still have a restart in there?)
                 if sum([pathEnd.restart for pathEnd in resultTreeRefined]) == 0:
                     # No, continue recording (otherwise ignore this test)
-                    if tripID not in allScores:
-                        allScores[tripID] = {}
                     allScores[tripID][linkID] = resultTreeRefined[-1].totalCost
                     
                 # Reset the invalidation.
@@ -751,13 +757,14 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         scoreSums = {} # linkID -> float
         "@type scoreSums: dict<int, float>"
         for tripID, scores in allScores.iteritems():
-            scoreMax = max(scores.values())
-            for linkID in scores.iterkeys():
-                scores[linkID] = scoreMax - scores[linkID] # Flip it so that the high score is the best.
-                scores[linkID] /= scoreMax if scoreMax > 0.0 else 1.0
-                if linkID not in scoreSums:
-                    scoreSums[linkID] = 0.0
-                scoreSums[linkID] += scores[linkID]
+            if scores:
+                scoreMax = max(scores.values())
+                for linkID in scores.iterkeys():
+                    scores[linkID] = scoreMax - scores[linkID] # Flip it so that the high score is the best.
+                    scores[linkID] /= scoreMax if scoreMax > 0.0 else 1.0
+                    if linkID not in scoreSums:
+                        scoreSums[linkID] = 0.0
+                    scoreSums[linkID] += scores[linkID]
         
         # Use the scores for each link to rank the links:
         sortList = []
@@ -837,12 +844,6 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     for tripID in allUsedTripIDs:
         resultTree = allResultTrees[tripID]
         gtfsStopsLookup = allStopsLookups[tripID]
-        
-        # Strip off the dummy ends:
-        del resultTree[-1]
-        del resultTree[0]
-        if len(resultTree) > 0:
-            resultTree[0].prevTreeNode = None
         
         # Deal with Problem Report:
         # TODO: The Problem Report will include all nodes on each path regardless of valid time interval;

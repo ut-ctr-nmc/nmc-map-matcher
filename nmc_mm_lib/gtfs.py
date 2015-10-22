@@ -30,19 +30,17 @@ class ShapesEntry:
     """
     ShapesEntry is a single GTFS shape file entry.
     """
-    def __init__(self, shapeID, shapeSeq, lat, lng, hintFlag = False):
+    def __init__(self, shapeID, shapeSeq, lat, lng):
         """
         @type shapeSeq: int
         @type lat: float
         @type lng: float
-        @type hintFlag: bool
         @type time: datetime
         """
         self.shapeID = shapeID
         self.shapeSeq = shapeSeq
         self.lat = lat
         self.lng = lng
-        self.hintFlag = hintFlag
         self.time = None
         
         self.pointX = 0
