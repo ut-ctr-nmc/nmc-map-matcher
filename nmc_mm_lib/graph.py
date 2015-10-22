@@ -66,6 +66,8 @@ class GraphNode:
         self.gpsLng = gpsLng
         self.outgoingLinkMap = {}
         "@type self.outgoingLinkMap: dict<int, GraphLink>" 
+        self.incomingLinkMap = {}
+        "@type self.incomingLinkMap: dict<int, GraphLink>" 
         
         # Placeholders for coordinates in feet; these won't be filled out until this is added to the GraphLib.
         self.coordX = 0.0
@@ -170,6 +172,7 @@ class GraphLib:
             self.prevLinkID += 1
         self.linkMap[ourID] = link
         link.origNode.outgoingLinkMap[link.id] = link
+        link.destNode.incomingLinkMap[link.id] = link
         return link.uid
     
     def buildLinkIDtoUIDs(self):

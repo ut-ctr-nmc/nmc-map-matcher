@@ -308,25 +308,14 @@ def embellishSubset(subset, linkList, vistaNetwork, embellishCount=EMBELLISH_COU
             usedNodes[linkList[index].destNode.id] = linkList[index].destNode
         usedLinkIDs.add(linkList[index].id)
 
-    # TODO: Consider adding incomingLinkMap lists to all GraphNodes, then we don't have to build this nodeLinkMap.
-    # As it is, it is run on each trip and assembles together the exact same data each time. 
-    nodeLinkMap = {} # This is the map that allows one to know all of the links that enter into a node.
-                        # This is node ID mapped to list of incoming link IDs.
-    "@type nodeLinkMap: dict<int, set<int>>"
-    for vistaLink in vistaNetwork.linkMap.itervalues():
-        "@type vistaLink: graph.GraphLink"
-        if vistaLink.destNode.id not in nodeLinkMap:
-            nodeLinkMap[vistaLink.destNode.id] = set()
-        nodeLinkMap[vistaLink.destNode.id].add(vistaLink.id)
-    
     # Now, add in the new connecting nodes coming into the starting nodes:
     for index in range(0, min(len(linkList), embellishCount)):
-        _embellishIn(subset, vistaNetwork, linkList[index].origNode.id, embellishDepth, usedNodes, usedLinkIDs, nodeLinkMap)
+        _embellishIn(subset, vistaNetwork, linkList[index].origNode.id, embellishDepth, usedNodes, usedLinkIDs)
     # Then, add in the new connecting nodes leaving from the ending nodes:
     for index in range(len(linkList) - 1, max(-1, len(linkList) - 1 - embellishCount), -1):
         _embellishOut(subset, vistaNetwork, linkList[index].destNode.id, embellishDepth, usedNodes, usedLinkIDs)
     
-def _embellishIn(subset, vistaNetwork, nodeID, curDepth, usedNodes, usedLinkIDs, nodeLinkMap):
+def _embellishIn(subset, vistaNetwork, nodeID, curDepth, usedNodes, usedLinkIDs):
     """
     Internal function called by embellishSubset() that begins at subsetNode and performs
     the addition of joining links in the incoming direction. If curDepth >= 1 then this function is called recursively.
@@ -336,27 +325,21 @@ def _embellishIn(subset, vistaNetwork, nodeID, curDepth, usedNodes, usedLinkIDs,
     @type curDepth: int
     @type usedNodes: dict<int, graph.GraphNode>
     @type usedLinkIDs: set<int>
-    @type nodeLinkMap: dict<int, list<int>>
     """
     if curDepth <= 0:
         return
-    if nodeID not in nodeLinkMap:
-        # This happens when we have a node that only has outgoing links.
-        return
-    for linkID in nodeLinkMap[nodeID]:
-        if linkID not in usedLinkIDs:
-            vistaLink = vistaNetwork.linkMap[linkID]
+    for vistaLink in vistaNetwork.nodeMap[nodeID].incomingLinkMap.itervalues():
+        if vistaLink.id not in usedLinkIDs:
             if vistaLink.origNode.id not in usedNodes:
                 subsetOrigNode = graph.GraphNode(vistaLink.origNode.id, vistaLink.origNode.gpsLat, vistaLink.origNode.gpsLng)
                 subsetOrigNode.coordX, subsetOrigNode.coordY = vistaLink.origNode.coordX, vistaLink.origNode.coordY
                 usedNodes[subsetOrigNode.id] = subsetOrigNode
             else:
                 subsetOrigNode = usedNodes[vistaLink.origNode.id] 
-            subsetLink = graph.GraphLink(linkID, subsetOrigNode, usedNodes[nodeID])
+            subsetLink = graph.GraphLink(vistaLink.id, subsetOrigNode, usedNodes[nodeID])
             subset.addLink(subsetLink)
-            usedLinkIDs.add(linkID)
-            nodeLinkMap[vistaLink.destNode.id].add(subsetLink.id)
-            _embellishIn(subset, vistaNetwork, subsetOrigNode.id, curDepth - 1, usedNodes, usedLinkIDs, nodeLinkMap)
+            usedLinkIDs.add(vistaLink.id)
+            _embellishIn(subset, vistaNetwork, subsetOrigNode.id, curDepth - 1, usedNodes, usedLinkIDs)
 
 def _embellishOut(subset, vistaNetwork, nodeID, curDepth, usedNodes, usedLinkIDs):
     """
