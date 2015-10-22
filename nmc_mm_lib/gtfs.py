@@ -292,9 +292,7 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs):
                 tripID = int(lineElems[0])
                 if tripID not in unusedTripIDs:
                     if not tripID in trips:
-                        if tripID not in badTrips:
-                            print("WARNING: GTFS Stop Times file expects undefined trip ID %d" % tripID, file=sys.stderr)
-                            badTrips.add(tripID)
+                        badTrips.add(tripID)
                         continue
                     
                     # Split apart time string this way and count from epoch because GTFS stops may express times for
@@ -325,6 +323,15 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs):
                     stopTimes[newEntry.trip].append(newEntry)
                     del newEntry
                 del tripID
+
+        # Output error message:
+        if badTrips:
+            strOut = ""
+            for tripID in sorted(badTrips):
+                if strOut:
+                    strOut += ", "
+                strOut += str(tripID)
+            print("WARNING: GTFS Stop Times file expects undefined trip ID(s) %s" % strOut, file=sys.stderr)
 
     # Return the stop times file contents:
     return stopTimes
