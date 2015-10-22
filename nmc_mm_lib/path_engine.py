@@ -252,6 +252,7 @@ class PathEngine:
         for shapeEntry in shapeEntries:
             "@type shapeEntry: ShapesEntry"
             shapeCtr = shapeCtr + 1
+            
             if shapeCtr % 10 == 0:
                 if self.logFile is not None:
                     print("INFO:   ... %d of %d" % (shapeCtr, len(shapeEntries)), file = self.logFile)

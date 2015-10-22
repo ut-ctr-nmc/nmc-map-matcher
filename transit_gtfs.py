@@ -301,23 +301,23 @@ def embellishSubset(subset, linkList, vistaNetwork, embellishCount=EMBELLISH_COU
     for index in range(0, midpoint):
         if linkList[index].destNode.id not in usedNodes:
             usedNodes[linkList[index].destNode.id] = linkList[index].destNode
-            usedLinkIDs.add(linkList[index].id)
+        usedLinkIDs.add(linkList[index].id)
     # Add the ending in reverse order for the same reason.
     for index in range(len(linkList) - 1, midpoint - 1, -1):
         if linkList[index].destNode.id not in usedNodes:
             usedNodes[linkList[index].destNode.id] = linkList[index].destNode
-            usedLinkIDs.add(linkList[index].id)
+        usedLinkIDs.add(linkList[index].id)
 
     # TODO: Consider adding incomingLinkMap lists to all GraphNodes, then we don't have to build this nodeLinkMap.
     # As it is, it is run on each trip and assembles together the exact same data each time. 
     nodeLinkMap = {} # This is the map that allows one to know all of the links that enter into a node.
                         # This is node ID mapped to list of incoming link IDs.
-    "@type nodeLinkMap: dict<int, list<int>>"
+    "@type nodeLinkMap: dict<int, set<int>>"
     for vistaLink in vistaNetwork.linkMap.itervalues():
         "@type vistaLink: graph.GraphLink"
         if vistaLink.destNode.id not in nodeLinkMap:
-            nodeLinkMap[vistaLink.destNode.id] = []
-        nodeLinkMap[vistaLink.destNode.id].append(vistaLink.id)
+            nodeLinkMap[vistaLink.destNode.id] = set()
+        nodeLinkMap[vistaLink.destNode.id].add(vistaLink.id)
     
     # Now, add in the new connecting nodes coming into the starting nodes:
     for index in range(0, min(len(linkList), embellishCount)):
@@ -355,6 +355,7 @@ def _embellishIn(subset, vistaNetwork, nodeID, curDepth, usedNodes, usedLinkIDs,
             subsetLink = graph.GraphLink(linkID, subsetOrigNode, usedNodes[nodeID])
             subset.addLink(subsetLink)
             usedLinkIDs.add(linkID)
+            nodeLinkMap[vistaLink.destNode.id].add(subsetLink.id)
             _embellishIn(subset, vistaNetwork, subsetOrigNode.id, curDepth - 1, usedNodes, usedLinkIDs, nodeLinkMap)
 
 def _embellishOut(subset, vistaNetwork, nodeID, curDepth, usedNodes, usedLinkIDs):
@@ -492,7 +493,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                                         stopSearchRadius, DISTANCE_FACTOR, DRIFT_FACTOR, NON_PERP_PENALTY, sys.maxint, sys.maxint)
     pathEngine.limitClosestPoints = 8
     pathEngine.limitSimultaneousPaths = 6
-    pathEngine.maxHops = 12
+    pathEngine.maxHops = sys.maxint
     pathEngine.logFile = None # Suppress the log outputs for the path engine; enough stuff will come from other sources.
 
     allResultTrees = {}
@@ -678,20 +679,24 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                 pathEngine.pointSearchPrimary, pathEngine.pointSearchSecondary, None, pathEngine.limitClosestPoints)            
             "@type closestLinks: list<graph.PointOnLink>"
             
-            for pointOnLink in closestLinks:
-                linkID = pointOnLink.link.id
-                # Use the ID here, not UID, so we have a common reference among all subset networks.
-                
-                # Count that this link is matched to this stop.
-                if linkID not in stopResolveRecord.linkCounts:
-                    stopResolveRecord.linkCounts[linkID] = 0
-                    scores[linkID] = pointOnLink.refDist # This should be the same among all subsets. 
-                stopResolveRecord.linkCounts[linkID] += len(treeEntryIndices)
-                
-                # Identify where in the resultTree matched stops list this matched stop occurs.
-                if tripID not in stopResolveRecord.referents:
-                    stopResolveRecord.referents[tripID] = set()
-                stopResolveRecord.referents[tripID] |= treeEntryIndices
+            if not closestLinks:
+                print("WARNING: No closest points found for tripID %d index %d" % (tripID, treeEntryIndices[0]), file=sys.stderr)
+                stopResolveRecord.referents[tripID] = set() # Put empty list here to not break later.
+            else:
+                for pointOnLink in closestLinks:
+                    linkID = pointOnLink.link.id
+                    # Use the ID here, not UID, so we have a common reference among all subset networks.
+                    
+                    # Count that this link is matched to this stop.
+                    if linkID not in stopResolveRecord.linkCounts:
+                        stopResolveRecord.linkCounts[linkID] = 0
+                        scores[linkID] = pointOnLink.refDist # This should be the same among all subsets. 
+                    stopResolveRecord.linkCounts[linkID] += len(treeEntryIndices)
+                    
+                    # Identify where in the resultTree matched stops list this matched stop occurs.
+                    if tripID not in stopResolveRecord.referents:
+                        stopResolveRecord.referents[tripID] = set()
+                    stopResolveRecord.referents[tripID] |= treeEntryIndices
         
             # Set the counter for the total number of references.
             stopResolveRecord.refCount += len(stopResolveRecord.referents[tripID])
