@@ -417,7 +417,9 @@ class PathEngine:
             # get the system to retrace the steps that had been traversed before.
             curTreeNode = copy.copy(oldTreeNode)
             "@type curTreeNode: PathEnd"
-            assert len(prevTreeNodes) == 1 # There should just be one of these.
+            if not prevTreeNodes: # This happens on the first element of a path.
+                prevTreeNodes.append(None)
+            assert len(prevTreeNodes) == 1 # There should just be one of these because we're drawing from a final tree.
             curTreeNode.prevTreeNode = prevTreeNodes[0] 
             curListAll.append(curTreeNode)
                 
@@ -468,7 +470,7 @@ class PathEngine:
                     or (nextRestartIndex >= 0 and linear.getNormSq(oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointX,
                         oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointY, oldGTFSPath[nextRestartIndex].pointOnLink.pointX,
                         oldGTFSPath[nextRestartIndex].pointOnLink.pointY) < self.termRefactorRadiusSq):
-                if (evalCode == 0):
+                if evalCode == 0:
                     evalCode = 1 # Full reevaluation
                     if self.logFile is not None:
                         print("INFO: Enter restart zone at shapeID %s, seq %d..." % (str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID),

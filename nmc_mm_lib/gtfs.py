@@ -69,7 +69,7 @@ def fillShapes(filePath, gps):
             if len(fileLine) > 0:
                 lineElems = fileLine.split(',')
                 newEntry = ShapesEntry(int(lineElems[0]), int(lineElems[3]), float(lineElems[1]),
-                                        float(lineElems[2]), False)
+                                        float(lineElems[2]))
                 (newEntry.pointX, newEntry.pointY) = gps.gps2feet(newEntry.lat, newEntry.lng)
                 if newEntry.shapeID not in ret:
                     ret[newEntry.shapeID] = []
