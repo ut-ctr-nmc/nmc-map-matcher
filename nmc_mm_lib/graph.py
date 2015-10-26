@@ -42,7 +42,6 @@ class GraphLink:
         
         # Placeholders for efficiency of measurement:
         self.distance = 0.0
-        self.uid = -1
         
     def isComplementary(self, otherLink):
         """
@@ -66,8 +65,6 @@ class GraphNode:
         self.gpsLng = gpsLng
         self.outgoingLinkMap = {}
         "@type self.outgoingLinkMap: dict<int, GraphLink>" 
-        self.incomingLinkMap = {}
-        "@type self.incomingLinkMap: dict<int, GraphLink>" 
         
         # Placeholders for coordinates in feet; these won't be filled out until this is added to the GraphLib.
         self.coordX = 0.0
@@ -122,71 +119,43 @@ class GraphLib:
     
     @ivar gps: Reference GPS center coordinates plus calculator
     @type gps: gps.GPS
-    @ivar nodeMap: Collection of nodes if we are creating a graph-based network, None if single-path.
+    @ivar nodeMap: Collection of nodes that are in this graph.
     @type nodeMap: dict<int, GraphNode>
-    @ivar linkMap: Collection of links
+    @ivar linkMap: Collection of links that are in this graph.
     @type linkMap: dict<int, GraphLink>
-    @ivar prevLinkID: Previous link ID for cases where we are dealing with single-paths
-    @type linkIDtoUIDs: dict<int, set<GraphLink>>
     """
-    def __init__(self, gpsCtrLat, gpsCtrLng, singlePath=False):
+    def __init__(self, gpsCtrLat, gpsCtrLng):
         """
         @type gpsCtrLat: float
         @type gpsCtrLng: float
         """
         self.gps = gps.GPS(gpsCtrLat, gpsCtrLng)
-        if not singlePath:
-            self.nodeMap = {}
-        else:
-            self.nodeMap = None
+        self.nodeMap = {}
         self.linkMap = {}
-        self.prevLinkID = 0
 
     def addNode(self, node):
         """
         addNode adds a node to the GraphLib and translates its coordinates to feet. Not supported for single-path.
         @type node: GraphNode
         """
-        if self.nodeMap is not None:
-            node.coordX, node.coordY = self.gps.gps2feet(node.gpsLat, node.gpsLng)
-            self.nodeMap[node.id] = node
+        node.coordX, node.coordY = self.gps.gps2feet(node.gpsLat, node.gpsLng)
+        self.nodeMap[node.id] = node
         
     def addLink(self, link):
         """
         addLink adds a link to the GraphLib and updates its respective nodes.  Call 
         addNode first.
         @type link: GraphLink
-        @return the unique ID for the link
         """
-        if self.nodeMap is not None and link.origNode.id not in self.nodeMap:
+        if link.origNode.id not in self.nodeMap:
             print('WARNING: Node %d is not present.' % link.origNode, file = sys.stderr)
             return
         link.distance = linear.getNorm(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY)
-        if self.nodeMap is not None:
-            ourID = link.id
-            link.uid = link.id
-            self.prevLinkID = link.id
-        else:
-            ourID = self.prevLinkID
-            link.uid = self.prevLinkID
-            self.prevLinkID += 1
+        ourID = link.id
         self.linkMap[ourID] = link
         link.origNode.outgoingLinkMap[link.id] = link
-        link.destNode.incomingLinkMap[link.id] = link
-        return link.uid
-    
-    def buildLinkIDtoUIDs(self):
-        """
-        Goes through the links that are in this graph and creates a mapping from ID to sets of UIDs. Most will
-        have single UID entries, but those that have multiple visits to a link will have multiple entries.
-        """
-        self.linkIDtoUIDs = {}
-        for link in self.linkMap.itervalues():
-            if link.id not in self.linkIDtoUIDs:
-                self.linkIDtoUIDs[link.id] = set()
-            self.linkIDtoUIDs[link.id].add(link)
-        
-    def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints = sys.maxint):
+            
+    def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints):
         """
         findPointsOnLinks searches through the graph and finds all PointOnLinks that are within the radius.
         Then, eligible links are proposed primaryRadius distance around the GTFS point, or secondaryRadius
@@ -232,7 +201,7 @@ class GraphLib:
                     
         ret = list(retSet)
         
-        # TODO: If there is a nonperpendicular link and distance = 0, and there also exists in the set a link
+        # TODO: If there is a nonperpindicular link and distance = 0, and there also exists in the set a link
         # that leads to the first link's parent node, then get rid of that first link.
         
         # Keep limited number of closest values 
@@ -314,9 +283,9 @@ class WalkPathProcessor:
             # Make a copy of the set only if it is to change, and add in the new incoming link ID:
             oldBacktrackSet = prevStruct.backtrackSet if prevStruct is not None else set()
             "@type oldBacktrackSet: set<int>"
-            if incomingLink.uid not in oldBacktrackSet: 
+            if incomingLink.id not in oldBacktrackSet: 
                 self.backtrackSet = set(oldBacktrackSet)
-                self.backtrackSet.add(incomingLink.uid)
+                self.backtrackSet.add(incomingLink.id)
             else:
                 self.backtrackSet = oldBacktrackSet
     
@@ -388,18 +357,18 @@ class WalkPathProcessor:
             self.backtrackScore = walkPathElem.distance
             
             # Log the winner into the cache by looking at all of the parent elements:
-            if self.pointOnLinkDest.link.uid not in self.backCache:
-                self.backCache[self.pointOnLinkDest.link.uid] = {}
-            mappings = self.backCache[self.pointOnLinkDest.link.uid]
+            if self.pointOnLinkDest.link.id not in self.backCache:
+                self.backCache[self.pointOnLinkDest.link.id] = {}
+            mappings = self.backCache[self.pointOnLinkDest.link.id]
             "@type mappings: dict<int, GraphLink>"
             if walkPathElem.prevStruct is not None:
                 element = walkPathElem.prevStruct
                 "@type element: _WalkPathNext"
                 while element.prevStruct is not None:
-                    if (element.prevStruct.incomingLink.uid in mappings) \
-                            and (mappings[element.prevStruct.incomingLink.uid] is element.incomingLink):
+                    if element.prevStruct.incomingLink.id in mappings \
+                            and mappings[element.prevStruct.incomingLink.id] is element.incomingLink:
                         break
-                    mappings[element.prevStruct.incomingLink.uid] = element.incomingLink
+                    mappings[element.prevStruct.incomingLink.id] = element.incomingLink
                     element = element.prevStruct
                 
             # Process the next queue element:
@@ -407,9 +376,9 @@ class WalkPathProcessor:
         
         # Look at each link that comes out from the current node.
         # First, see if there is a shortcut to our destination already in the cache:
-        if (self.pointOnLinkDest.link.uid in self.backCache) and \
-                (walkPathElem.incomingLink.uid in self.backCache[self.pointOnLinkDest.link.uid]):
-            myList = [self.backCache[self.pointOnLinkDest.link.uid][walkPathElem.incomingLink.uid]]
+        if (self.pointOnLinkDest.link.id in self.backCache) and \
+                (walkPathElem.incomingLink.id in self.backCache[self.pointOnLinkDest.link.id]):
+            myList = [self.backCache[self.pointOnLinkDest.link.id][walkPathElem.incomingLink.id]]
         else:
             myList = walkPathElem.incomingLink.destNode.outgoingLinkMap.values()
         for link in myList:
@@ -420,7 +389,7 @@ class WalkPathProcessor:
             """
             
             # Had we visited this before?
-            if link.uid in walkPathElem.backtrackSet:
+            if link.id in walkPathElem.backtrackSet:
                 continue
             
             # Add to the queue for processing later:

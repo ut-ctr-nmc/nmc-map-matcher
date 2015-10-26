@@ -107,31 +107,42 @@ class PathEngine:
         
         self.forceLinks = None
         "@type self.forceLinkMatch: list<set<graph.GraphLink>>"
+
+        self.nonPenaltyLinks = None
+        "@type self.nonPenaltyLinks: set<int>"
         
-    def scoreFunction(self, prevVISTAPoint, distance, vistaPoint):
+        self.nonListPenaltyFactor = 1.0
+        "@type self.nonListPenaltyFactor: float"
+        
+    def scoreFunction(self, prevVistaPoint, distance, vistaPoint):
         """
         scoreFunction calculates a cost value given prior path distance, and deviation from the VISTA link.
         This corresponds with algorithm "ScoreFunction" in Perrine et al., 2015.
-        @type prevGTFSPoint: graph.PointOnLink
+        @type prevVistaPoint: graph.PointOnLink
         @type distance: float
-        @type gtfsPoint: graph.PointOnLink
+        @type vistaPoint: graph.PointOnLink
         @rtype float
         """
-        if prevVISTAPoint is None:
+        if prevVistaPoint is None:
             # We are starting anew.  Count the "black line distance" from the VISTA link to the GTFS point:
             cost = vistaPoint.refDist * self.driftFactor
             if vistaPoint.nonPerpPenalty:
                 cost = cost * self.nonPerpPenalty
-            return cost
         else:
             # We're jumping from one link to another, so add the "black line" distance to the total VISTA link distance:
             cost = vistaPoint.refDist * self.driftFactor
             if vistaPoint.nonPerpPenalty:
-                cost = cost * self.nonPerpPenalty            
-            return cost + abs(distance) * self.distanceFactor
+                cost = cost * self.nonPerpPenalty
+            cost += abs(distance) * self.distanceFactor
             # Change from Perrine et al., 2015: Use absolute value of distance here because all movement
             # should be incrementing even in cases where a proposed path is moving back and forth on a link
             # because of shape point noise or tiny U-turns.
+            
+        # For bus stop matching, this is the mechanism for favorably scoring links that are already
+        # part of an earlier-discovered path:
+        if self.nonPenaltyLinks is not None and vistaPoint.link.id not in self.nonPenaltyLinks:
+            cost *= self.nonListPenaltyFactor
+        return cost
 
     def _findShortestPaths(self, pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, vistaGraph, avoidRestartCode = 0):
         """
@@ -339,6 +350,16 @@ class PathEngine:
         @type forceLinks: list<set<graph.GraphLink>>
         """
         self.forceLinks = forceLinks
+
+    def setNonPenaltyLinks(self, nonPenaltyLinks, nonListPenaltyFactor = 1.0):
+        """
+        setNonPenaltyLinks() allows all matched links that ARE NOT in the set be penalized such that their
+        score is multiplied by nonListPenaltyFactor. Set nonPenalityLinks to disable.
+        @param nonPenaltyLinks: set<int>
+        @param nonListPenaltyFactor: float
+        """
+        self.nonPenaltyLinks = nonPenaltyLinks
+        self.nonListnonListPenaltyFactor = nonListPenaltyFactor
 
     def _tryTreeStack(self, pathProcessor, oldTreeNode, prevTreeNodes, vistaGraph, evalCode, firstFlag, pathIndex=None):
         """
