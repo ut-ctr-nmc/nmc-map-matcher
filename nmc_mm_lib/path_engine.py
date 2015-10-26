@@ -107,12 +107,6 @@ class PathEngine:
         
         self.forceLinks = None
         "@type self.forceLinkMatch: list<set<graph.GraphLink>>"
-
-        self.nonPenaltyLinks = None
-        "@type self.nonPenaltyLinks: set<int>"
-        
-        self.nonListPenaltyFactor = 1.0
-        "@type self.nonListPenaltyFactor: float"
         
     def scoreFunction(self, prevVistaPoint, distance, vistaPoint):
         """
@@ -128,21 +122,16 @@ class PathEngine:
             cost = vistaPoint.refDist * self.driftFactor
             if vistaPoint.nonPerpPenalty:
                 cost = cost * self.nonPerpPenalty
+            return cost
         else:
             # We're jumping from one link to another, so add the "black line" distance to the total VISTA link distance:
             cost = vistaPoint.refDist * self.driftFactor
             if vistaPoint.nonPerpPenalty:
-                cost = cost * self.nonPerpPenalty
-            cost += abs(distance) * self.distanceFactor
+                cost = cost * self.nonPerpPenalty            
+            return cost + abs(distance) * self.distanceFactor
             # Change from Perrine et al., 2015: Use absolute value of distance here because all movement
             # should be incrementing even in cases where a proposed path is moving back and forth on a link
             # because of shape point noise or tiny U-turns.
-            
-        # For bus stop matching, this is the mechanism for favorably scoring links that are already
-        # part of an earlier-discovered path:
-        if self.nonPenaltyLinks is not None and vistaPoint.link.id not in self.nonPenaltyLinks:
-            cost *= self.nonListPenaltyFactor
-        return cost
 
     def _findShortestPaths(self, pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, vistaGraph, avoidRestartCode = 0):
         """
@@ -350,16 +339,6 @@ class PathEngine:
         @type forceLinks: list<set<graph.GraphLink>>
         """
         self.forceLinks = forceLinks
-
-    def setNonPenaltyLinks(self, nonPenaltyLinks, nonListPenaltyFactor = 1.0):
-        """
-        setNonPenaltyLinks() allows all matched links that ARE NOT in the set be penalized such that their
-        score is multiplied by nonListPenaltyFactor. Set nonPenalityLinks to disable.
-        @param nonPenaltyLinks: set<int>
-        @param nonListPenaltyFactor: float
-        """
-        self.nonPenaltyLinks = nonPenaltyLinks
-        self.nonListnonListPenaltyFactor = nonListPenaltyFactor
 
     def _tryTreeStack(self, pathProcessor, oldTreeNode, prevTreeNodes, vistaGraph, evalCode, firstFlag, pathIndex=None):
         """
