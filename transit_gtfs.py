@@ -315,8 +315,8 @@ def prepareMapStops(treeNodes, stopTimes, dummyFlag=True):
 def zipGTFSWithStops(leftResultTree, rightResultTree):
     """
     zipGTFSWithStops combines together two series of graph.PointOnLink lists into one. The two series must overlap each other,
-    the right one being at most as long as the left. Please take care to keep the ability to identify which is which by setting
-    the respective gtfs.ShapesEntry's typeID value.
+    the right one being at most as long as the left. Please take care to keep the ability to identify which list the original
+    PathEnds are by setting the respective gtfs.ShapesEntry's typeID value.
     @type leftResultTree: list<path_engine.PathEnd>
     @type rightResultTree: list<path_engine.PathEnd>
     """
@@ -330,18 +330,21 @@ def zipGTFSWithStops(leftResultTree, rightResultTree):
     rightLinkID = None
     recordRightNext = False
     currentRouteInfoList = []
+    holdLeft = False
     while leftIndex < len(leftResultTree) and rightIndex < len(rightResultTree):
         rightLinkID = rightResultTree[rightIndex].pointOnLink.link.id
         while leftIndex < len(leftResultTree) or recordRightNext:
+            # Are we needing to record the right PathEnd?
             if recordRightNext:
                 superPathEnd = rightResultTree[rightIndex].cleanCopy()
-                superPathEnd.routeInfo = currentRouteInfoList
+                superPathEnd.totalCost, superPathEnd.totalDist, superPathEnd.routeInfo = rightResultTree[rightIndex].totalCost, rightResultTree[rightIndex].totalDist, currentRouteInfoList
                 if superResultTree:
                     superPathEnd.prevTreeNode = superResultTree[-1] 
                 superResultTree.append(superPathEnd)
                 recordRightNext = False
                 currentRouteInfoList = []
-                break
+                if not holdLeft:
+                    break
             
             # Obtain the next left link ID here:
             if leftIndex == 0 and not leftResultTree[0].routeInfo:
@@ -350,27 +353,31 @@ def zipGTFSWithStops(leftResultTree, rightResultTree):
                 leftLinkID = leftResultTree[leftIndex].routeInfo[leftRouteInfoIndex]
             currentRouteInfoList.append(leftLinkID) # Keep a record of links we visit.
             
-            # See if we need to record a right entry.
+            # See if we need to record a right PathEnd.
             if leftLinkID == rightLinkID:
+                recordRightNext = True
                 if leftRouteInfoIndex >= len(leftResultTree[0].routeInfo) - 1:
                     # This is the last element, so we're needing to compare the distances.
                     if leftResultTree[leftIndex].pointOnLink.distance > rightResultTree[rightIndex].pointOnLink.distance:
-                        # The left one comes after the right one, so record the right one first.
-                        recordRightNext = True
+                        # The left PathEnd comes after the right PathEnd, so record the right one first.
+                        holdLeft = True
                         continue
-                    # Otherwise, record the left one now and record the right one on the next time around.
-                else:
-                    recordRightNext = True
-                    # We'll record the left one now, and then record the right one.
+                # Otherwise, record the left PathEnd now and record the right PathEnd when we compare again.
         
-            # Are we needing to record the left one?
+            # Are we needing to record the left PathEnd?
             if leftRouteInfoIndex >= len(leftResultTree[0].routeInfo) - 1:
-                superPathEnd = leftResultTree[leftIndex].cleanCopy()
-                superPathEnd.routeInfo = currentRouteInfoList
-                if superResultTree:
-                    superPathEnd.prevTreeNode = superResultTree[-1] 
-                superResultTree.append(superPathEnd)
-                currentRouteInfoList = []
+                # This is the last element, so we need to consider recording it.
+                # Does the point overlap the right point?
+                if not (recordRightNext and leftResultTree[leftIndex].pointOnLink.distance == rightResultTree[rightIndex].pointOnLink.distance):
+                    # No, we don't want to skip the left one. (Otherwise, it would be redundant).
+                    superPathEnd = leftResultTree[leftIndex].cleanCopy()
+                    superPathEnd.totalCost, superPathEnd.totalDist, superPathEnd.routeInfo = leftResultTree[leftIndex].totalCost, leftResultTree[leftIndex].totalDist, currentRouteInfoList
+                    if superResultTree:
+                        superPathEnd.prevTreeNode = superResultTree[-1] 
+                    superResultTree.append(superPathEnd)
+                    currentRouteInfoList = []
+                    
+                # Move on to the next left one.
                 leftRouteInfoIndex = 0
                 leftIndex += 1
             else:
