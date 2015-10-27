@@ -290,6 +290,7 @@ def prepareMapStops(treeNodes, stopTimes, dummyFlag=True):
         newShapesEntry = gtfs.ShapesEntry(stopTimes[0].trip.tripID, -1, treeNodes[0].pointOnLink.link.origNode.gpsLat,
             treeNodes[0].pointOnLink.link.origNode.gpsLng)
         newShapesEntry.pointX, newShapesEntry.pointY = treeNodes[0].pointOnLink.link.origNode.coordX, treeNodes[0].pointOnLink.link.origNode.coordY
+        newShapesEntry.typeID = 1 # To signify that this is a dummy.
         gtfsShapes.append(newShapesEntry)
     
     # Append all of the stops:
@@ -297,6 +298,7 @@ def prepareMapStops(treeNodes, stopTimes, dummyFlag=True):
         "@type gtfsStopTime: gtfs.StopTimesEntry"
         newShapesEntry = gtfs.ShapesEntry(gtfsStopTime.trip.tripID, gtfsStopTime.stopSeq, gtfsStopTime.stop.gpsLat, gtfsStopTime.stop.gpsLng)
         newShapesEntry.pointX, newShapesEntry.pointY = gtfsStopTime.stop.pointX, gtfsStopTime.stop.pointY
+        newShapesEntry.typeID = 1 # To signify that this is a stop.
         gtfsShapes.append(newShapesEntry)
         gtfsStopsLookup[gtfsStopTime.stopSeq] = gtfsStopTime
 
@@ -305,10 +307,77 @@ def prepareMapStops(treeNodes, stopTimes, dummyFlag=True):
         newShapesEntry = gtfs.ShapesEntry(stopTimes[0].trip.tripID, -1, treeNodes[-1].pointOnLink.link.destNode.gpsLat,
             treeNodes[-1].pointOnLink.link.destNode.gpsLng)
         newShapesEntry.pointX, newShapesEntry.pointY = treeNodes[-1].pointOnLink.link.destNode.coordX, treeNodes[-1].pointOnLink.link.destNode.coordY
+        newShapesEntry.typeID = 1 # To signify that this is a dummy.
         gtfsShapes.append(newShapesEntry)
 
     return gtfsShapes, gtfsStopsLookup
 
+def zipGTFSWithStops(leftResultTree, rightResultTree):
+    """
+    zipGTFSWithStops combines together two series of graph.PointOnLink lists into one. The two series must overlap each other,
+    the right one being at most as long as the left. Please take care to keep the ability to identify which is which by setting
+    the respective gtfs.ShapesEntry's typeID value.
+    @type leftResultTree: list<path_engine.PathEnd>
+    @type rightResultTree: list<path_engine.PathEnd>
+    """
+    superResultTree = []
+    "@type superResultTree: list<path_engine.PathEnd>"
+    
+    leftIndex = 0
+    leftRouteInfoIndex = 0
+    leftLinkID = None
+    rightIndex = 0
+    rightLinkID = None
+    recordRightNext = False
+    currentRouteInfoList = []
+    while leftIndex < len(leftResultTree) and rightIndex < len(rightResultTree):
+        rightLinkID = rightResultTree[rightIndex].pointOnLink.link.id
+        while leftIndex < len(leftResultTree) or recordRightNext:
+            if recordRightNext:
+                superPathEnd = rightResultTree[rightIndex].cleanCopy()
+                superPathEnd.routeInfo = currentRouteInfoList
+                if superResultTree:
+                    superPathEnd.prevTreeNode = superResultTree[-1] 
+                superResultTree.append(superPathEnd)
+                recordRightNext = False
+                currentRouteInfoList = []
+                break
+            
+            # Obtain the next left link ID here:
+            if leftIndex == 0 and not leftResultTree[0].routeInfo:
+                leftLinkID = leftResultTree[0].pointOnLink.link.id
+            else:
+                leftLinkID = leftResultTree[leftIndex].routeInfo[leftRouteInfoIndex]
+            currentRouteInfoList.append(leftLinkID) # Keep a record of links we visit.
+            
+            # See if we need to record a right entry.
+            if leftLinkID == rightLinkID:
+                if leftRouteInfoIndex >= len(leftResultTree[0].routeInfo) - 1:
+                    # This is the last element, so we're needing to compare the distances.
+                    if leftResultTree[leftIndex].pointOnLink.distance > rightResultTree[rightIndex].pointOnLink.distance:
+                        # The left one comes after the right one, so record the right one first.
+                        recordRightNext = True
+                        continue
+                    # Otherwise, record the left one now and record the right one on the next time around.
+                else:
+                    recordRightNext = True
+                    # We'll record the left one now, and then record the right one.
+        
+            # Are we needing to record the left one?
+            if leftRouteInfoIndex >= len(leftResultTree[0].routeInfo) - 1:
+                superPathEnd = leftResultTree[leftIndex].cleanCopy()
+                superPathEnd.routeInfo = currentRouteInfoList
+                if superResultTree:
+                    superPathEnd.prevTreeNode = superResultTree[-1] 
+                superResultTree.append(superPathEnd)
+                currentRouteInfoList = []
+                leftRouteInfoIndex = 0
+                leftIndex += 1
+            else:
+                leftRouteInfoIndex += 1
+        rightIndex += 1
+    return superResultTree        
+    
 def assembleProblemReport(resultTree, vistaNetwork):
     """
     assembleProblemReport puts together updated path_engine.PathEnd objects that are used for a problem report.
@@ -409,6 +478,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         print("INFO: -- Matching stops for trip %d --" % tripID, file=sys.stderr)
         ourGTFSNodes, longestStart = treeContiguous(gtfsNodes[gtfsTrips[tripID].shapeEntries[0].shapeID], vistaNetwork,
             gtfsStopTimes[gtfsTrips[tripID]], startTime, endTime)
+        "@type ourGTFSNodes: list<path_engine.PathEnd>"
+        "@type longestStart: int"
         if ourGTFSNodes is None:
             print("INFO: Skipped because all stops fall outside of the valid time range, or there are no stops.", file=sys.stderr)
             continue
@@ -437,6 +508,11 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         if sum([pathEnd.restart for pathEnd in resultTree]) > 0:
             print("WARNING: Skipping tripID %d because the bus stop matching resulted in disjointed sections." % tripID, file=sys.stderr)
             continue            
+
+        # Put together GTFS points and stop points into the same list:
+        superResultTree, whichSourceList = zipGTFSWithStops(ourGTFSNodes, resultTree)
+        "@type superResultTree: list<path_engine.PathEnd>"
+        "@type whichSourceList: list<bool>"
 
         # While we're at it, initialize the force links list for later:
         allForceLinks[tripID] = [None] * len(gtfsShapes)

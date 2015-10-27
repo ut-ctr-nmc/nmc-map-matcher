@@ -29,6 +29,10 @@ from datetime import datetime, timedelta
 class ShapesEntry:
     """
     ShapesEntry is a single GTFS shape file entry.
+    @ivar time: datetime
+    @ivar pointX: float
+    @ivar pointY: float
+    @ivar typeID: int
     """
     def __init__(self, shapeID, shapeSeq, lat, lng):
         """
@@ -45,6 +49,8 @@ class ShapesEntry:
         
         self.pointX = 0
         self.pointY = 0
+        
+        self.typeID = 0
 
 def fillShapes(filePath, gps):
     """
