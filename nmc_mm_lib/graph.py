@@ -112,6 +112,14 @@ class PointOnLink:
         else:
             self.pointX = 0
             self.pointY = 0
+            
+    def copy(self):
+        """
+        Convenience function for making a copy of this PointOnLink.
+        """
+        newCopy = PointOnLink(self.link, self.dist, self.nonPerpPenalty, self.refDist)
+        newCopy.pointX, newCopy.pointY = self.pointX, self.pointY
+        return newCopy
                 
 class GraphLib:
     """
@@ -148,7 +156,7 @@ class GraphLib:
         @type link: GraphLink
         """
         if link.origNode.id not in self.nodeMap:
-            print('WARNING: Node %d is not present.' % link.origNode, file = sys.stderr)
+            print('WARNING: Node %d is not present.' % link.origNode.id, file = sys.stderr)
             return
         link.distance = linear.getNorm(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY)
         ourID = link.id
