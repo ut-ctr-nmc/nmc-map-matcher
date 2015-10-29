@@ -330,27 +330,33 @@ def zipGTFSWithStops(underlyingNetwork, leftResultTree, rightResultTree):
     leftIndex = 0
     leftRouteInfoIndex = 0
     leftLinkID = -1
-    prevLeftLinkID = -1
-    prevLeftDistance = 0.0
+    leftDist = 0
     rightIndex = 0
     rightLinkID = -1
     recordRightNext = False
     currentRouteInfoList = []
-    holdLeft = False
-    while leftIndex < len(leftResultTree) and rightIndex < len(rightResultTree):
+    while leftIndex < len(leftResultTree) or rightIndex < len(rightResultTree):
         rightLinkID = rightResultTree[rightIndex].pointOnLink.link.id if rightIndex < len(rightResultTree) else -1
-        while leftIndex < len(leftResultTree) or recordRightNext:
+        while True:            
             # Obtain the next left link ID here:
-            if not leftResultTree[leftIndex].routeInfo:
+            if leftIndex >= len(leftResultTree):
+                leftLinkID = -1
+            elif not leftResultTree[leftIndex].routeInfo:
                 leftLinkID = leftResultTree[leftIndex].pointOnLink.link.id
             else:
-                leftLinkID = leftResultTree[leftIndex].routeInfo[leftRouteInfoIndex]
-                
+                leftLinkID = leftResultTree[leftIndex].routeInfo[leftRouteInfoIndex].id
+            if leftIndex >= len(leftResultTree) or leftRouteInfoIndex < len(leftResultTree[leftIndex].routeInfo) - 1:
+                leftDist = 0
+            else:
+                leftDist = leftResultTree[leftIndex].pointOnLink.dist
+
             # Are we needing to record the right PathEnd?
             if recordRightNext:
-                # Are we sure we want to record at this time? (Check to see if we still need to evaluate the next left PathEnd before recording the right PathEnd).
-                if not (leftLinkID == prevLeftLinkID and leftRouteInfoIndex >= len(leftResultTree[leftIndex].routeInfo) - 1 and \
-                        leftResultTree[leftIndex].pointOnLink.dist < rightResultTree[rightIndex].pointOnLink.dist):
+                # Are we sure we want to record at this time? (Check to see if we still need to evaluate the next left PathEnd before recording the right PathEnd
+                # because the next left PathEnd still comes before the right one).
+                if not (leftIndex < len(leftResultTree) and leftRouteInfoIndex >= len(leftResultTree[leftIndex].routeInfo) - 1 and not currentRouteInfoList and superResultTree \
+                        and superResultTree[-1].pointOnLink.link.id == rightResultTree[rightIndex].pointOnLink.link.id and \
+                        leftDist < rightResultTree[rightIndex].pointOnLink.dist):
                     # For elements that are recorded for the right PathEnds, we want to express the links with link objects that are tied with the
                     # underlying network, not the manufactured subsets.
                     superPathEnd = path_engine.PathEnd(rightResultTree[rightIndex].shapeEntry, rightResultTree[rightIndex].pointOnLink.copy())
@@ -361,47 +367,45 @@ def zipGTFSWithStops(underlyingNetwork, leftResultTree, rightResultTree):
                     superResultTree.append(superPathEnd)
                     recordRightNext = False
                     currentRouteInfoList = []
-                    if not holdLeft:
-                        break
+                    break
                             
             # Keep a record of links we visit.
-            if leftResultTree[leftIndex].routeInfo:
+            if leftResultTree[leftIndex].routeInfo and not (superResultTree and leftLinkID == superResultTree[-1].pointOnLink.link.id):
                 currentRouteInfoList.append(leftLinkID)
             
             # See if we need to record a right PathEnd.
-            if not holdLeft and leftLinkID == rightLinkID:
+            if leftLinkID == rightLinkID:
                 recordRightNext = True
                 if leftRouteInfoIndex >= len(leftResultTree[leftIndex].routeInfo) - 1:
                     # This is the last element, so we're needing to compare the distances.
                     if leftResultTree[leftIndex].pointOnLink.dist > rightResultTree[rightIndex].pointOnLink.dist:
                         # The left PathEnd comes after the right PathEnd, so record the right one first.
-                        holdLeft = True
                         continue
                 # Otherwise, record the left PathEnd now and record the right PathEnd when we compare again.
         
             # Are we needing to record the left PathEnd?
-            if leftRouteInfoIndex >= len(leftResultTree[0].routeInfo) - 1:
+            if leftRouteInfoIndex >= len(leftResultTree[leftIndex].routeInfo) - 1:
                 # This is the last element, so we need to consider recording it.
                 # Does the point overlap the right point? Or, does it go backwards from the previous point?
-                if not (recordRightNext and leftResultTree[leftIndex].pointOnLink.dist == rightResultTree[rightIndex].pointOnLink.dist) \
-                        and not (prevLeftLinkID == leftLinkID and prevLeftDistance >= leftResultTree[leftIndex].pointOnLink.dist):
-                    # No, we don't want to skip the left one. (Otherwise, it would be redundant).
+                if not (recordRightNext and leftDist == rightResultTree[rightIndex].pointOnLink.dist \
+                        or not currentRouteInfoList and superResultTree and superResultTree[-1].pointOnLink.link.id == leftResultTree[leftIndex].pointOnLink.link.id \
+                        and superResultTree[-1].pointOnLink.dist > leftDist):
+                    # No, we don't want to skip the left one. (Otherwise, it would have been redundant).
                     superPathEnd = leftResultTree[leftIndex].cleanCopy()
                     superPathEnd.totalCost, superPathEnd.totalDist, superPathEnd.routeInfo = leftResultTree[leftIndex].totalCost, leftResultTree[leftIndex].totalDist, currentRouteInfoList
                     if superResultTree:
                         superPathEnd.prevTreeNode = superResultTree[-1] 
                     superResultTree.append(superPathEnd)
                     currentRouteInfoList = []
-                    prevLeftLinkID = leftLinkID
-                    prevLeftDistance = leftResultTree[leftIndex].pointOnLink.dist
-                    holdLeft = False
                     
                 # Move on to the next left one.
                 leftRouteInfoIndex = 0
                 leftIndex += 1
             else:
                 leftRouteInfoIndex += 1
-            prevLeftLinkID = leftLinkID
+            
+            if leftIndex >= len(leftResultTree) and not recordRightNext:
+                break
         rightIndex += 1
     return superResultTree
     
