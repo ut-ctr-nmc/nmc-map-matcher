@@ -106,7 +106,7 @@ class PathEngine:
         "@type self.shapeScatterCache: list<graph.PointOnLink>"
         
         self.forceLinks = None
-        "@type self.forceLinkMatch: list<set<graph.GraphLink>>"
+        "@type self.forceLinkMatch: list<graph.GraphLink>"
         
     def scoreFunction(self, prevVistaPoint, distance, vistaPoint):
         """
@@ -336,7 +336,7 @@ class PathEngine:
         Forces refinePath() to use specific links.
         @param forceLinks: A list of sets of links or None values where each element corresponds with the
             oldGTFSPath list passed into refinePath(). Set to None to disable entirely (default).
-        @type forceLinks: list<set<graph.GraphLink>>
+        @type forceLinks: list<graph.GraphLink>
         """
         self.forceLinks = forceLinks
 
@@ -372,10 +372,10 @@ class PathEngine:
                             and self.forceLinks[pathIndex] is not None:
                         # Specialized operation: force the use of the given link:
                         self.shapeScatterCache = []
-                        for link in self.forceLinks[pathIndex]:
-                            distSq, linkDist, perpendicular = linear.pointDistSq(oldTreeNode.shapeEntry.pointX, oldTreeNode.shapeEntry.pointY,
-                                link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY, link.distance)
-                            self.shapeScatterCache.append(graph.PointOnLink(link, linkDist, not perpendicular, math.sqrt(distSq)))
+                        link = self.forceLinks[pathIndex]
+                        distSq, linkDist, perpendicular = linear.pointDistSq(oldTreeNode.shapeEntry.pointX, oldTreeNode.shapeEntry.pointY,
+                            link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY, link.distance)
+                        self.shapeScatterCache.append(graph.PointOnLink(link, linkDist, not perpendicular, math.sqrt(distSq)))
                     else:
                         # Normal operation: find closest limitClosestPoints points to the shape point among all links: 
                         self.shapeScatterCache = vistaGraph.findPointsOnLinks(oldTreeNode.shapeEntry.pointX,

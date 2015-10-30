@@ -390,11 +390,9 @@ class WalkPathProcessor:
         else:
             myList = walkPathElem.incomingLink.destNode.outgoingLinkMap.values()
         for link in myList:
-            """
             # Filter out U-turns:
             if walkPathElem.incomingLink.isComplementary(link):
                 continue
-            """
             
             # Had we visited this before?
             if link.id in walkPathElem.backtrackSet:

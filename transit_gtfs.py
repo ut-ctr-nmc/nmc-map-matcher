@@ -588,14 +588,6 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     
     linkID = stopRecord = treeEntry = treeEntryIndex = gtfsStopsLookup = None
     for tripID in allUsedTripIDs:
-        
-        
-        
-        if tripID == 1392757:
-            tripID += 0
-
-
-        
         resultTree = allResultTrees[tripID]
         gtfsStopsLookup = allStopsLookups[tripID]
         for treeEntryIndex, treeEntry in enumerate(resultTree):
@@ -635,6 +627,35 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     del stopRecord, subsetLinkMap, tripID, treeIndexIndices, linkID
 
     # Go through each stop and check for discrepancies.
+    
+    # We need a new PathEngine that has parameters similar to that of the path_refine module because we'll be looking against the entire 
+    # underlying network.
+    # TODO: Put these into a centralized location.
+    termRefactorRadius = 1500   # Radius (ft) to invalidate found points at either end of a restart.
+    pointSearchRadius = 300    # "k": Radius (ft) to search from GTFS point to perpendicular VISTA links
+    pointSearchPrimary = 300   # "k_p": Radius (ft) to search from GTFS point to new VISTA links    
+    pointSearchSecondary = 150  # "k_s": Radius (ft) to search from VISTA perpendicular point to previous point
+    limitLinearDist = 1500      # Path distance (ft) to allow new proposed paths from one point to another
+    limitDirectDist = 1500      # Radius (ft) to allow new proposed paths from one point to another
+    limitDirectDistRev = 500    # Radius (ft) to allow backtracking on an existing link (e.g. parking lot)
+    distanceFactor = 1.0        # "f_d": Cost multiplier for Linear path distance
+    driftFactor = 2.0           # "f_r": Cost multiplier for distance from GTFS point to its VISTA link
+    nonPerpPenalty = 1.5        # "f_p": Penalty multiplier for GTFS points that aren't perpendicular to VISTA links
+    limitClosestPoints = 12     # "q_p": Number of close-proximity points that are considered for each GTFS point 
+    limitSimultaneousPaths = 8  # "q_e": Number of proposed paths to maintain during pathfinding stage
+
+    maxHops = 8                 # Maximum number of VISTA links to pursue in a path-finding operation
+        
+    # Initialize the path-finder:
+    pathEngine = path_engine.PathEngine(pointSearchRadius, pointSearchPrimary, pointSearchSecondary, limitLinearDist,
+                            limitDirectDist, limitDirectDistRev, distanceFactor, driftFactor, nonPerpPenalty, limitClosestPoints,
+                            limitSimultaneousPaths)
+    pathEngine.setRefineParams(termRefactorRadius)
+    pathEngine.maxHops = maxHops    
+    pathEngine.logFile = None # Suppress the log outputs for the path engine; enough stuff will come from other sources.
+    del termRefactorRadius, pointSearchRadius, pointSearchPrimary, pointSearchSecondary, limitLinearDist, limitDirectDist, limitDirectDistRev, \
+        distanceFactor, driftFactor, nonPerpPenalty, limitClosestPoints, limitSimultaneousPaths, maxHops
+    
     pathEngine.setRefineParams(STOP_SEARCH_RADIUS)
     for stopID, stopRecord in stopRecords.iteritems():
         print("INFO: -- Stop %d --" % stopID, file=sys.stderr)
@@ -658,14 +679,6 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         # This will hold the scores for all of the reference distances. 
         scores = {}
         "@type scores: dict<int, float>"                        
-        
-        
-        
-        if stopID == 3750:
-            stopID += 0
-
-
-        
         
         closestLinks = pointOnLink = linkID = None
         for tripID, treeEntryIndices in stopRecord.referents.iteritems():
@@ -713,7 +726,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         allScores = {} # tripID -> linkID -> float
         "@type allScores: dict<int, dict<int, float>>"                        
         
-        resultTree = forceLinks = prevRestart = None
+        resultTree = forceLinks = prevRestart = lfFlag = None
         while sortList:
             # Try out this link by invalidating the stop point and doing a refine cycle in each trip:
             linkID = sortList[-1][2]
@@ -739,6 +752,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                 pathEngine.setForceLinks(forceLinks)
 
                 # Refine the path and see what the score is:
+                lfFlag = True
+                sys.stderr.write(".")
                 resultTreeRefined = pathEngine.refinePath(resultTree, vistaNetwork) 
 
                 # Did the refine just flat-out fail? (e.g. do we still have a restart in there?)
@@ -752,6 +767,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
  
                 del resultTreeRefined
             del sortList[-1]
+        if lfFlag:
+            print(file=sys.stderr)
         del sortList, resultTree, forceLinks, prevRestart
             
         # Now normalize the link scores for each tripID and multiply by the reference count:
