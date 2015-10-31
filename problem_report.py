@@ -39,6 +39,8 @@ def problemReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
     """
     print("shapeID,shapeSeq,linkID,linkDist,problemCode,gtfsLatLon,vistaLatLon", file = outFile)
 
+    # TODO: Support the keys of gtfsNodes being stops tuple.
+
     shapeIDs = gtfsNodes.keys()
     shapeIDs.sort()
     for shapeID in shapeIDs:
