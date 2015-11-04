@@ -391,12 +391,13 @@ class WalkPathProcessor:
             myList = walkPathElem.incomingLink.destNode.outgoingLinkMap.values()
         for link in myList:
             # Filter out U-turns:
-            if walkPathElem.incomingLink.isComplementary(link):
-                continue
-            
+            #if walkPathElem.incomingLink.isComplementary(link):
+            #    continue
+
             # Had we visited this before?
             if link.id in walkPathElem.backtrackSet:
                 continue
             
             # Add to the queue for processing later:
             self.processingQueue.append(self._WalkPathNext(self, walkPathElem, link))
+

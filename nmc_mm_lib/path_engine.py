@@ -106,7 +106,7 @@ class PathEngine:
         "@type self.shapeScatterCache: list<graph.PointOnLink>"
         
         self.forceLinks = None
-        "@type self.forceLinkMatch: list<graph.GraphLink>"
+        "@type self.forceLinks: list<graph.GraphLink>"
         
     def scoreFunction(self, prevVistaPoint, distance, vistaPoint):
         """
