@@ -370,7 +370,8 @@ def zipGTFSWithStops(underlyingNetwork, leftResultTree, rightResultTree):
                     break
                             
             # Keep a record of links we visit.
-            if leftResultTree[leftIndex].routeInfo and not (superResultTree and leftLinkID == superResultTree[-1].pointOnLink.link.id):
+            if leftIndex < len(leftResultTree) and leftResultTree[leftIndex].routeInfo \
+                    and not (superResultTree and leftLinkID == superResultTree[-1].pointOnLink.link.id):
                 currentRouteInfoList.append(underlyingNetwork.linkMap[leftLinkID])
             
             # See if we need to record a right PathEnd.
@@ -384,7 +385,7 @@ def zipGTFSWithStops(underlyingNetwork, leftResultTree, rightResultTree):
                 # Otherwise, record the left PathEnd now and record the right PathEnd when we compare again.
         
             # Are we needing to record the left PathEnd?
-            if leftRouteInfoIndex >= len(leftResultTree[leftIndex].routeInfo) - 1:
+            if leftIndex < len(leftResultTree) and leftRouteInfoIndex >= len(leftResultTree[leftIndex].routeInfo) - 1:
                 # This is the last element, so we need to consider recording it.
                 # Does the point overlap the right point? Or, does it go backwards from the previous point?
                 if not (rightIndex < len(rightResultTree) and recordRightNext and leftDist == rightResultTree[rightIndex].pointOnLink.dist \
@@ -496,6 +497,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         @ivar subset: graph.GraphLib
         @ivar stopsLookup: dict<int, gtfs.StopTimesEntry>
         @ivar forceLinks: list<set<graph.GraphLink>
+        @ivar restartCount: int
         """
         def __init__(self):
             self.trips = []
@@ -505,6 +507,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             self.subset = None
             self.stopsLookup = None
             self.forceLinks = None
+            self.restartCount = 0
     
     print("INFO: Perform the initial bus stop matching...", file=sys.stderr)
     shapeStops = {}
@@ -526,9 +529,24 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         # all trips that use that combination as a unit.
         stopsList = [shapeID]
         "@type stopsList: list<int>"
+        
+        
+        flag = False
+        
+        
         for stopTimesEntry in gtfsStopTimes[trip]:
             "@type stopTimesEntry: list<gtfs.StopTimesEntry>"
             stopsList.append(stopTimesEntry.stop.stopID)
+            
+            
+        """    
+            if stopTimesEntry.stop.stopID == 1956:
+                flag = True
+        if not flag:
+            continue    
+        """    
+        
+            
         stopsTuple = tuple(stopsList)
         "@type stopsTuple: tuple<int>"
         # So now we have a key that is composed of the shape ID and all stop IDs in a sequence to identify all unique
@@ -601,8 +619,9 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                 resultTree[0].routeInfo = []
                 
             # Check if our matched path has any problems:
-            if sum([pathEnd.restart for pathEnd in resultTree]) > 0:
-                print("WARNING: Shape %s has disjoint sections. Will attempt to refine." % tripsBundle.label, file=sys.stderr)
+            tripsBundle.restartCount = sum([pathEnd.restart for pathEnd in resultTree])
+            if tripsBundle.restartCount > 0:
+                print("WARNING: Shape %s has disjoint sections after initial bus stop matching. Will attempt to refine." % tripsBundle.label, file=sys.stderr)
     
             # Put together GTFS points and stop points into the same list and express all links in terms of the underlying network:
             tripsBundle.resultTree = zipGTFSWithStops(vistaNetwork, ourGTFSNodes, resultTree)
@@ -688,6 +707,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     # We need a new PathEngine that has parameters similar to that of the path_refine module because we'll be looking against the entire 
     # underlying network.
     # TODO: Put these into a centralized location.
+    
+    
     termRefactorRadius = 1500   # Radius (ft) to invalidate found points at either end of a restart.
     pointSearchRadius = 300    # "k": Radius (ft) to search from GTFS point to perpendicular VISTA links
     pointSearchPrimary = 300   # "k_p": Radius (ft) to search from GTFS point to new VISTA links    
@@ -702,7 +723,22 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     limitSimultaneousPaths = 8  # "q_e": Number of proposed paths to maintain during pathfinding stage
 
     maxHops = 8                 # Maximum number of VISTA links to pursue in a path-finding operation
-        
+    """
+    termRefactorRadius = 3000   # Radius (ft) to invalidate found points at either end of a restart.
+    pointSearchRadius = 1600    # "k": Radius (ft) to search from GTFS point to perpendicular VISTA links
+    pointSearchPrimary = 1600   # "k_p": Radius (ft) to search from GTFS point to new VISTA links    
+    pointSearchSecondary = 200  # "k_s": Radius (ft) to search from VISTA perpendicular point to previous point
+    limitLinearDist = 6200      # Path distance (ft) to allow new proposed paths from one point to another
+    limitDirectDist = 6200      # Radius (ft) to allow new proposed paths from one point to another
+    limitDirectDistRev = 500    # Radius (ft) to allow backtracking on an existing link (e.g. parking lot)
+    distanceFactor = 1.0        # "f_d": Cost multiplier for Linear path distance
+    driftFactor = 1.5           # "f_r": Cost multiplier for distance from GTFS point to its VISTA link
+    nonPerpPenalty = 1.5        # "f_p": Penalty multiplier for GTFS points that aren't perpendicular to VISTA links
+    limitClosestPoints = 12     # "q_p": Number of close-proximity points that are considered for each GTFS point 
+    limitSimultaneousPaths = 8  # "q_e": Number of proposed paths to maintain during pathfinding stage
+
+    maxHops = 8                 # Maximum number of VISTA links to pursue in a path-finding operation
+    """    
     # Initialize the path-finder:
     pathEngine = path_engine.PathEngine(pointSearchRadius, pointSearchPrimary, pointSearchSecondary, limitLinearDist,
                             limitDirectDist, limitDirectDistRev, distanceFactor, driftFactor, nonPerpPenalty, limitClosestPoints,
@@ -715,6 +751,14 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     
     pathEngine.setRefineParams(STOP_SEARCH_RADIUS)
     for stopID, stopRecord in stopRecords.iteritems():
+        
+        
+        """
+        if stopID != 1956:
+            continue
+        """
+        
+        
         print("INFO: -- Stop %d --" % stopID, file=sys.stderr)
         if len(stopRecord.linkCounts) <= 1:
             if len(stopRecord.linkCounts) == 1:
@@ -744,7 +788,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             "@type closestLinks: list<graph.PointOnLink>"
             
             if not closestLinks:
-                print("WARNING: No closest points found for Shape %s index %d" % (allTripsBundles[stopsTuple].label, treeEntryIndices[0]), file=sys.stderr)
+                print("WARNING: No closest points found for Shape %s index %d" % (allTripsBundles[stopsTuple].label, sorted(list(treeEntryIndices))[0]), file=sys.stderr)
                 stopResolveRecord.referents[stopsTuple] = set() # Put empty list here to not break later.
             else:
                 for pointOnLink in closestLinks:
@@ -766,150 +810,188 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             stopResolveRecord.refCount += len(allTripsBundles[stopsTuple].trips)
                 
         del stopsTuple, treeEntryIndices, closestLinks, pointOnLink, linkID
-                
-        # Store the maximum score so that we can invert them to get the sorting right: 
-        scoreMax = max(scores.values())
-                
-        # Build a list for identifying the best links by the refDist perpendicular distance metric:
-        sortList = []
-        for linkID, linkCount in stopResolveRecord.linkCounts.iteritems():
-            sortList.append((linkCount, scoreMax - scores[linkID], linkID))
-        
-        # sortList will now have the links with the most common usage and smallest original scores at the bottom: 
-        sortList = sorted(sortList)
-        # TODO: Do we need to truncate the list to speed up processing?
 
-        # This will hold the scores for all of the path tests: 
-        allScores = {} # stops tuple -> linkID -> float
-        "@type allScores: dict<tuple<int>, dict<int, float>>"                        
-        
-        linkID = stopsTuple = treeEntryIndices = tripsBundle = forceLinks = prevRestart = lfFlag = None
-        while sortList:
-            # Try out this link by invalidating the stop point and doing a refine cycle in each trip:
-            linkID = sortList[-1][2]
-            
-            for stopsTuple, treeEntryIndices in stopResolveRecord.referents.iteritems():
-                tripsBundle = allTripsBundles[stopsTuple]
-                forceLinks = tripsBundle.forceLinks[:]
-                if stopsTuple not in allScores:
-                    allScores[stopsTuple] = {}
-
-                prevRestart = {}
-                for treeEntryIndex in treeEntryIndices:
-                    # Invalidate the respective path match point for this stop and trip. The refine() call
-                    # will then reevaluate those points along the path.
-                    prevRestart[treeEntryIndex] = tripsBundle.resultTree[treeEntryIndex].restart 
-                    tripsBundle.resultTree[treeEntryIndex].restart = True
-                            
-                    # Now, place all updated candidate links into the forceLinks list. Normally, there will
-                    # just be one candidate, but if a route has any loops in it and this stop is hit twice, then
-                    # we need a set of link objects that shares the underlying link.
-                    forceLinks[treeEntryIndex] = vistaNetwork.linkMap[linkID]
-                    
-                pathEngine.setForceLinks(forceLinks)
-
-                # Refine the path and see what the score is:
-                lfFlag = True
-                sys.stderr.write(".")
-                resultTreeRefined = pathEngine.refinePath(tripsBundle.resultTree, vistaNetwork) 
-
-                # Did the refine just flat-out fail? (e.g. do we still have a restart in there?)
-                if sum([pathEnd.restart for pathEnd in resultTreeRefined]) == 0:
-                    # No, continue recording (otherwise ignore this test)
-                    allScores[stopsTuple][linkID] = resultTreeRefined[-1].totalCost
-                    
-                # Reset the invalidation.
-                for treeEntryIndex in treeEntryIndices:
-                    tripsBundle.resultTree[treeEntryIndex].restart = prevRestart[treeEntryIndex]
- 
-                del resultTreeRefined
-            del sortList[-1]
-        if lfFlag:
-            print(file=sys.stderr)
-        del linkID, stopsTuple, treeEntryIndices, tripsBundle, forceLinks, prevRestart, lfFlag
-            
-        # Now normalize the link scores for each stops tuple and multiply by the reference count:
-        stopsTuple = scores = score = scoreMax = linkID = None
-        scoreSums = {} # linkID -> float
-        "@type scoreSums: dict<int, float>"
-        for stopsTuple, scores in allScores.iteritems():
-            if scores:
-                scoreMax = max(scores.values())
-                for linkID in scores.iterkeys():
-                    scores[linkID] = scoreMax - scores[linkID] # Flip it so that the high score is the best.
-                    scores[linkID] /= scoreMax if scoreMax > 0.0 else 1.0
-                    if linkID not in scoreSums:
-                        scoreSums[linkID] = 0.0
-                    scoreSums[linkID] += scores[linkID] * len(stopRecord.referents[stopsTuple]) # One for each trip.
-        
-        # Use the scores for each link to rank the links:
-        sortList = []
-        for linkID, score in scoreSums.iteritems():
-            sortList.append((score, linkID))
-            
-        sortList = sorted(sortList)
-        # Now the best-scored link is at the end of the list.
-        del stopsTuple, scores, score, scoreMax, linkID
-
-        # Assign links to stops in order of descending popularity until all references are exhausted:
-        stopsTuple = treeEntryIndices = tripsBundle = trip = treeEntryIndex = resultTreeRefined = prevRestart = None
+        stopsTuple = treeEntryIndices = tripsBundle = trip = treeEntryIndex = resultTreeRefined = prevRestart = resetRestartFlag = usedTrips = firstLink = prevUsedTripsCount = None
         usedTripIDs = set();
         "@type usedTripIDs: set<int>"
-        usedTrips = set();
-        "@type usedTrips: set<tuple<<int>>"
+        sortList = []
+        "@type sortList: list<tuple<int, float, int>>"
         referenceCnt = 0
-
-        firstLink = True        
-        while sortList and referenceCnt < stopResolveRecord.refCount:
-            # Find trips that use the linkID
-            for stopsTuple, treeEntryIndices in stopResolveRecord.referents.iteritems():
-                if stopsTuple not in usedTrips and sortList[-1][1] in allScores[stopsTuple]:
-                    # This highest scoring linkID is in this trip. Invalidate the corresponding point in the tree list.
-                    tripsBundle = allTripsBundles[stopsTuple] 
+        if scores:
+            # Store the maximum score so that we can invert them to get the sorting right: 
+            scoreMax = max(scores.values())
                     
-                    for treeEntryIndex in treeEntryIndices:
-                        # Skip it if we already use the correct linkID:
-                        if tripsBundle.resultTree[treeEntryIndex].pointOnLink.link.id != sortList[-1][1]:
-                            prevRestart = tripsBundle.resultTree[treeEntryIndex].restart;
-                            tripsBundle.resultTree[treeEntryIndex].restart = True;
-                            
-                            # Modify the original forceLinks to keep all previous forced links in place. 
-                            tripsBundle.forceLinks[treeEntryIndex] = vistaNetwork.linkMap[sortList[-1][1]]
-                            
-                            pathEngine.setForceLinks(tripsBundle.forceLinks)
-                            
-                            # Refine the path:
-                            resultTreeRefined = pathEngine.refinePath(tripsBundle.resultTree, vistaNetwork)
-                        else:
-                            # Shortcut the refine process in cases where the link is the current one.
-                            resultTreeRefined = tripsBundle.resultTree
-    
-                        # Did the refine fail? (Or is it unchanged?)
-                        if tripsBundle.resultTree[treeEntryIndex].pointOnLink.link.id == sortList[-1][1] or sum([pathEnd.restart for pathEnd in resultTreeRefined]) == 0:
-                            # No-- save the result.
-                            tripsBundle.resultTree = resultTreeRefined
-                            usedTrips.add(stopsTuple)
-                            for trip in tripsBundle.trips:
-                                usedTripIDs.add(trip.tripID)
-                            referenceCnt += len(tripsBundle.trips)
-                            
-                            # Check to see if this is being saved to another linkID than the first one.
-                            if not firstLink:
-                                print("WARNING: The final match of Link %d for Shape %s is a different link."
-                                    % (sortList[-1][1], tripsBundle.label), file=sys.stderr)
-                        else:
-                            print("WARNING: The match of Link %d for Shape %s failed."
-                                % (sortList[-1][1], tripsBundle.label), file=sys.stderr)
-                            tripsBundle.resultTree[treeEntryIndex].restart = prevRestart
-                                
-            if usedTripIDs:
-                if firstLink:
-                    print("INFO: %d trip(s) were matched to the best-scoring link %d." % (len(usedTripIDs), sortList[-1][1]), file=sys.stderr)
-                firstLink = False
+            # Build a list for identifying the best links by the refDist perpendicular distance metric:
+            for linkID, linkCount in stopResolveRecord.linkCounts.iteritems():
+                sortList.append((linkCount, scoreMax - scores[linkID], linkID))
             
-            del sortList[-1]
+            # sortList will now have the links with the most common usage and smallest original scores at the bottom: 
+            sortList = sorted(sortList)
+            # TODO: Do we need to truncate the list to speed up processing?
+    
+            # This will hold the scores for all of the path tests: 
+            allScores = {} # stops tuple -> linkID -> float
+            "@type allScores: dict<tuple<int>, dict<int, float>>"                        
+             
+            linkID = forceLinks = lfFlag = None
+            while sortList:
+                # Try out this link by invalidating the stop point and doing a refine cycle in each trip:
+                linkID = sortList[-1][2]
+                
+                for stopsTuple, treeEntryIndices in stopResolveRecord.referents.iteritems():
+                    tripsBundle = allTripsBundles[stopsTuple]
+                    forceLinks = tripsBundle.forceLinks[:]
+                    if stopsTuple not in allScores:
+                        allScores[stopsTuple] = {}
+    
+                    prevRestart = {}
+                    for treeEntryIndex in treeEntryIndices:
+                        # Invalidate the respective path match point for this stop and trip. The refine() call
+                        # will then reevaluate those points along the path.
+                        prevRestart[treeEntryIndex] = tripsBundle.resultTree[treeEntryIndex].restart 
+                        tripsBundle.resultTree[treeEntryIndex].restart = True
+                                
+                        # Now, place all updated candidate links into the forceLinks list. Normally, there will
+                        # just be one candidate, but if a route has any loops in it and this stop is hit twice, then
+                        # we need a set of link objects that shares the underlying link.
+                        forceLinks[treeEntryIndex] = vistaNetwork.linkMap[linkID]
+                        
+                    pathEngine.setForceLinks(forceLinks)
+    
+                    # Refine the path and see what the score is:
+                    lfFlag = True
+                    sys.stderr.write(".")
+                    resultTreeRefined = pathEngine.refinePath(tripsBundle.resultTree, vistaNetwork) 
+    
+                    # Did the refine just flat-out fail? (e.g. do we still have a restart in there?)
+                    if sum([pathEnd.restart for pathEnd in resultTreeRefined]) == 0:
+                        # No, continue recording (otherwise ignore this test)
+                        if resultTreeRefined:
+                            allScores[stopsTuple][linkID] = resultTreeRefined[-1].totalCost
+                        
+                    # Reset the invalidation.
+                    for treeEntryIndex in treeEntryIndices:
+                        tripsBundle.resultTree[treeEntryIndex].restart = prevRestart[treeEntryIndex]                    
+                del sortList[-1]
+            if lfFlag:
+                print(file=sys.stderr)
+            del linkID, forceLinks, lfFlag
+                
+            # Now normalize the link scores for each stops tuple and multiply by the reference count:
+            stopsTuple = scores = score = scoreMax = linkID = None
+            scoreSums = {} # linkID -> float
+            "@type scoreSums: dict<int, float>"
+            for stopsTuple, scores in allScores.iteritems():
+                if scores:
+                    scoreMax = max(scores.values())
+                    for linkID in scores.iterkeys():
+                        scores[linkID] = scoreMax - scores[linkID] # Flip it so that the high score is the best.
+                        scores[linkID] /= scoreMax if scoreMax > 0.0 else 1.0
+                        if linkID not in scoreSums:
+                            scoreSums[linkID] = 0.0
+                        scoreSums[linkID] += scores[linkID] * len(stopRecord.referents[stopsTuple]) # One for each trip.
+            
+            # Use the scores for each link to rank the links:
+            sortList = []
+            for linkID, score in scoreSums.iteritems():
+                sortList.append((score, linkID))
+                
+            sortList = sorted(sortList)
+            # Now the best-scored link is at the end of the list.
+            del scores, score, scoreMax, linkID
+    
+            # Assign links to stops in order of descending popularity until all references are exhausted:
+            usedTrips = set();
+            "@type usedTrips: set<tuple<<int>>"
+    
+            firstLink = True
+            prevUsedTripsCount = None        
+            while sortList and referenceCnt < stopResolveRecord.refCount:
+                # Find trips that use the linkID
+                for stopsTuple, treeEntryIndices in stopResolveRecord.referents.iteritems():
+                    if stopsTuple not in usedTrips and sortList[-1][1] in allScores[stopsTuple]:
+                        # This highest scoring linkID is in this trip. Invalidate the corresponding point in the tree list.
+                        tripsBundle = allTripsBundles[stopsTuple] 
+                        
+                        for treeEntryIndex in treeEntryIndices:
+                            prevRestart = None
+                            resetRestartFlag = False
+                            # Skip it if we already use the correct linkID:
+                            if tripsBundle.resultTree[treeEntryIndex].pointOnLink.link.id != sortList[-1][1]:
+                                prevRestart = tripsBundle.resultTree[treeEntryIndex].restart
+                                resetRestartFlag = True
+                                tripsBundle.resultTree[treeEntryIndex].restart = True
+                                
+                                # Modify the original forceLinks to keep all previous forced links in place. 
+                                tripsBundle.forceLinks[treeEntryIndex] = vistaNetwork.linkMap[sortList[-1][1]]
+                                
+                                pathEngine.setForceLinks(tripsBundle.forceLinks)
+                                
+                                # Refine the path:
+                                resultTreeRefined = pathEngine.refinePath(tripsBundle.resultTree, vistaNetwork)
+                            else:
+                                # Shortcut the refine process in cases where the link is the current one.
+                                resultTreeRefined = tripsBundle.resultTree
+        
+                            # Did the refine fail? (Or is it unchanged?)
+                            if tripsBundle.resultTree[treeEntryIndex].pointOnLink.link.id == sortList[-1][1] \
+                                    or sum([pathEnd.restart for pathEnd in resultTreeRefined]) <= tripsBundle.restartCount:
+                                # No-- save the result.
+                                
+                                
+                                
+                                if len(tripsBundle.resultTree) != len(resultTreeRefined):
+                                    print("WARNING: Old result tree is %d path-ends while new result tree is %d path-ends." % (len(tripsBundle.resultTree), len(resultTreeRefined)), file=sys.stderr)
+                                    print([rt.pointOnLink.link.id for rt in tripsBundle.resultTree], file=sys.stderr)
+                                    print([rtr.pointOnLink.link.id for rtr in resultTreeRefined], file=sys.stderr)
+                                    resetRestartFlag = True
+                                else:
+                                    tripsBundle.resultTree = resultTreeRefined
+                                    usedTrips.add(stopsTuple)
+                                    for trip in tripsBundle.trips:
+                                        usedTripIDs.add(trip.tripID)
+                                    referenceCnt += len(tripsBundle.trips)
+                                
+                                
+                                
+                                """
+                                tripsBundle.resultTree = resultTreeRefined
+                                usedTrips.add(stopsTuple)
+                                for trip in tripsBundle.trips:
+                                    usedTripIDs.add(trip.tripID)
+                                referenceCnt += len(tripsBundle.trips)
+                                """
+                                
+                                
+                                """
+                                TAKE THIS OUT EVENTUALLY
+                                """
+                                # Check to see if this is being saved to another linkID than the first one.
+                                if not firstLink:
+                                    print("WARNING: (The final match with Link %d for Shape %s is a different link.)"
+                                        % (sortList[-1][1], tripsBundle.label), file=sys.stderr)
+                                """
+                                END TAKE THIS OUT EVENTUALLY
+                                """
+                            if resetRestartFlag and not prevRestart is None:
+                                print("WARNING: The match of Link %d for Shape %s failed."
+                                    % (sortList[-1][1], tripsBundle.label), file=sys.stderr)
+                                tripsBundle.resultTree[treeEntryIndex].restart = prevRestart
+                                    
+                if usedTripIDs:
+                    if firstLink:
+                        print("INFO: %d trip(s) were matched with the best-scoring link %d." % (len(usedTripIDs), sortList[-1][1]), file=sys.stderr)
+                        firstLink = False
+                    else:
+                        if len(usedTripIDs) - prevUsedTripsCount > 0:
+                            print("WARNING: %d trip(s) were matched with the next-best scoring link %d." % (len(usedTripIDs) - prevUsedTripsCount, sortList[-1][1]), file=sys.stderr)
+                    prevUsedTripsCount = len(usedTripIDs)
+                
+                del sortList[-1]
         if not sortList and referenceCnt < stopResolveRecord.refCount:
             # We have run out of candidates too early:
+            if not usedTripIDs:
+                print("WARNING: The evaluations of all candidate links failed.", file=sys.stderr)
             tripIDList = ""
             tripIDCount = 0
             for stopsTuple in stopResolveRecord.referents.iterkeys(): 
@@ -919,9 +1001,9 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                             tripIDList += ", "
                         tripIDList += str(trip.tripID)
                         tripIDCount += 1
-            print("WARNING: %d trip(s) could not be matched; leaving unchanged: (tripID(s) %s)." % (tripIDCount, tripIDList), file=sys.stderr)
+            print("WARNING: %d Trip(s) could not be matched; leaving unchanged: Trip(s) %s." % (tripIDCount, tripIDList), file=sys.stderr)
             del tripIDList, tripIDCount
-        del stopsTuple, usedTripIDs, usedTrips, firstLink, trip, treeEntryIndices, tripsBundle, treeEntryIndex, resultTreeRefined, prevRestart, referenceCnt
+        del stopsTuple, usedTripIDs, usedTrips, firstLink, prevUsedTripsCount, trip, treeEntryIndices, tripsBundle, treeEntryIndex, resultTreeRefined, prevRestart, resetRestartFlag, referenceCnt
             
     problemReportNodes = {}
     "@type problemReportNodes: dict<tuple<int>, path_engine.PathEnd>"
