@@ -539,18 +539,20 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             stopsList.append(stopTimesEntry.stop.stopID)
             
             
-        """    
-            if stopTimesEntry.stop.stopID == 1956:
+            """
+            if stopTimesEntry.stop.stopID == 2830:
                 flag = True
         if not flag:
             continue    
-        """    
+        """
         
             
         stopsTuple = tuple(stopsList)
         "@type stopsTuple: tuple<int>"
         # So now we have a key that is composed of the shape ID and all stop IDs in a sequence to identify all unique
         # shape/stop ID combinations.
+        
+        
                     
         # Ignore trips that are entirely outside our valid time interval.
         flag = False
@@ -751,14 +753,6 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     
     pathEngine.setRefineParams(STOP_SEARCH_RADIUS)
     for stopID, stopRecord in stopRecords.iteritems():
-        
-        
-        """
-        if stopID != 1956:
-            continue
-        """
-        
-        
         print("INFO: -- Stop %d --" % stopID, file=sys.stderr)
         if len(stopRecord.linkCounts) <= 1:
             if len(stopRecord.linkCounts) == 1:
@@ -862,6 +856,13 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                     lfFlag = True
                     sys.stderr.write(".")
                     resultTreeRefined = pathEngine.refinePath(tripsBundle.resultTree, vistaNetwork) 
+                    
+                    
+                    
+                    if len(tripsBundle.resultTree) != len(resultTreeRefined):
+                        print("LinkID: %d; Shape: %s Old: %d; New: %d" % (linkID, tripsBundle.label, len(tripsBundle.resultTree), len(resultTreeRefined)))
+                    
+                    
     
                     # Did the refine just flat-out fail? (e.g. do we still have a restart in there?)
                     if sum([pathEnd.restart for pathEnd in resultTreeRefined]) == 0:
@@ -974,8 +975,6 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                                 END TAKE THIS OUT EVENTUALLY
                                 """
                             if resetRestartFlag and not prevRestart is None:
-                                print("WARNING: The match of Link %d for Shape %s failed."
-                                    % (sortList[-1][1], tripsBundle.label), file=sys.stderr)
                                 tripsBundle.resultTree[treeEntryIndex].restart = prevRestart
                                     
                 if usedTripIDs:
@@ -1099,6 +1098,9 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                         outSeqCtr += 1
                         # TODO: For start time estimation (as reported in the public.bus_frequency.csv output), it may be
                         # ideal to keep track of linear distance traveled before the first valid stop.
+                    
+                        if treeEntry.restart:
+                            print("WARNING: Trip %d, new Seq %d incurs a disjoint." % (trip.tripID, outSeqCtr), file=sys.stderr)
                         
                     # Widen out the valid interval if needed:
                     warmupStartTime = min(minTime, warmupStartTime)
@@ -1138,8 +1140,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                     else:
                         flag = True
                     if (flag or gtfsStopTime.stopSeq == stopTimes[-1].stopSeq) and startGap >= 0:
-                        subStr = "seqs %d-%d" % (startGap, endGap) if startGap != endGap else "seq %d" % startGap
-                        print("WARNING: Because of time exclusion or subset network, tripID %d, stop %s will not be in the bus_route_link file." % (trip.tripID, subStr),
+                        subStr = "Seqs %d-%d" % (startGap, endGap) if startGap != endGap else "Seq %d" % startGap                        
+                        print("WARNING: Because of time exclusion or subset network, Trip %d, Stop %s of %d will not be in the bus_route_link file." % (trip.tripID, subStr, len(stopTimes)),
                             file=sys.stderr)
                         startGap = -1
 

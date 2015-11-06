@@ -395,7 +395,7 @@ class PathEngine:
                 gtfsPoints = [oldTreeNode.cleanCopy()]
                 "@type gtfsPoints: list<PathEnd>"
     
-            if len(gtfsPoints) > 0:
+            if gtfsPoints:
                 # Find the shortest paths from gtfsPointsPrev to the handful of closestVISTA points:
                 curList = self._findShortestPaths(pathProcessor, oldTreeNode.shapeEntry, prevTreeNodes,
                     gtfsPoints, vistaGraph, 1 if firstFlag else 2)
@@ -410,6 +410,15 @@ class PathEngine:
                             restartFlag = True
                     else:
                         curListAll.append(gtfsPoint)
+            else:
+                # Evidently we didn't find any candidate points. In this case, duplicate the previously matched link:
+                for prevTreeNode in prevTreeNodes:
+                    curTreeNode = copy.copy(oldTreeNode)
+                    curTreeNode.prevTreeNode = prevTreeNode
+                    dist = linear.getNorm(oldTreeNode.shapeEntry.pointX, oldTreeNode.shapeEntry.pointY, curTreeNode.pointOnLink.pointX, curTreeNode.pointOnLink.pointY)
+                    curTreeNode.totalDist += dist * RESTART_PENALTY_MULT
+                    curTreeNode.totalCost += dist * RESTART_PENALTY_MULT
+                    curListAll.append(curTreeNode)
                         
         elif firstFlag:
             # This happens if we are not reevaluating the existing paths at all.
