@@ -25,7 +25,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-import graph, sys, psycopg2
+import graph, sys, re, psycopg2
 
 def connect(dbServer, userName, password, networkName):
     """
@@ -69,9 +69,35 @@ def fillGraph(database):
         link = graph.GraphLink(row[0], graphLib.nodeMap[row[1]], graphLib.nodeMap[row[2]])
         #link.distance = row[3] # Use reported distance rather than measured distance.
         graphLib.addLink(link)
-        
+    
+    # Step 4: Add the link vertices:
+    cursor.execute("SELECT a.id, a.points FROM links a, linkdetails b WHERE a.id = b.id AND b.type = 1")
+    for row in cursor:
+        points = _pathToPoints(row[1])
+        vertices = [] * len(points)
+        for point in points:
+            vertices.append(graph.GraphLinkVertex(point[0], point[1]))
+        graphLib.linkMap[int(row[0])].addVertices(vertices)
+    
     # Optimize the graph for lookups:
     graphLib.generateQuadSet()
         
     # There we are.
     return graphLib
+
+# Regular expressions for extracting points from path columns
+_point = re.compile('\(-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?\)')
+_coordinate = re.compile('-?\d+(?:\.\d+)?')
+
+def _pathToPoints(path):
+    """
+    Convert string path to actual list of floating point point tuples
+    @type path: string
+    @rtype list<tuple<float>>
+    """
+    rePoints = re.findall(_point, path)
+    points = [] * len(rePoints)
+    for p in rePoints:
+        longitude, latitude = [float(x) for x in re.findall(_coordinate, p)]
+        points.append((latitude, longitude))
+    return points

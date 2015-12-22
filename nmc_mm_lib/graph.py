@@ -32,6 +32,11 @@ DEFAULT_QUAD_LIMIT = 200
 class GraphLink:
     """
     GraphLink is a link that connects one node to another.
+    @ivar id: ?
+    @ivar origNode: GraphNode
+    @ivar destNode: GraphNode
+    @ivar vertices: list<GraphLinkVirtex>
+    @ivar distance: float
     """
     def __init__(self, ident, origNode, destNode):
         """
@@ -44,11 +49,36 @@ class GraphLink:
         self.destNode = destNode
         
         # The head of the linked-list of member vertices within this Link
-        self.vertexStart = None
+        self.vertices = None
         
         # Placeholders for efficiency of measurement:
         self.distance = 0.0
         
+    def makeVertices(self):
+        """
+        For links that are straight and have no curvature, creates a pair of vertices that correspond
+        with the given link, drawing a line from the origin node to the destination node.
+        """
+        linkVertices = [GraphLinkVertex(self.origNode.gpsLat, self.origNode.gpsLng), 
+                        GraphLinkVertex(self.destNode.gpsLat, self.destNode.gpsLng)]
+        self.addVertices(linkVertices)
+        
+    def addVertices(self, linkVertices):
+        """
+        Adds the linked list of vertices to the given link, computing coordinates and distances along
+        the way.
+        @type linkVertices: list<GraphLinkVertex>
+        """
+        linkVertices[0].pointX, linkVertices[0].pointY = self.gps.gps2feet(linkVertices[0].lat, linkVertices[0].lng)
+        linkVertices[0].parentLink = self
+        linkVertices[0].distance = 0.0
+        self.vertices = linkVertices
+        for prevIndex, nextVertex in enumerate(linkVertices[1:]):
+            nextVertex.pointX, nextVertex.pointY = self.gps.gps2feet(nextVertex.lat, nextVertex.lng)
+            nextVertex.distance = linkVertices[prevIndex].distance + linear.getNorm(linkVertices[prevIndex].pointX, linkVertices[prevIndex].pointY,
+                nextVertex.pointX, nextVertex.pointY) 
+            nextVertex.parentLink = self
+            
     def isComplementary(self, otherLink):
         """
         Return True if the given link directly flows in the opposite direction of this link.
@@ -69,14 +99,12 @@ class GraphLinkVertex:
     @ivar pointY: float
     @ivar distance: float
     @ivar parentLink: GraphLink
-    @ivar nextVertex: GraphLinkVertex
     """
-    def __init__(self, gpsLat, gpsLng, prevGraphVertex=None):
+    def __init__(self, gpsLat, gpsLng):
         """
         Sets the next vertex to allow for a segment to be expressed between this object and nextVertex.
         @type gpsLat: float
         @type gpsLng: float
-        @type prevGraphVertex: GraphVertex         
         """
         self.gpsLat = gpsLat
         self.gpsLng = gpsLng
@@ -84,10 +112,6 @@ class GraphLinkVertex:
         self.pointY = 0.0
         self.distance = 0.0
         self.parentLink = None
-        self.nextVertex = None
-        
-        if prevGraphVertex is not None:
-            prevGraphVertex.nextVertex = self
 
 class GraphNode:
     """
@@ -200,35 +224,7 @@ class GraphLib:
         self.prevLinkID = link.id
         self.linkMap[ourID] = link
         link.origNode.outgoingLinkMap[link.id] = link
-    
-    def makeVerticesForLink(self, link):
-        """
-        For links that are straight and have no curvature, creates a pair of vertices that correspond
-        with the given link, drawing a line from the origin node to the destination node.
-        @type link: GraphLink
-        """
-        linkVertex = GraphLinkVertex(link.origNode.gpsLat, link.origNode.gpsLng, None)
-        linkVertex.nextVertex = GraphLinkVertex(link.destNode.gpsLat, link.destNode.gpsLng, linkVertex)
-        self.addVerticesToLink(link, linkVertex)
-    
-    def addVerticesToLink(self, link, linkVertex):
-        """
-        Adds the linked list of vertices to the given link, computing coordinates and distances along
-        the way.
-        @type link: GraphLink
-        @type linkVertex: GraphLinkVertex
-        """
-        linkVertex.pointX, linkVertex.pointY = self.gps.gps2feet(linkVertex.lat, linkVertex.lng)
-        linkVertex.parentLink = link
-        link.vertexStart = linkVertex
-        nextVertex = linkVertex.nextVertex
-        while nextVertex is not None:
-            nextVertex.pointX, nextVertex.pointY = self.gps.gps2feet(nextVertex.lat, nextVertex.lng)
-            nextVertex.distance = linkVertex.distance + linear.getNorm(linkVertex.pointX, linkVertex.pointY,
-                nextVertex.pointX, nextVertex.pointY) 
-            nextVertex.parentLink = link
-            nextVertex = linkVertex.nextVertex
-    
+            
     def generateQuadSet(self):
         """
         This performs the task of generating the quadtree for this GraphLib. Calls to addVerticesToLink()
@@ -240,15 +236,13 @@ class GraphLib:
         maxX = sys.float_info.min
         maxY = sys.float_info.min
         for link in self.linkMap.values():
-            if link.vertexStart is None:
-                self.makeVerticesForLink(link)
-            linkVertex = link.vertexStart
-            while linkVertex is not None:
-                minX = min(minX, linkVertex.coordX)
-                minY = min(minY, linkVertex.coordY)
-                maxX = max(maxX, linkVertex.coordX)
-                maxY = max(maxY, linkVertex.coordY)
-                linkVertex = linkVertex.nextVertex
+            if not link.vertices:
+                link.makeVertices()
+            for vertex in link.vertices:
+                minX = min(minX, vertex.coordX)
+                minY = min(minY, vertex.coordY)
+                maxX = max(maxX, vertex.coordX)
+                maxY = max(maxY, vertex.coordY)
         
         self.quadSet = linear.QuadSet(self.quadLimit, minX, minY, maxX, maxY)
         for link in self.linkMap.values():
