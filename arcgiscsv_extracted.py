@@ -153,7 +153,6 @@ def pathMatch(dbServer, networkName, userName, password, filename, limitMap = No
     
         # File this away as a result for later output:
         nodesResults[datafileID] = gtfsNodes
-        
     return nodesResults
 
 def main(argv):

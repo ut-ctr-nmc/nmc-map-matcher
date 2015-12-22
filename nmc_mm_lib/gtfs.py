@@ -29,24 +29,28 @@ from datetime import datetime, timedelta
 class ShapesEntry:
     """
     ShapesEntry is a single GTFS shape file entry.
+    @ivar time: datetime
+    @ivar pointX: float
+    @ivar pointY: float
+    @ivar typeID: int
     """
-    def __init__(self, shapeID, shapeSeq, lat, lng, hintFlag = False):
+    def __init__(self, shapeID, shapeSeq, lat, lng):
         """
         @type shapeSeq: int
         @type lat: float
         @type lng: float
-        @type hintFlag: bool
         @type time: datetime
         """
         self.shapeID = shapeID
         self.shapeSeq = shapeSeq
         self.lat = lat
         self.lng = lng
-        self.hintFlag = hintFlag
         self.time = None
         
         self.pointX = 0
         self.pointY = 0
+        
+        self.typeID = 0
 
 def fillShapes(filePath, gps):
     """
@@ -71,7 +75,7 @@ def fillShapes(filePath, gps):
             if len(fileLine) > 0:
                 lineElems = fileLine.split(',')
                 newEntry = ShapesEntry(int(lineElems[0]), int(lineElems[3]), float(lineElems[1]),
-                                        float(lineElems[2]), False)
+                                        float(lineElems[2]))
                 (newEntry.pointX, newEntry.pointY) = gps.gps2feet(newEntry.lat, newEntry.lng)
                 if newEntry.shapeID not in ret:
                     ret[newEntry.shapeID] = []
@@ -278,8 +282,6 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs):
     """
     stopTimes = {}
     "@type stopTimes: dict<TripsEntry, list<StopTimesEntry>>"
-    errTrips = set()
-    "@type errTrips: set<int>"
     
     filename = os.path.join(filePath, "stop_times.txt")
     with open(filename, 'r') as inFile:
@@ -290,15 +292,14 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs):
             return None
         
         # Go through the lines of the file:
+        badTrips = set()
         for fileLine in inFile:
             if len(fileLine) > 0:
                 lineElems = fileLine.split(',')
                 tripID = int(lineElems[0])
                 if tripID not in unusedTripIDs:
                     if not tripID in trips:
-                        if tripID not in errTrips:
-                            print("WARNING: GTFS Stop Times file expects undefined trip ID %d" % tripID, file=sys.stderr)
-                            errTrips.add(tripID)
+                        badTrips.add(tripID)
                         continue
                     
                     # Split apart time string this way and count from epoch because GTFS stops may express times for
@@ -329,6 +330,15 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs):
                     stopTimes[newEntry.trip].append(newEntry)
                     del newEntry
                 del tripID
+
+        # Output error message:
+        if badTrips:
+            strOut = ""
+            for tripID in sorted(badTrips):
+                if strOut:
+                    strOut += ", "
+                strOut += str(tripID)
+            print("WARNING: GTFS Stop Times file expects undefined trip ID(s) %s" % strOut, file=sys.stderr)
 
     # Return the stop times file contents:
     return stopTimes

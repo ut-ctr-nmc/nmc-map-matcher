@@ -48,7 +48,6 @@ class GraphLink:
         
         # Placeholders for efficiency of measurement:
         self.distance = 0.0
-        self.uid = -1
         
     def isComplementary(self, otherLink):
         """
@@ -159,24 +158,21 @@ class GraphLib:
     
     @ivar gps: Reference GPS center coordinates plus calculator
     @type gps: gps.GPS
-    @ivar nodeMap: Collection of nodes if we are creating a graph-based network, None if single-path.
+    @ivar nodeMap: Collection of nodes that are in this graph.
     @type nodeMap: dict<int, GraphNode>
-    @ivar linkMap: Collection of links
+    @ivar linkMap: Collection of links that are in this graph.
     @type linkMap: dict<int, GraphLink>
     @ivar prevLinkID: Previous link ID for cases where we are dealing with single-paths
     @ivar quadLimit: The maximum number of points allowed at a QuadSet layer.
     @ivar quadSet: The linear.QuadSet object that assists in finding lines of closest perpendicular distances
     """
-    def __init__(self, gpsCtrLat, gpsCtrLng, quadLimit=DEFAULT_QUAD_LIMIT, singlePath=False):
+    def __init__(self, gpsCtrLat, gpsCtrLng, quadLimit=DEFAULT_QUAD_LIMIT):
         """
         @type gpsCtrLat: float
         @type gpsCtrLng: float
         """
         self.gps = gps.GPS(gpsCtrLat, gpsCtrLng)
-        if not singlePath:
-            self.nodeMap = {}
-        else:
-            self.nodeMap = None
+        self.nodeMap = {}
         self.linkMap = {}
         self.prevLinkID = 0
         self.quadLimit = quadLimit
@@ -187,32 +183,23 @@ class GraphLib:
         addNode adds a node to the GraphLib and translates its coordinates to feet. Not supported for single-path.
         @type node: GraphNode
         """
-        if self.nodeMap is not None:
-            node.coordX, node.coordY = self.gps.gps2feet(node.gpsLat, node.gpsLng)
-            self.nodeMap[node.id] = node
+        node.coordX, node.coordY = self.gps.gps2feet(node.gpsLat, node.gpsLng)
+        self.nodeMap[node.id] = node
         
     def addLink(self, link):
         """
         addLink adds a link to the GraphLib and updates its respective nodes.  Call 
         addNode first.
         @type link: GraphLink
-        @return the unique ID for the link
         """
-        if self.nodeMap is not None and link.origNode.id not in self.nodeMap:
-            print('WARNING: Node %d is not present.' % link.origNode, file = sys.stderr)
+        if link.origNode.id not in self.nodeMap:
+            print('WARNING: Node %d is not present.' % link.origNode.id, file = sys.stderr)
             return
         link.distance = linear.getNorm(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY)
-        if self.nodeMap is not None:
-            ourID = link.id
-            link.uid = link.id
-            self.prevLinkID = link.id
-        else:
-            ourID = self.prevLinkID
-            link.uid = self.prevLinkID
-            self.prevLinkID += 1
+        ourID = link.id
+        self.prevLinkID = link.id
         self.linkMap[ourID] = link
         link.origNode.outgoingLinkMap[link.id] = link
-        return link.uid
     
     def makeVerticesForLink(self, link):
         """
@@ -320,48 +307,6 @@ class GraphLib:
 
         # Return the limitClosestPoints number of points: 
         return retList
-    
-        """
-        secondaryRadiusSq = secondaryRadius ** 2
-        retList = []
-
-        # Find perpendicular and non-perpendicular PointOnLinks that are within radius.
-        latestMinDist = 0.0
-        numValidEntries = 0
-        for refDist, linkDist, perpendicular, link in self.quadSet.retrieveLines(pointX, pointY, radius):
-            if minDist > latestMinDist:
-                if numValidEntries >= limitClosestPoints:
-                    break
-                latestMinDist = minDist
-
-            pointOnLink = PointOnLink(link, linkDist, not perpendicular, refDist)
-            
-            # We are within the initial search radius. Are we then within the primary radius?
-            flag = False
-            if refDist <= primaryRadius:
-                # Yes, easy. Add to the list eventually:
-                flag = True
-            else:
-                # Check to see if the point is close to a previous point:
-                for prevPoint in prevPoints:
-                    "@type prevPoint: PointOnLink"
-                    distSq = linear.getNormSq(pointOnLink.pointX, pointOnLink.pointY, prevPoint.pointX, prevPoint.pointY)
-                    if (distSq < secondaryRadiusSq):
-                        # We have a winner:
-                        flag = True
-                        break
-                
-            # Filter out duplicate locations represented by a nonperpendicular match to the end of one link and a
-            # nonperpendicular match to the start of the following link. Keep the downstream one:
-            if flag and not perpendicular and pointOnLink.dist > 0 and len(pointOnLink.link.destNode.outgoingLinkMap) > 0:
-                continue
-            
-            retList.append(pointOnLink)
-        
-        # Keep limited number of closest values 
-        retList.sort(key = operator.attrgetter('refDist'))
-        return retList[0:limitClosestPoints]
-        """
 
 class WalkPathProcessor:
     """
@@ -468,9 +413,9 @@ class WalkPathProcessor:
             # Make a copy of the set only if it is to change, and add in the new incoming link ID:
             oldBacktrackSet = prevStruct.backtrackSet if prevStruct is not None else set()
             "@type oldBacktrackSet: set<int>"
-            if incomingLink.uid not in oldBacktrackSet: 
+            if incomingLink.id not in oldBacktrackSet: 
                 self.backtrackSet = set(oldBacktrackSet)
-                self.backtrackSet.add(incomingLink.uid)
+                self.backtrackSet.add(incomingLink.id)
             else:
                 self.backtrackSet = oldBacktrackSet
     
@@ -506,7 +451,7 @@ class WalkPathProcessor:
         self.queueCounter = 0
         
         # Do the breadth-first search:
-        while not len(self.processingQueue) == 0:
+        while self.processingQueue:
             self._walkPath(heappop(self.processingQueue)[-1])
         
         # Set up the return:
@@ -551,18 +496,18 @@ class WalkPathProcessor:
             self.backtrackScore = walkPathElem.distance
             
             # Log the winner into the cache by looking at all of the parent elements:
-            if self.pointOnLinkDest.link.uid not in self.backCache:
-                self.backCache[self.pointOnLinkDest.link.uid] = {}
-            mappings = self.backCache[self.pointOnLinkDest.link.uid]
+            if self.pointOnLinkDest.link.id not in self.backCache:
+                self.backCache[self.pointOnLinkDest.link.id] = {}
+            mappings = self.backCache[self.pointOnLinkDest.link.id]
             "@type mappings: dict<int, GraphLink>"
             if walkPathElem.prevStruct is not None:
                 element = walkPathElem.prevStruct
                 "@type element: _WalkPathNext"
                 while element.prevStruct is not None:
-                    if (element.prevStruct.incomingLink.uid in mappings) \
-                            and (mappings[element.prevStruct.incomingLink.uid] is element.incomingLink):
+                    if (element.prevStruct.incomingLink.id in mappings) \
+                            and (mappings[element.prevStruct.incomingLink.id] is element.incomingLink):
                         break
-                    mappings[element.prevStruct.incomingLink.uid] = element.incomingLink
+                    mappings[element.prevStruct.incomingLink.id] = element.incomingLink
                     element = element.prevStruct
                 
             # Process the next queue element:
@@ -570,9 +515,9 @@ class WalkPathProcessor:
         
         # Look at each link that comes out from the current node.
         # First, see if there is a shortcut to our destination already in the cache:
-        if (self.pointOnLinkDest.link.uid in self.backCache) and \
-                (walkPathElem.incomingLink.uid in self.backCache[self.pointOnLinkDest.link.uid]):
-            myList = [self.backCache[self.pointOnLinkDest.link.uid][walkPathElem.incomingLink.uid]]
+        if (self.pointOnLinkDest.link.id in self.backCache) and \
+                (walkPathElem.incomingLink.id in self.backCache[self.pointOnLinkDest.link.id]):
+            myList = [self.backCache[self.pointOnLinkDest.link.id][walkPathElem.incomingLink.id]]
         else:
             myList = walkPathElem.incomingLink.destNode.outgoingLinkMap.values()
         for link in myList:
@@ -582,7 +527,7 @@ class WalkPathProcessor:
                     continue
             
             # Had we visited this before?
-            if link.uid in walkPathElem.backtrackSet:
+            if link.id in walkPathElem.backtrackSet:
                 continue
             
             # Add to the queue for processing later:

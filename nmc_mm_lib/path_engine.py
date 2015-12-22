@@ -24,12 +24,10 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-import graph, linear, gtfs, operator, sys, copy
+import graph, linear, gtfs, operator, math, sys, copy
 
-INSUFFICIENT_HINT_PENALTY = 5000
-"@var INSUFFICIET_HINT_PENALTY: The score to add to paths when a hint zone is exited and not all of the hints were traversed."
-HINT_RESTART_PENALTY_MULT = 2
-"@var HINT_RESTART_PENALTY_MULT: A multiplier for shape-to-shape evaluations that happen during the hint stage"
+RESTART_PENALTY_MULT = 2
+"@var RESTART_PENALTY_MULT: A multiplier for shape-to-shape evaluations that happen while refining on a restart"
 
 class PathEnd:
     """
@@ -60,8 +58,6 @@ class PathEnd:
         self.totalDist = 0.0
         self.routeInfo = []
         self.restart = False
-        
-        self.hintIndex = -1
         
     def cleanCopy(self):
         """
@@ -106,13 +102,15 @@ class PathEngine:
         self.prevCosts = None
         
         self.maxHops = 12 # Limits the number of nodes to be traversed in path-finding.
-        self.limitHintClosest = 4 # Number of hint closest points and closest previous track points
         
         self.logFile = sys.stderr
         "@type self.logFile: file"
         
         self.shapeScatterCache = None
         "@type self.shapeScatterCache: list<graph.PointOnLink>"
+        
+        self.forceLinks = None
+        "@type self.forceLinks: list<graph.GraphLink>"
         
     def scoreFunction(self, prevGeoPoint, distance, geoPoint):
         """
@@ -140,7 +138,10 @@ class PathEngine:
                     cost = cost * self.nonPerpPenalty
             else:
                 cost = 0.0            
-            return cost + distance * self.distanceFactor
+            return cost + abs(distance) * self.distanceFactor
+            # Change from Perrine et al., 2015: Use absolute value of distance here because all movement
+            # should be incrementing even in cases where a proposed path is moving back and forth on a link
+            # because of shape point noise or tiny U-turns.
         
     def exceedsPreviousCosts(self, cost):
         """
@@ -213,8 +214,6 @@ class PathEngine:
                 # Warn if we are not at the start and we didn't find valid VISTA points.
                 if self.logFile is not None:
                     shapeTypeStr = "GTFS shape"
-                    if shapeEntry.hintFlag:
-                        shapeTypeStr = "hint"
                     print("WARNING: No VISTA paths were found for %s %s, sequence %d." \
                           % (shapeTypeStr, str(shapeEntry.shapeID), shapeEntry.shapeSeq), file=self.logFile)
             
@@ -248,37 +247,21 @@ class PathEngine:
             
         return gtfsPoints            
 
-    def constructPath(self, shapeEntries, vistaGraph, forceStartPoint=None, forceEndPoint=None, tossRatio=1.0):
+    def constructPath(self, shapeEntries, vistaGraph):
         """
         constructPath goes through a list of shapeEntries and finds the shortest path through the given vistaGraph.
         This roughly corresponds with algorithms "WalkTrack" and "TrackpointArrives" in Figure 2 of Perrine et al. 2015.
         @type shapeEntries: list<ShapesEntry>
         @type vistaGraph: graph.GraphLib
-        @type tripID: int
-        @param forceStartPoint: Set this to add an extra "anchor" that is a known starting point. Must be in vistaGraph space.
-        @type forceStartPoint: graph.PointOnLink 
-        @param forceEndPoint: Set this to add an extra "anchor" that is a known ending point. Must be in vistaGraph space.
-        @type forceEndPoint: graph.PointOnLink 
         @rtype: list<PathEnd>
         """
         gtfsPointsPrev = []
         "@type gtfsPointsPrev: list<PathEnd>"
 
         pathProcessor = graph.WalkPathProcessor(self, self.limitDirectDist, self.limitLinearDist, self.limitDirectDistRev,
-            self.maxHops)
+            self.maxHops, tossRatio=sys.float_info.max)
         "@type pathProcessor: graph.WalkPathProcessor"
         
-        # Incorporate starting anchor if it is specified:
-        if forceStartPoint is not None:
-            shapeEntry = gtfs.ShapesEntry(shapeEntries[0].shapeID, -1, forceStartPoint.link.origNode.gpsLat, forceStartPoint.link.origNode.gpsLng)
-            shapeEntry.pointX, shapeEntry.pointY = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
-            gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, [PathEnd(shapeEntry, forceStartPoint)],
-                vistaGraph)
-
-            # Sanity check on the start anchor:
-            if linear.getNorm(shapeEntry.pointX, shapeEntry.pointY, shapeEntries[0].pointX, shapeEntries[0].pointY) > self.limitDirectDist:
-                print("WARNING: No georeference points were found near the start path anchor for ID %s." % str(shapeEntry.shapeID), file=sys.stderr)
-                        
         shapeCtr = 0
         startInvalidCheckFlag = True
         startValidIndex = 0
@@ -293,8 +276,20 @@ class PathEngine:
             if shapeCtr % 10 == 0:
                 if self.logFile is not None:
                     print("INFO:   ... %d of %d" % (shapeCtr, len(shapeEntries)), file=self.logFile)
-            (pointX, pointY) = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
-            closestVISTA = vistaGraph.findPointsOnLinks(pointX, pointY, self.pointSearchRadius, self.pointSearchPrimary,
+            pointX, pointY = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
+            # TODO: move the forceLinks stuff to vistaGraph.findPointsOnLinks().
+            if self.forceLinks is not None and shapeCtr < len(self.forceLinks) \
+                    and self.forceLinks[shapeCtr] is not None:
+                # Custom behavior for forcing the use of a limited set of links:
+                closestVISTA = []
+                for link in self.forceLinks[shapeCtr]:
+                    distSq, linkDist, perpendicular = linear.pointDistSq(pointX, pointY, link.origNode.coordX,
+                        link.origNode.coordY, link.destNode.coordX, link.destNode.coordY, link.distance)
+                    closestVISTA.append(graph.PointOnLink(link, linkDist, not perpendicular, math.sqrt(distSq)))
+                closestVISTA.sort(key = operator.attrgetter('refDist'))
+            else:
+                # Normal behavior: search among all links:
+                closestVISTA = vistaGraph.findPointsOnLinks(pointX, pointY, self.pointSearchRadius, self.pointSearchPrimary,
                                 self.pointSearchSecondary, [gtfsPointPrev.pointOnLink for gtfsPointPrev in gtfsPointsPrev],
                                 self.limitClosestPoints)
             "@type closestVISTA: list<graph.PointOnLink>"
@@ -327,17 +322,6 @@ class PathEngine:
         if startInvalidCheckFlag:
             startValidIndex = len(shapeEntries)
 
-        # Finalize path with ending anchor if it is specified:
-        if forceEndPoint is not None:
-            shapeEntry = gtfs.ShapesEntry(shapeEntries[0].shapeID, -1, forceEndPoint.link.origNode.gpsLat, forceEndPoint.link.origNode.gpsLng)
-            shapeEntry.pointX, shapeEntry.pointY = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
-            gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, [PathEnd(shapeEntry, forceEndPoint)],
-                vistaGraph)
-
-            # Sanity check on the end anchor:
-            if linear.getNorm(shapeEntry.pointX, shapeEntry.pointY, shapeEntries[-1].pointX, shapeEntries[-1].pointY) > self.limitDirectDist:
-                print("WARNING: No georeference points were found near the end path anchor for ID %s." % str(shapeEntry.shapeID), file=sys.stderr)
-                    
         # Additional reporting on points found and not found:
         reportStr = ""
         missingEnds = 0
@@ -385,282 +369,211 @@ class PathEngine:
         @return The index before the next restart, or -1 if not found.
         @rtype int
         """
-        while (startIndex < len(gtfsPath) - 1) and not gtfsPath[startIndex + 1].restart:
+        while startIndex < len(gtfsPath) and not gtfsPath[startIndex].restart:
             startIndex += 1
-        if startIndex >= len(gtfsPath) - 1:
+        if startIndex >= len(gtfsPath):
             return -1
         return startIndex 
 
-    def setRefineParams(self, hintRefactorRadius, termRefactorRadius):
+    def setRefineParams(self, termRefactorRadius):
         """
         setRefineParams() sets the parameters that are specific to refining paths.
-        @param hintRefactorRadius: The radius around a hint point that causes tree points to be reevaluated.
-        @type hintRefactorRadius: float
         @param termRefactorRadius: The radius around restart points that cause tree points to be reevaluated.
         @type termRefactorRadius: float
         """
-        self.hintRefactorRadius = hintRefactorRadius
         self.termRefactorRadius = termRefactorRadius
-        self.hintRefactorRadiusSq = hintRefactorRadius ** 2
-        self.termRefactorRadiusSq = termRefactorRadius ** 2        
+        self.termRefactorRadiusSq = termRefactorRadius ** 2
+        
+    def setForceLinks(self, forceLinks):
+        """
+        Forces refinePath() to use specific links.
+        @param forceLinks: A list of sets of links or None values where each element corresponds with the
+            oldGTFSPath list passed into refinePath(). Set to None to disable entirely (default).
+        @type forceLinks: list<graph.GraphLink>
+        """
+        self.forceLinks = forceLinks
 
-    def _tryTreeStack(self, pathProcessor, oldTreeNode, prevOldShape, prevTreeNodes, hintEntries, hintStatus, vistaGraph,
-            evalCode, firstFlag):
+    def _tryTreeStack(self, pathProcessor, oldTreeNode, prevTreeNodes, vistaGraph, evalCode, firstFlag, pathIndex=None):
         """
         _tryTreeStack() is a potentially recursively called internal worker method that reevaluates tree indices and
         generates new tree nodes.
         @type pathProcessor: graph.WalkPathProcessor
         @type oldTreeNode: PathEnd
-        @type prevOldShape: gtfs.ShapesEntry
         @type prevTreeNodes: list<PathEnd>
-        @type hintEntries: list<gtfs.ShapesEntry>
-        @type hintStatus: int
         @type vistaGraph: graph.GraphLib
         @param evalCode: Use 0: no evaluation, 1: full evaluation, 2: wrap up loose ends
         @type evalCode: int
         @type firstFlag: bool
-        @return The list of new tree nodes as well as an integer expressing the first active hint, or -1 for none, and
-            then the eval code that was most recently used. 
-        @rtype: list<PathEnd>, int, int        
+        @param pathIndex: This must be provided for path refining that uses forced links.
+        @type pathIndex: int
+        @return The list of new tree nodes, and then the eval code that was most recently used. 
+        @rtype: list<PathEnd>, int        
         """
-        curListAllHints = [] # For this iteration and recursions
-        curListAllNonHints = []
-        "@type curListALl: list<PathEnd>"
         prevPointsOnLinks = [prevTreeNode.pointOnLink for prevTreeNode in prevTreeNodes]
+        curListAll = []
+        "@type curListALl: list<PathEnd>"
 
         if firstFlag:        
             self.shapeScatterCache = None
         
-        hitHint = False
-        
-        # Are we in an area that had been invalidated by the next hint point?
-        treeNodesByHint = {}
-        "@type treeNodesByHint: dict<int, list<PathEnd>"
-        for prevTreeNode in prevTreeNodes:
-            "@type prevTreeNode: PathEnd"
-            if prevTreeNode.hintIndex not in treeNodesByHint:
-                treeNodesByHint[prevTreeNode.hintIndex] = list()
-            treeNodesByHint[prevTreeNode.hintIndex].append(prevTreeNode)
-        
-        for prevTreeNodesForHint in treeNodesByHint.values():
-            "@type prevTreeNodesForHint: list<PathEnd>"
-            hintIndex = prevTreeNodesForHint[0].hintIndex
-            if hintIndex + 1 < len(hintEntries):
-                hintEntry = hintEntries[hintIndex + 1]
-                "@type hintEntry: gtfs.ShapesEntry"
-                # Is the previous point we're dealing with within proximity of the next hint point?
-                if (prevOldShape is not None) and (linear.getNormSq(prevOldShape.pointX, prevOldShape.pointY,
-                            hintEntry.pointX, hintEntry.pointY) < self.hintRefactorRadiusSq):
-                    
-                    # Set the hintStatus variable to be the next hint index.
-                    if hintIndex + 1 > hintStatus:
-                        hintStatus = hintIndex + 1
-                        print("INFO: Enter hint# %d zone at shapeID %s, seq %d..." % (hintEntries[hintStatus].shapeSeq,
-                            str(oldTreeNode.shapeEntry.shapeID), oldTreeNode.shapeEntry.shapeSeq), file=self.logFile)
-                    
-                    # TODO: Cache these so that we don't need to find the points for each hint again.
-                    closestVISTA = vistaGraph.findPointsOnLinks(hintEntry.pointX, hintEntry.pointY, self.pointSearchRadius,
-                        self.pointSearchPrimary, self.pointSearchSecondary, prevPointsOnLinks, self.limitHintClosest)
-                    "@type closestVISTA: list<graph.PointOnLink>"
-        
-                    if len(closestVISTA) == 0:
-                        if self.logFile is not None:
-                            print("WARNING: No closest VISTA points were found for hint for shape %s, sequence %d." \
-                                  % (str(hintEntry.shapeID), hintEntry.shapeSeq), file=self.logFile)
+        # Are we in an area that requires reevaluation (e.g. restart)?  Deal with shape points here:
+        if evalCode > 0:
+            if evalCode == 1:
+                # Check if we had found all of the shape proximity points already:
+                if self.shapeScatterCache is None:
+                    if pathIndex is not None and self.forceLinks is not None and pathIndex < len(self.forceLinks) \
+                            and self.forceLinks[pathIndex] is not None:
+                        # Specialized operation: force the use of the given link:
+                        self.shapeScatterCache = []
+                        link = self.forceLinks[pathIndex]
+                        distSq, linkDist, perpendicular = linear.pointDistSq(oldTreeNode.shapeEntry.pointX, oldTreeNode.shapeEntry.pointY,
+                            link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY, link.distance)
+                        self.shapeScatterCache.append(graph.PointOnLink(link, linkDist, not perpendicular, math.sqrt(distSq)))
                     else:
-                        # Initialize blank GTFS tree entries for each found hint proximity point:
-                        gtfsPoints = []
-                        "@type gtfsPoints: list<PathEnd>"
-                        for vistaPoint in closestVISTA:                            
-                            "@type vistaPoint: graph.PointOnLink"
-                            gtfsPoint = PathEnd(hintEntry, vistaPoint)
-                            "@type gtfsPoint: PathEnd"
-                            gtfsPoint.hintIndex = hintIndex + 1 # Increment the hint index for future reference.
-                            gtfsPoints.append(gtfsPoint) 
-                        
-                        # Find the shortest paths from gtfsPointsPrev to the handful of closestVISTA points:
-                        curList = self._findShortestPaths(pathProcessor, hintEntry, prevTreeNodesForHint, gtfsPoints, vistaGraph, 2)
-                            
-                        # Then, see if there are more hints in this common area that need to be dealt with:
-                        (curList, hintStatus, evalCode) = self._tryTreeStack(pathProcessor, oldTreeNode, hintEntry, curList, hintEntries, hintStatus,
-                            vistaGraph, 1, False)
-                        curListAllHints.extend(curList)
-    
-                        evalCode = 1 # Stomp return for children; force this to 1 as before.                        
-                        hitHint = True
-                    
-            # Are we in an area that requires reevaluation?  Deal with shape points here:
-            if evalCode > 0:
-                if evalCode == 1:
-                    # Check if we had found all of the shape proximity points already:
-                    if self.shapeScatterCache is None:
-                        # Search for nearest points to the shape point:
+                        # Normal operation: find closest limitClosestPoints points to the shape point among all links: 
                         self.shapeScatterCache = vistaGraph.findPointsOnLinks(oldTreeNode.shapeEntry.pointX,
                             oldTreeNode.shapeEntry.pointY, self.pointSearchRadius, self.pointSearchPrimary,
                             self.pointSearchSecondary, prevPointsOnLinks, self.limitClosestPoints)
-                    
-                    # Create new PathEnd objects:
-                    gtfsPoints = len(self.shapeScatterCache) * []
-                    "@type gtfsPoints: list<PathEnd>"
-                    for vistaPoint in self.shapeScatterCache:
-                        "@type vistaPoint: graph.PointOnLink"
-                        gtfsPoint = PathEnd(oldTreeNode.shapeEntry, vistaPoint)
-                        "@type gtfsPoint: PathEnd"
-                        gtfsPoint.hintIndex = hintIndex
-                        gtfsPoints.append(gtfsPoint)
-                elif evalCode == 2:
-                    # We are getting all previous points to converge down on one point, preserving the best one:
-                    gtfsPoints = [oldTreeNode.cleanCopy()]
-                    "@type gtfsPoints: list<PathEnd>"
-                    gtfsPoints[0].hintIndex = hintIndex
-        
-                if len(gtfsPoints) > 0:
-                    # Find the shortest paths from gtfsPointsPrev to the handful of closestVISTA points:
-                    curList = self._findShortestPaths(pathProcessor, oldTreeNode.shapeEntry, prevTreeNodesForHint,
-                        gtfsPoints, vistaGraph, 1 if firstFlag else 2)
-                    # Check for restarts and penalize.  Only keep the first (cheapest) restart.  Meanwhile, append to
-                    # the results list:
-                    restartFlag = False
-                    for gtfsPoint in curList:
-                        if gtfsPoint.restart:
-                            if not restartFlag:
-                                gtfsPoint.totalCost *= HINT_RESTART_PENALTY_MULT
-                                curListAllNonHints.append(gtfsPoint)
-                                restartFlag = True
-                        else:
-                            curListAllNonHints.append(gtfsPoint)
-                            
-            elif firstFlag:
-                # This happens if we are not reevaluating the existing paths at all.
-                # TODO: The total cost isn't being added up properly here.  Try combining the evalCode 0 and 2 parts to
-                # get the system to retrace the steps that had been traversed before.
-                curTreeNode = copy.copy(oldTreeNode)
-                "@type curTreeNode: PathEnd"
-                assert len(prevTreeNodesForHint) == 1 # There should just be one of these.
-                curTreeNode.prevTreeNode = prevTreeNodesForHint[0] 
-                curTreeNode.hintIndex = hintIndex
-                curListAllNonHints.append(curTreeNode)
+                
+                # Create new PathEnd objects:
+                gtfsPoints = len(self.shapeScatterCache) * []
+                "@type gtfsPoints: list<PathEnd>"
+                for vistaPoint in self.shapeScatterCache:
+                    "@type vistaPoint: graph.PointOnLink"
+                    gtfsPoint = PathEnd(oldTreeNode.shapeEntry, vistaPoint)
+                    "@type gtfsPoint: PathEnd"
+                    gtfsPoints.append(gtfsPoint)
+            elif evalCode == 2:
+                # We are getting all previous points to converge down on one point, preserving the best one:
+                gtfsPoints = [oldTreeNode.cleanCopy()]
+                "@type gtfsPoints: list<PathEnd>"
+    
+            if gtfsPoints:
+                # Find the shortest paths from gtfsPointsPrev to the handful of closestVISTA points:
+                curList = self._findShortestPaths(pathProcessor, oldTreeNode.shapeEntry, prevTreeNodes,
+                    gtfsPoints, vistaGraph, 1 if firstFlag else 2)
+                # Check for restarts and penalize.  Only keep the first (cheapest) restart.  Meanwhile, append to
+                # the results list:
+                restartFlag = False
+                for gtfsPoint in curList:
+                    if gtfsPoint.restart:
+                        if not restartFlag:
+                            gtfsPoint.totalCost *= RESTART_PENALTY_MULT
+                            curListAll.append(gtfsPoint)
+                            restartFlag = True
+                    else:
+                        curListAll.append(gtfsPoint)
+            else:
+                # Evidently we didn't find any candidate points. In this case, duplicate the previously matched link:
+                for prevTreeNode in prevTreeNodes:
+                    curTreeNode = copy.copy(oldTreeNode)
+                    curTreeNode.prevTreeNode = prevTreeNode
+                    dist = linear.getNorm(oldTreeNode.shapeEntry.pointX, oldTreeNode.shapeEntry.pointY, curTreeNode.pointOnLink.pointX, curTreeNode.pointOnLink.pointY)
+                    curTreeNode.totalDist += dist * RESTART_PENALTY_MULT
+                    curTreeNode.totalCost += dist * RESTART_PENALTY_MULT
+                    curListAll.append(curTreeNode)
+                        
+        elif firstFlag:
+            # This happens if we are not reevaluating the existing paths at all.
+            # TODO: The total cost isn't being added up properly here.  Try combining the evalCode 0 and 2 parts to
+            # get the system to retrace the steps that had been traversed before.
+            curTreeNode = copy.copy(oldTreeNode)
+            "@type curTreeNode: PathEnd"
+            if not prevTreeNodes: # This happens on the first element of a path.
+                prevTreeNodes.append(None)
+            assert len(prevTreeNodes) == 1 # There should just be one of these because we're drawing from a final tree.
+            curTreeNode.prevTreeNode = prevTreeNodes[0] 
+            curListAll.append(curTreeNode)
                 
         if firstFlag:
             if evalCode == 2:
-                # Only keep the best non-hint result when we converge down to one point:
-                curListAllNonHints.sort(key = operator.attrgetter('totalCost'))
-                curListAllNonHints = [curListAllNonHints[0]]
-            elif not hitHint and (hintStatus >= 0):
-                # We have exited the hint zone.  Check to see if we had hit all of the hints:
-                curListAll = list(curListAllHints)
-                curListAll.extend(curListAllNonHints)
-                for gtfsPoint in curListAll:
-                    if gtfsPoint.hintIndex < hintStatus:
-                        # Whoops.  In this one we hadn't.  Penalize it:
-                        gtfsPoint.totalCost += INSUFFICIENT_HINT_PENALTY * (hintStatus - gtfsPoint.hintIndex) 
-                hintStatus = -1 # We are no longer in a hint zone.
+                # Only keep the best result when we converge down to one point:
+                curListAll.sort(key = operator.attrgetter('totalCost'))
+                curListAll = [curListAll[0]]
         
-        # Limit the number of results:            
-        #curListAllHints.sort(key = operator.attrgetter('totalCost'))
-        #curListAllHints = curListAllHints[0:self.limitSimultaneousPaths]
-        #curListAllNonHints.sort(key = operator.attrgetter('totalCost'))
-        #curListAllNonHints = curListAllNonHints[0:self.limitSimultaneousPaths]
+        # Limit the number of results:
+        # TODO: Re-enable if needed?
+        #curListAll = curListAll[0:self.limitSimultaneousPaths]
         
-        curListAll = curListAllNonHints
-        curListAll.extend(curListAllHints)
         #curListAll.sort(key = operator.attrgetter('totalCost'))
         
-        return (curListAll, hintStatus, evalCode)
+        return curListAll, evalCode
 
-    def refinePath(self, oldGTFSPath, vistaGraph, hintEntries):
+    def refinePath(self, oldGTFSPath, vistaGraph):
         """
-        refinePath goes through existing GTFS points and uses hints to redo sections of paths.  It also
-        tries to route from a restart.  Uses hintRefactorRadius and termRefactorRadius.
+        refinePath goes through existing GTFS points and  tries to route from a restart. Uses termRefactorRadius.
         @type oldGTFSPath: list<PathEnd>
         @type vistaGraph: graph.GraphLib
-        @type hintEntries: list<gtfs.ShapesEntry>
         @rtype: list<PathEnd>
         """
         if self.logFile is not None:
             print("INFO: Refining path...", file=self.logFile)
             
         treeNodes = []
-        hintStatus = -1
-        firstFlag = True
-        prevOldShape = None
-        "@type prevOldShape: gtfs.ShapesEntry"
         
         pathProcessor = graph.WalkPathProcessor(self, self.limitDirectDist, self.limitLinearDist, self.limitDirectDistRev,
             self.maxHops)
         "@type pathProcessor: graph.WalkPathProcessor"
 
-        # Preload the first point as the previous point:
-        #if len(oldGTFSPath) > 0:
-        #    treeNodes = [oldGTFSPath[0]]
-        
         oldTreeNodeIndex = 0
         nextRestartIndex = -1
-        evalCode = 0
+        evalCode = 0 # 0 = not in restart zone; 1 = in restart zone; 2 = tidying up after restart zone.
         while oldTreeNodeIndex < len(oldGTFSPath):
-            # Is this a legitimate tree node that has a good shape point?
-            if not oldGTFSPath[oldTreeNodeIndex].shapeEntry.hintFlag:
-                # Check to see if we need to find the next restart:
-                if (oldTreeNodeIndex == 0) or ((evalCode != 1) and (nextRestartIndex != -1) and (nextRestartIndex < oldTreeNodeIndex)):
-                    nextRestartIndex = self._findNextRestart(oldGTFSPath, nextRestartIndex + 1)
-                    
-                # Check for restart point:
-                if (nextRestartIndex > 0) and ((linear.getNormSq(oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointX,
-                            oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointY, oldGTFSPath[nextRestartIndex].pointOnLink.pointX,
-                            oldGTFSPath[nextRestartIndex].pointOnLink.pointY) < self.termRefactorRadiusSq) \
-                        or (linear.getNormSq(oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointX,
-                            oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointY, oldGTFSPath[nextRestartIndex + 1].pointOnLink.pointX,
-                            oldGTFSPath[nextRestartIndex + 1].pointOnLink.pointY) < self.termRefactorRadiusSq)):
-                    if (evalCode == 0):
-                        evalCode = 1 # Full reevaluation
+            # Check to see if we need to find the next restart:
+            if (oldTreeNodeIndex == 0) or ((evalCode != 1) and (nextRestartIndex != -1) and (nextRestartIndex < oldTreeNodeIndex)):
+                nextRestartIndex = self._findNextRestart(oldGTFSPath, nextRestartIndex + 1)
+                
+            # Check for restart point. Check if we are in the radius of the last known good point or the restart point.
+            if (nextRestartIndex >= 1 and linear.getNormSq(oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointX,
+                        oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointY, oldGTFSPath[nextRestartIndex - 1].pointOnLink.pointX,
+                        oldGTFSPath[nextRestartIndex - 1].pointOnLink.pointY) < self.termRefactorRadiusSq) \
+                    or (nextRestartIndex >= 0 and linear.getNormSq(oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointX,
+                        oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointY, oldGTFSPath[nextRestartIndex].pointOnLink.pointX,
+                        oldGTFSPath[nextRestartIndex].pointOnLink.pointY) < self.termRefactorRadiusSq):
+                if evalCode == 0:
+                    evalCode = 1 # Full reevaluation
+                    if self.logFile is not None:
                         print("INFO: Enter restart zone at shapeID %s, seq %d..." % (str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID),
                             oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq), file=self.logFile)
-                else:
-                    # Tie up loose ends if the previous round had new points found.
-                    if evalCode == 1 and hintStatus == -1:
-                        evalCode = 2
-                        shapeTypeStr = "GTFS shape"
-                        if oldGTFSPath[oldTreeNodeIndex].shapeEntry.hintFlag:
-                            shapeTypeStr = "hint"
+            else:
+                # Tie up loose ends if the previous round had new points found.
+                if evalCode == 1:
+                    evalCode = 2
+                    shapeTypeStr = "GTFS shape"
+                    if self.logFile is not None:
                         print("INFO: Exiting zone at %s %s, seq %d..." % (shapeTypeStr, str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID),
                             oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq), file=self.logFile)
                         
-                if evalCode == 1:
+            if evalCode == 1:
+                if self.logFile is not None:
                     print("INFO:   ... shape seq. %d" % oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq, file=self.logFile)
 
-                # TODO: Also if a shape point is flagged to be reevaluated.
+            # TODO: Also if a shape point is flagged to be reevaluated.
             
-                # Visit this shape point further and figure out how to reevaluate it.
-                if not firstFlag:                
-                    (treeNodes, hintStatus, evalCode) = self._tryTreeStack(pathProcessor, oldGTFSPath[oldTreeNodeIndex],
-                        prevOldShape, treeNodes, hintEntries, hintStatus, vistaGraph, evalCode, True)
-                else:
-                    treeNodes = [oldGTFSPath[0]]
-                prevOldShape = oldGTFSPath[oldTreeNodeIndex].shapeEntry
-                
-                if evalCode == 2:
-                    # We have tied up loose ends; now reset.
-                    # TODO: To always trace current paths for sanity-check, never set evalCode to 0.
-                    evalCode = 0
-                
-                # Check to see if we have a complete path:
-                if not firstFlag:
-                    flag = False
-                    for treeNode in treeNodes:
-                        "@type treeNode: PathEnd"
-                        if not treeNode.restart:
-                            flag = True
-                    if not flag:
-                        print("WARNING: No VISTA path found into GTFS shpaeID %s, seq %d; restarting." \
-                            % (str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID), oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq),
-                            file=self.logFile)
-                firstFlag = False                
+            # Visit this shape point further and figure out how to reevaluate it.
+            treeNodes, evalCode = self._tryTreeStack(pathProcessor, oldGTFSPath[oldTreeNodeIndex], treeNodes, vistaGraph,
+                evalCode, True, oldTreeNodeIndex)
+            
+            if evalCode == 2:
+                # We have tied up loose ends; now reset.
+                # TODO: To always trace current paths for sanity-check, don't set evalCode to 0.
+                evalCode = 0
+            
+            # Check to see if we have a complete path:
+            flag = False
+            for treeNode in treeNodes:
+                "@type treeNode: PathEnd"
+                if not treeNode.restart:
+                    flag = True
+            if not flag and self.logFile is not None:
+                print("WARNING: No VISTA path found into GTFS shpaeID %s, seq %d; restarting." \
+                    % (str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID), oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq),
+                    file = self.logFile)
             oldTreeNodeIndex += 1
             
         # Now, extract the shortest path.  First, find the end that has the cheapest cost:
-        # TODO: Check to see if all of the hints were traversed.
         if self.logFile is not None:
-            print("INFO: Finishing path...", file=self.logFile)
+            print("INFO: Finishing path...", file = self.logFile)
         gtfsPoint = None
         "@type gtfsPoint: PathEnd"
         if len(treeNodes) > 0:
@@ -692,9 +605,8 @@ def dumpStandardInfo(treeNodes, outFile=sys.stdout):
     """
     for gtfsNode in treeNodes:
         "@type gtfsNode: PathEnd"
+        # TODO: Since we don't have hint stuff anymore, we can either remove or repurpose shapeType.
         shapeType = 0
-        if gtfsNode.shapeEntry.hintFlag:
-            shapeType = 1
         outStr = "%s,%d,%d,%d,%g,%g" % (str(gtfsNode.shapeEntry.shapeID), gtfsNode.shapeEntry.shapeSeq, shapeType,
                                      gtfsNode.pointOnLink.link.id, gtfsNode.pointOnLink.dist, gtfsNode.totalDist)
         if gtfsNode.restart:
@@ -731,16 +643,12 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
     shapeSeqs = {}
     "@type shapeSeqs: dict<int, int>"
     
-    hintSeqs = {}
-    "@type hintSeqs: dict<int, int>"
-        
     # Go through the lines of the file:
     for fileLine in inFile:
         if len(fileLine) > 0:
             lineElems = fileLine.split(',')
             shapeID = shapeIDMaker(lineElems[0])
             shapeSeq = int(lineElems[1])
-            hintFlag = int(lineElems[2]) != 0
             linkID = int(lineElems[3])
             linkDist = float(lineElems[4])
             distTotal = float(lineElems[5])
@@ -773,12 +681,8 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
             "@type shapeElems: list<gtfs.ShapesEntry>"
             
             # Set up the shape index cache to reduce linear searching later on:
-            if not hintFlag:
-                if shapeID not in shapeSeqs:
-                    shapeSeqs[shapeID] = -1
-            else:
-                if shapeID not in hintSeqs:
-                    hintSeqs[shapeID] = -1
+            if shapeID not in shapeSeqs:
+                shapeSeqs[shapeID] = -1
                 
             # Resolve the link object:
             if linkID not in vistaGraph.linkMap:
@@ -790,30 +694,15 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
             # Resolve the shape entry:
             shapeEntry = None
             "@type shapeEntry: gtfs.ShapesEntry"
-            if not hintFlag:
-                for index in range(shapeSeqs[shapeID] + 1, len(shapeElems)):
-                    if shapeElems[index].shapeSeq == shapeSeq:
-                        shapeEntry = shapeElems[index]
-                        shapeSeqs[shapeID] = index
-                        break
-                if shapeEntry is None:
-                    print("WARNING: No GTFS shape entry for shape ID: %s, seq: %d; check for out of order."
-                          % (str(shapeID), shapeSeq), file=sys.stderr)
-                    continue
-            else:
-                # Reconstruct the hint:
-                # TO DO: Without the hint file, we won't get the exact same GPS coordinates as were used for the hint.
-                if shapeSeq > hintSeqs[shapeID]:
-                    hintSeqs[shapeID] = shapeSeq
-                    pointX = link.origNode.coordX + (link.destNode.coordX - link.origNode.coordX) * linkDist / link.distance
-                    pointY = link.origNode.coordY + (link.destNode.coordY - link.origNode.coordY) * linkDist / link.distance
-                    (lat, lng) = vistaGraph.gps.feet2gps(pointX, pointY)
-                    shapeEntry = gtfs.ShapesEntry(shapeID, shapeSeq, lat, lng, True)
-                    (shapeEntry.pointX, shapeEntry.pointY) = (pointX, pointY)
-                else:
-                    print("WARNING: Hint entry may be out of order: Shape: %s, seq: %d.  Hint will not be used."
-                          % (str(shapeID), shapeSeq), file=sys.stderr)
-                    continue
+            for index in range(shapeSeqs[shapeID] + 1, len(shapeElems)):
+                if shapeElems[index].shapeSeq == shapeSeq:
+                    shapeEntry = shapeElems[index]
+                    shapeSeqs[shapeID] = index
+                    break
+            if shapeEntry is None:
+                print("WARNING: No GTFS shape entry for shape ID: %s, seq: %d; check for out of order."
+                      % (str(shapeID), shapeSeq), file = sys.stderr)
+                continue
             
             # Recalculate parameters needed for the tree node:
             (pointX, pointY) = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)

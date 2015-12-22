@@ -1,6 +1,6 @@
 """
-path_refine.py takes a path match file as input and reevaluates areas at hints
-    and restarts. Outputs another path match CSV
+path_refine.py takes a path match file as input and reevaluates areas at restarts.
+Outputs another path match CSV
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
@@ -25,16 +25,15 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
 from nmc_mm_lib import gtfs, path_engine
-import sys, operator, transit_gtfs
+import sys, transit_gtfs
 
 def syntax():
     """
     Print usage information
     """
-    print("path_refine takes a path match file as input and reevaluates areas at hints and")
-    print("restarts. Outputs another path match CSV")
+    print("path_refine takes a path match file as input and reevaluates areas at restarts. Outputs another path match CSV")
     print("Usage:")
-    print("  python path_refine.py dbServer network user password shapePath pathMatchFile [-h hintFile] [-r filterRouteFile]")
+    print("  python path_refine.py dbServer network user password shapePath pathMatchFile [-r filterRouteFile]")
     sys.exit(0)
 
 def filterRoutes(gtfsNodes, shapePath, gtfsShapes, routeRestrictFilename, inclusiveFlag = False):
@@ -104,73 +103,9 @@ def filterRoutes(gtfsNodes, shapePath, gtfsShapes, routeRestrictFilename, inclus
             ret[shapeID] = gtfsNodes[shapeID]
     return ret
 
-def fillHints(filename, shapePath, gtfsShapes, GPS, unusedShapeIDs):
-    """
-    fillHints retrieves hints that guide where paths should be drawn. 
-    @type filePath: str
-    @type shapePath: str
-    @type gtfsShapes: gtfs.ShapesEntry
-    @type GPS: GPS.GPS
-    @return A map of stop_id to a hint_entry.
-    @rtype dict<int, path_engine.ShapesEntry>
-    """
-    ret = {}
-    "@type ret: dict<int, list<path_engine.ShapesEntry>>"
-    
-    if (filename is None) or (len(filename) == 0):
-        return ret
-    
-    # Retrieve trips file information that will get us the routes-to-shape mapping that we want. 
-    print("INFO: Read GTFS routesfile...", file = sys.stderr)
-    gtfsRoutes = gtfs.fillRoutes(shapePath)
-    "@type gtfsRoutes: dict<int, gtfs.RoutesEntry>"
-    
-    print("INFO: Read GTFS tripsfile...", file = sys.stderr)
-    (gtfsTrips, unusedTripIDs) = gtfs.fillTrips(shapePath, gtfsShapes, gtfsRoutes, unusedShapeIDs)
-    "@type gtfsTrips: dict<int, gtfs.TripsEntry>"
-        
-    with open(filename, 'r') as inFile:
-        # Sanity check:
-        fileLine = inFile.readline()
-        if not fileLine.startswith("route_id,hint_seq,lat,lon"):
-            print("ERROR: The hints file '%s' doesn't have the expected header." % filename, file = sys.stderr)
-            return None
-        
-        # Go through the lines of the file:
-        for fileLine in inFile:
-            if len(fileLine) > 0:
-                lineElems = fileLine.split(',')
-                
-                routeID = int(lineElems[0])
-                hintSeq = int(lineElems[1])
-                gpsLat = float(lineElems[2])
-                gpsLng = float(lineElems[3])
-                
-                # Resolve shapeIDs from the routeIDs by getting all of the tripIDs that use the route.
-                matchingTrips = [gtfsTrip for gtfsTrip in gtfsTrips.values() if gtfsTrip.route.routeID == routeID]
-                shapeIDSet = set()
-                for gtfsTrip in matchingTrips:
-                    "@type gtfsTrip: gtfs.TripsEntry"
-                    shapeID = gtfsTrip.shapeEntries[0].shapeID
-                    if shapeID not in shapeIDSet: # Only write in a hint once per shape.
-                        newEntry = gtfs.ShapesEntry(shapeID, hintSeq, gpsLat, gpsLng, True)
-                        (newEntry.pointX, newEntry.pointY) = GPS.gps2feet(gpsLat, gpsLng)
-                
-                        if shapeID not in ret:
-                            ret[shapeID] = list()
-                        ret[shapeID].append(newEntry)
-                        shapeIDSet.add(shapeID)
 
-    # Sort the hints so that they will be intercepted in the correct order:                    
-    for shapeID in ret:
-        ret[shapeID].sort(key = operator.attrgetter('shapeSeq'))
-    
-    # Return the hints file contents:
-    return ret
-
-def pathsRefine(gtfsNodes, hintEntries, vistaGraph):
+def pathsRefine(gtfsNodes, vistaGraph):
     # Default parameters, with explanations and cross-references to Perrine et al., 2015:
-    hintRefactorRadius = 1000   # Radius (ft) to invalidate surrounding found points.
     termRefactorRadius = 3000   # Radius (ft) to invalidate found points at either end of a restart.
     pointSearchRadius = 1600    # "k": Radius (ft) to search from GTFS point to perpendicular VISTA links
     pointSearchPrimary = 1600   # "k_p": Radius (ft) to search from GTFS point to new VISTA links    
@@ -185,15 +120,13 @@ def pathsRefine(gtfsNodes, hintEntries, vistaGraph):
     limitSimultaneousPaths = 25 # "q_e": Number of proposed paths to maintain during pathfinding stage
 
     maxHops = 8                 # Maximum number of VISTA links to pursue in a path-finding operation
-    limitHintClosest = 4        # Number of hint closest points and closest previous track points
         
     # Initialize the path-finder:
     pathFinder = path_engine.PathEngine(pointSearchRadius, pointSearchPrimary, pointSearchSecondary, limitLinearDist,
                             limitDirectDist, limitDirectDistRev, distanceFactor, driftFactor, nonPerpPenalty, limitClosestPoints,
                             limitSimultaneousPaths)
-    pathFinder.setRefineParams(hintRefactorRadius, termRefactorRadius)
+    pathFinder.setRefineParams(termRefactorRadius)
     pathFinder.maxHops = maxHops
-    pathFinder.limitHintClosest = limitHintClosest
     
     # Begin iteration through each shape:
     shapeIDs = gtfsNodes.keys()
@@ -208,8 +141,7 @@ def pathsRefine(gtfsNodes, hintEntries, vistaGraph):
         print("INFO: -- Shape ID %s --" % str(shapeID), file = sys.stderr)
         
         # Find the path for the given shape:
-        gtfsNodesRevised = pathFinder.refinePath(gtfsNodes[shapeID], vistaGraph, 
-            hintEntries[shapeID] if shapeID in hintEntries else list()) 
+        gtfsNodesRevised = pathFinder.refinePath(gtfsNodes[shapeID], vistaGraph) 
     
         # File this away as a result for later output:
         gtfsNodesResults[shapeID] = gtfsNodesRevised
@@ -225,15 +157,11 @@ def main(argv):
     password = argv[4]
     shapePath = argv[5]
     pathMatchFilename = argv[6]
-    hintFilename = None
     routeRestrictFilename = None
     if len(argv) > 6:
         i = 7
         while i < len(argv):
-            if argv[i] == "-h" and i < len(argv) - 1:
-                hintFilename = argv[i + 1]
-                i += 1
-            elif argv[i] == "-r" and i < len(argv) - 1:
+            if argv[i] == "-r" and i < len(argv) - 1:
                 routeRestrictFilename = argv[i + 1]
                 i += 1
             i += 1
@@ -243,20 +171,12 @@ def main(argv):
         userName, password, shapePath, pathMatchFilename)
     # TODO: We don't do anything with unusedShapeIDs right now.
     
-    # Restore the hint file if it is specified:
-    if hintFilename is not None:
-        print("INFO: Read hint file...", file = sys.stderr)
-    else:
-        print("INFO: No hint file was specified.", file = sys.stderr)
-    hintEntries = fillHints(hintFilename, shapePath, gtfsShapes, vistaGraph.gps, unusedShapeIDs)
-    "@type hintEntries: dict<int, path_engine.ShapesEntry>"
-
     # Filter down the routes that we're interested in:
     if routeRestrictFilename is not None:
         gtfsNodes = filterRoutes(gtfsNodes, shapePath, gtfsShapes, routeRestrictFilename)
 
     print("INFO: Refining paths.", file = sys.stderr)
-    gtfsNodesResults = pathsRefine(gtfsNodes, hintEntries, vistaGraph)
+    gtfsNodesResults = pathsRefine(gtfsNodes, vistaGraph)
     "@type gtfsNodesResults: dict<int, list<path_engine.PathEnd>>"
     
     print("INFO: -- Final --", file = sys.stderr)
