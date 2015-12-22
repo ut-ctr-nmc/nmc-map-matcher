@@ -44,7 +44,7 @@ class GraphLink:
         self.destNode = destNode
         
         # The head of the linked-list of member vertices within this Link
-        self.virtexStart = None
+        self.vertexStart = None
         
         # Placeholders for efficiency of measurement:
         self.distance = 0.0
@@ -59,9 +59,9 @@ class GraphLink:
         
         return otherLink.destNode is self.origNode and otherLink.origNode is self.destNode
     
-class GraphLinkVirtex:
+class GraphLinkVertex:
     """
-    GraphLinkVirtex is a virtex possibly among several for a GraphLink. Use GraphLib.addVerticesToLink()
+    GraphLinkVertex is a vertex possibly among several for a GraphLink. Use GraphLib.addVerticesToLink()
     to associate this with the parent link and compute coordinates.
     @ivar gpsLat: float
     @ivar gpsLng: float
@@ -69,14 +69,14 @@ class GraphLinkVirtex:
     @ivar pointY: float
     @ivar distance: float
     @ivar parentLink: GraphLink
-    @ivar nextVirtex: GraphLinkVirtex
+    @ivar nextVertex: GraphLinkVertex
     """
-    def __init__(self, gpsLat, gpsLng, prevGraphVirtex=None):
+    def __init__(self, gpsLat, gpsLng, prevGraphVertex=None):
         """
-        Sets the next virtex to allow for a segment to be expressed between this object and nextVirtex.
+        Sets the next vertex to allow for a segment to be expressed between this object and nextVertex.
         @type gpsLat: float
         @type gpsLng: float
-        @type prevGraphVirtex: GraphVertex         
+        @type prevGraphVertex: GraphVertex         
         """
         self.gpsLat = gpsLat
         self.gpsLng = gpsLng
@@ -84,10 +84,10 @@ class GraphLinkVirtex:
         self.pointY = 0.0
         self.distance = 0.0
         self.parentLink = None
-        self.nextVirtex = None
+        self.nextVertex = None
         
-        if prevGraphVirtex is not None:
-            prevGraphVirtex.nextVirtex = self
+        if prevGraphVertex is not None:
+            prevGraphVertex.nextVertex = self
 
 class GraphNode:
     """
@@ -207,27 +207,27 @@ class GraphLib:
         with the given link, drawing a line from the origin node to the destination node.
         @type link: GraphLink
         """
-        linkVirtex = GraphLinkVirtex(link.origNode.gpsLat, link.origNode.gpsLng, None)
-        linkVirtex.nextVirtex = GraphLinkVirtex(link.destNode.gpsLat, link.destNode.gpsLng, linkVirtex)
-        self.addVerticesToLink(link, linkVirtex)
+        linkVertex = GraphLinkVertex(link.origNode.gpsLat, link.origNode.gpsLng, None)
+        linkVertex.nextVertex = GraphLinkVertex(link.destNode.gpsLat, link.destNode.gpsLng, linkVertex)
+        self.addVerticesToLink(link, linkVertex)
     
-    def addVerticesToLink(self, link, linkVirtex):
+    def addVerticesToLink(self, link, linkVertex):
         """
         Adds the linked list of vertices to the given link, computing coordinates and distances along
         the way.
         @type link: GraphLink
-        @type linkVirtex: GraphLinkVirtex
+        @type linkVertex: GraphLinkVertex
         """
-        linkVirtex.pointX, linkVirtex.pointY = self.gps.gps2feet(linkVirtex.lat, linkVirtex.lng)
-        linkVirtex.parentLink = link
-        link.virtexStart = linkVirtex
-        nextVirtex = linkVirtex.nextVirtex
-        while nextVirtex is not None:
-            nextVirtex.pointX, nextVirtex.pointY = self.gps.gps2feet(nextVirtex.lat, nextVirtex.lng)
-            nextVirtex.distance = linkVirtex.distance + linear.getNorm(linkVirtex.pointX, linkVirtex.pointY,
-                nextVirtex.pointX, nextVirtex.pointY) 
-            nextVirtex.parentLink = link
-            nextVirtex = linkVirtex.nextVirtex
+        linkVertex.pointX, linkVertex.pointY = self.gps.gps2feet(linkVertex.lat, linkVertex.lng)
+        linkVertex.parentLink = link
+        link.vertexStart = linkVertex
+        nextVertex = linkVertex.nextVertex
+        while nextVertex is not None:
+            nextVertex.pointX, nextVertex.pointY = self.gps.gps2feet(nextVertex.lat, nextVertex.lng)
+            nextVertex.distance = linkVertex.distance + linear.getNorm(linkVertex.pointX, linkVertex.pointY,
+                nextVertex.pointX, nextVertex.pointY) 
+            nextVertex.parentLink = link
+            nextVertex = linkVertex.nextVertex
     
     def generateQuadSet(self):
         """
@@ -240,15 +240,15 @@ class GraphLib:
         maxX = sys.float_info.min
         maxY = sys.float_info.min
         for link in self.linkMap.values():
-            if link.virtexStart is None:
+            if link.vertexStart is None:
                 self.makeVerticesForLink(link)
-            linkVirtex = link.virtexStart
-            while linkVirtex is not None:
-                minX = min(minX, linkVirtex.coordX)
-                minY = min(minY, linkVirtex.coordY)
-                maxX = max(maxX, linkVirtex.coordX)
-                maxY = max(maxY, linkVirtex.coordY)
-                linkVirtex = linkVirtex.nextVirtex
+            linkVertex = link.vertexStart
+            while linkVertex is not None:
+                minX = min(minX, linkVertex.coordX)
+                minY = min(minY, linkVertex.coordY)
+                maxX = max(maxX, linkVertex.coordX)
+                maxY = max(maxY, linkVertex.coordY)
+                linkVertex = linkVertex.nextVertex
         
         self.quadSet = linear.QuadSet(self.quadLimit, minX, minY, maxX, maxY)
         for link in self.linkMap.values():
