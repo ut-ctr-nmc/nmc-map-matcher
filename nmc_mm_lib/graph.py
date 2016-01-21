@@ -65,19 +65,59 @@ class GraphLink:
         
     def addVertices(self, linkVertices):
         """
-        Adds the linked list of vertices to the given link, computing coordinates and distances along
-        the way.
+        Adds the list of vertices to the given link, computing coordinates and distances along the way.
         @type linkVertices: list<GraphLinkVertex>
         """
-        linkVertices[0].pointX, linkVertices[0].pointY = self.gps.gps2feet(linkVertices[0].lat, linkVertices[0].lng)
-        linkVertices[0].parentLink = self
-        linkVertices[0].distance = 0.0
+        prevVirtex = self.vertices[0]
+        prevVirtex.pointX, prevVirtex.pointY = self.gps.gps2feet(prevVirtex.lat, prevVirtex.lng)
+        prevVirtex.parentLink = self
+        prevVirtex.distance = 0.0
         self.vertices = linkVertices
-        for prevIndex, nextVertex in enumerate(linkVertices[1:]):
-            nextVertex.pointX, nextVertex.pointY = self.gps.gps2feet(nextVertex.lat, nextVertex.lng)
-            nextVertex.distance = linkVertices[prevIndex].distance + linear.getNorm(linkVertices[prevIndex].pointX, linkVertices[prevIndex].pointY,
-                nextVertex.pointX, nextVertex.pointY) 
-            nextVertex.parentLink = self
+        for nextVirtex in linkVertices[1:]:
+            nextVirtex.pointX, nextVirtex.pointY = self.gps.gps2feet(nextVirtex.lat, nextVirtex.lng)
+            nextVirtex.distance = prevVirtex.distance + linear.getNorm(prevVirtex.pointX, prevVirtex.pointY,
+                nextVirtex.pointX, nextVirtex.pointY)
+            nextVirtex.parentLink = self
+            prevVirtex = nextVirtex            
+            
+    def pointDistSq(self, pointX, pointY):
+        """
+        Finds the minimal point distance of all of the link segments between the vertices.
+        @return Tuple of the minimum squared distance of a line segment from the point, the distance of the link traversed,
+            and also returns whether that point is effectively perpendicular from the entire segment.
+        @rtype float, float, bool
+        """
+        minDistSq = sys.float_info.max
+        minLinkDist = minPerpendicular = 0
+        minIndex = -1
+        prevVirtex = self.vertices[0]
+        for prevIndex, nextVirtex in enumerate(self.vertices[1:]):
+            distSq, linkDist, perpendicular = linear.pointDistSq(pointX, pointY, prevVirtex.pointX, prevVirtex.pointY,
+                nextVirtex.pointX, nextVirtex.pointY, nextVirtex.distance - prevVirtex.distance)
+            if distSq < minDistSq:
+                minDistSq, minLinkDist, minPerpendicular = distSq, linkDist, perpendicular
+                minIndex = prevIndex
+            prevVirtex = nextVirtex
+        
+        # If we are nonperpendicular, see if the point falls within the arc that sits between the neighboring
+        # segments.
+        
+        
+        
+        if not minPerpendicular and minIndex < len(self.vertices) - 2:
+            prevVirtex = self.vertices[minIndex]
+            nextVirtex = self.vertices[minIndex + 2]
+            distSq, linkDist, perpendicular = linear.pointDistSq(pointX, pointY, prevVirtex.pointX, prevVirtex.pointY,
+                nextVirtex.pointX, nextVirtex.pointY, nextVirtex.distance - prevVirtex.distance)
+            minPerpendicular = perpendicular
+        if not minPerpendicular and minIndex > 0:
+            prevVirtex = self.vertices[minIndex]
+            nextVirtex = self.vertices[minIndex + 2]
+            distSq, linkDist, perpendicular = linear.pointDistSq(pointX, pointY, prevVirtex.pointX, prevVirtex.pointY,
+                nextVirtex.pointX, nextVirtex.pointY, nextVirtex.distance - prevVirtex.distance)
+            minPerpendicular = perpendicular
+        
+        return minDistSq, minLinkDist, minPerpendicular
             
     def isComplementary(self, otherLink):
         """

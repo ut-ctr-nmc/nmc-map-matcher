@@ -36,6 +36,7 @@ def pointDistSq(pointX, pointY, lineX1, lineY1, lineX2, lineY2, norm):
     @type lineX2: float
     @type lineY2: float
     @type norm: float
+    @return Tuple of the three factors
     @rtype float, float, bool
     """
     perpendicular = False
@@ -209,6 +210,7 @@ class QuadSet:
         
         while len(heap) > 0:
             distSq, element = heappop(heap)
+            "@type element: tuple<float, boolean, graph.GraphLink>"
             if isinstance(element, _QuadElement):
                 if not element.bottomLayer:
                     # Process the next layer
@@ -220,25 +222,35 @@ class QuadSet:
                 else:
                     # We got to the bottom; evaluate all lines that intersect the rectangle:
                     for line in element.members:
+                        
+                        
+                        # Evaluate the possibly multi-segment line.
+                        distSq, lineDist, perpendicular = line.obj.pointDistSq(pointX, pointY)
+                        blah "Define _QuadElement"
+                        
+                        
+                        "** OLD! **"
                         distSq, lineDist, perpendicular = pointDistSq(pointX, pointY, line.pointX1, line.pointY1, line.pointX2,
-                                                                      line.pointY2, line.norm)
+                                                                      line.pointY2, line.norm) ;"** norm not defined anymore. **"
                         if distSq <= maxRadiusSq and line not in traversedSet:
                             heappush(heap, (distSq, (lineDist, perpendicular, line.obj)))
                             traversedSet.add(line)
             else: # It's a line, annotated with the stuff that was computed earlier:
                 lineDist, perpendicular, lineObj = element
-                yield (math.sqrt(distSq), lineDist, perpendicular, lineObj)
+                yield math.sqrt(distSq), lineDist, perpendicular, lineObj
 
 class _QuadElementLine:
     """
     Storage object for a line to be used by _QuadElement.
     """
     def __init__(self, pointX1, pointY1, pointX2, pointY2, obj):
+
         self.pointX1 = pointX1 
         self.pointY1 = pointY1 
         self.pointX2 = pointX2 
         self.pointY2 = pointY2
-        self.norm = getNorm(pointX1, pointY1, pointX2, pointY2)
+        "TODO: ** Remove this! **"
+        #self.norm = getNorm(pointX1, pointY1, pointX2, pointY2)
         self.obj = obj
     
 class _QuadElement:
