@@ -36,7 +36,6 @@ class ShapesEntry:
         @type lat: float
         @type lng: float
         @type hintFlag: bool
-        @type time: datetime
         """
         self.shapeID = shapeID
         self.shapeSeq = shapeSeq
