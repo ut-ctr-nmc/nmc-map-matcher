@@ -28,7 +28,6 @@ from datetime import datetime
 from nmc_mm_lib import vista_network, path_engine, gtfs
 import sys, gdb_extracted, transit_gtfs, problem_report
 
-# TODO: This is not used:
 def gdbReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
     """
     Takes a node set and outputs VISTA table files that report the link matches for the GDB GPS track set.
@@ -46,11 +45,11 @@ def gdbReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
             "@type node: path_engine.PathEnd"
             
             if len(node.routeInfo) > 0:
-                (vistaLat, vistaLng) = vistaGraph.GPS.feet2gps(node.pointOnLink.pointX, node.pointOnLink.pointY) 
+                (vistaLat, vistaLng) = vistaGraph.gps.feet2gps(node.pointOnLink.pointX, node.pointOnLink.pointY) 
 
                 for link in node.routeInfo:            
                     outStr = "%d,%s,%d,%s,%d,%g,%g,%g,%g" % (node.shapeEntry.shapeSeq, node.shapeEntry.shapeID, link.id,
-                                node.shapeEntry.time.strftime('%m/%d/%Y %H:%M:%S'), 1 if node.restart else 0, node.shapeEntry.lat,
+                                node.shapeEntry.time.strftime('%H:%M:%S'), 1 if node.restart else 0, node.shapeEntry.lat,
                                 node.shapeEntry.lng, vistaLat, vistaLng)
                     print(outStr, file = outFile)
 
@@ -63,10 +62,11 @@ def syntax(retCode):
     print()
     print("Usage:")
     print("  python gdb_report.py dbServer network user password gdbTextFile gdbPathMatch")
-    print("    [-p] [-s sourceID] -t refDateTime [-e endTime]")
+    print("    [-p] [-g] [-s sourceID] -t refDateTime [-e endTime]")
     print()
     print("where:")
     print("  -p outputs a problem report (suppresses other output)")
+    print("  -g outputs a GDB report with timestamps (suppresses other output)")    
     print("  -s is the sourceID to report in the travel_time output (0 by default)")
     print("  -t is the zero-reference time that all arrival time outputs are related to.")
     print("     (Note that the day is ignored.) Use the format HH:MM:SS.")
@@ -87,6 +87,7 @@ def main(argv):
     endTime = 86400
     refTime = None
     problemReport = False
+    gdbReportFlag = False
     
     if len(argv) > 6:
         i = 7
@@ -102,10 +103,15 @@ def main(argv):
                 i += 1
             elif argv[i] == "-p":
                 problemReport = True
+            elif argv[i] == "-g":
+                gdbReportFlag = True
             i += 1
     
     if refTime is None and not problemReport:
         print("ERROR: No reference time is specified.")
+        syntax(1)
+    if problemReport and gdbReportFlag:
+        print("ERROR: Cannot output both a problem report and a GDB report.")
         syntax(1)
 
     # Get the database connected:
@@ -144,6 +150,12 @@ def main(argv):
         problem_report.problemReport(nodes, vistaGraph)
         print("INFO: Done.", file = sys.stderr)
         return
+    
+    if gdbReportFlag:
+        print("INFO: Output GDB report CSV...", file = sys.stderr)
+        gdbReport(nodes, vistaGraph)
+        print("INFO: Done.", file = sys.stderr)
+        return        
 
     # TODO: The logic below is a hack to create unique routes given GDB IDs.  There are several
     # long-term problems with this, including the idea that it is impossible to reuse common

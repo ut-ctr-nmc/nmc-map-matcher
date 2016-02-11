@@ -70,7 +70,7 @@ def fillFromFile(filename, GPS):
                 if routeID > 0:
                     identifier = lineElems[3] + "(" + lineElems[18] + ")"
                     newEntry = gtfs.ShapesEntry(identifier, int(lineElems[0]), float(lineElems[15]),
-                                        float(lineElems[16]), False)
+                                        float(lineElems[16]))
                     (newEntry.pointX, newEntry.pointY) = GPS.gps2feet(newEntry.lat, newEntry.lng)
                     newEntry.time = datetime.strptime(lineElems[8], '%m/%d/%Y %H:%M:%S')
                     
@@ -101,8 +101,8 @@ def pathMatch(dbServer, networkName, userName, password, filename, limitMap = No
     distanceFactor = 1.0        # "f_d": Cost multiplier for Linear path distance
     driftFactor = 1.5           # "f_r": Cost multiplier for distance from GTFS point to its VISTA link
     nonPerpPenalty = 1.5        # "f_p": Penalty multiplier for GTFS points that aren't perpendicular to VISTA links
-    limitClosestPoints = 12     # "q_p": Number of close-proximity points that are considered for each GTFS point 
-    limitSimultaneousPaths = 8  # "q_e": Number of proposed paths to maintain during pathfinding stage
+    limitClosestPoints = 8     # "q_p": Number of close-proximity points that are considered for each GTFS point 
+    limitSimultaneousPaths = 6  # "q_e": Number of proposed paths to maintain during pathfinding stage
     
     maxHops = 12                # Maximum number of VISTA links to pursue in a path-finding operation
     
