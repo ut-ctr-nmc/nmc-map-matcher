@@ -43,7 +43,6 @@ class ShapesEntry:
         self.lat = lat
         self.lng = lng
         self.hintFlag = hintFlag
-        self.time = None
         
         self.pointX = 0
         self.pointY = 0

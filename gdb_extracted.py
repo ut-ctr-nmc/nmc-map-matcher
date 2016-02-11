@@ -72,7 +72,8 @@ def fillFromFile(filename, GPS):
                     newEntry = gtfs.ShapesEntry(identifier, int(lineElems[0]), float(lineElems[15]),
                                         float(lineElems[16]))
                     (newEntry.pointX, newEntry.pointY) = GPS.gps2feet(newEntry.lat, newEntry.lng)
-                    newEntry.time = datetime.strptime(lineElems[8], '%m/%d/%Y %H:%M:%S')
+                    setattr(newEntry, "time", datetime.strptime(lineElems[8], '%m/%d/%Y %H:%M:%S'))
+                    setattr(newEntry, "speed", float(lineElems[12]))
                     
                     # Keep only the time:
                     newEntry.time = datetime.strptime("%02d:%02d:%02d" % (newEntry.time.hour, newEntry.time.minute,

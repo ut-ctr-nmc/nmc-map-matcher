@@ -72,7 +72,7 @@ def fillFromFile(filename, GPS):
                 newEntry = gtfs.ShapesEntry(identifier, int(fileLine["OBJECTID"].replace(",", "")), float(fileLine["Latitude"]),
                                     float(fileLine["Longitude"]))
                 (newEntry.pointX, newEntry.pointY) = GPS.gps2feet(newEntry.lat, newEntry.lng)
-                newEntry.time = datetime.strptime(fileLine["UtcDateTim"], '%m/%d/%Y %I:%M:%S %p')
+                setattr(newEntry, "time", datetime.strptime(fileLine["UtcDateTim"], '%m/%d/%Y %I:%M:%S %p'))
                 
 # Temporary set to CST: 
                 timeDelta = timedelta(hours=-6)

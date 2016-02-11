@@ -34,7 +34,7 @@ def gdbReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
     @type gtfsNodes: list<path_engine.PathEnd>
     @type vistaGraph: graph.GraphLib  
     """
-    print("objID,datafileID,linkID,time,restart,lat,lng,vistaLat,vistaLng", file = outFile)
+    print("objID,datafileID,linkID,time,speed,dist,restart,lat,lng,vistaLat,vistaLng", file = outFile)
 
     datafileIDs = gtfsNodes.keys()
     datafileIDs.sort()
@@ -48,9 +48,9 @@ def gdbReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
                 (vistaLat, vistaLng) = vistaGraph.gps.feet2gps(node.pointOnLink.pointX, node.pointOnLink.pointY) 
 
                 for link in node.routeInfo:            
-                    outStr = "%d,%s,%d,%s,%d,%g,%g,%g,%g" % (node.shapeEntry.shapeSeq, node.shapeEntry.shapeID, link.id,
-                                node.shapeEntry.time.strftime('%H:%M:%S'), 1 if node.restart else 0, node.shapeEntry.lat,
-                                node.shapeEntry.lng, vistaLat, vistaLng)
+                    outStr = "%d,%s,%d,%s,%g,%g,%d,%g,%g,%g,%g" % (node.shapeEntry.shapeSeq, node.shapeEntry.shapeID, link.id,
+                                node.shapeEntry.time.strftime('%H:%M:%S'), node.shapeEntry.speed, node.pointOnLink.dist,
+                                1 if node.restart else 0, node.shapeEntry.lat, node.shapeEntry.lng, vistaLat, vistaLng)
                     print(outStr, file = outFile)
 
 def syntax(retCode):
