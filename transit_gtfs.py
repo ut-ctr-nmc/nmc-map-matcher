@@ -64,14 +64,14 @@ def syntax(exitCode):
     print("  -p outputs a problem report on the stop matches")
     sys.exit(exitCode)
 
-def restorePathMatch(dbServer, networkName, userName, password, shapePath, pathMatchFilename):
+def restorePathMatch(dbServer, networkName, userName, password, shapePath, pathMatchFilename, useDirectDist=True):
     # Get the database connected:
     print("INFO: Connect to database...", file = sys.stderr)
     database = vista_network.connect(dbServer, userName, password, networkName)
     
     # Read in the topology from the VISTA database:
     print("INFO: Read topology from database...", file = sys.stderr)
-    vistaGraph = vista_network.fillGraph(database)
+    vistaGraph = vista_network.fillGraph(database, useDirectDist)
     
     # Read in the shapefile information:
     print("INFO: Read GTFS shapefile...", file = sys.stderr)
@@ -175,7 +175,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
 
     # Initialize the path engine for use later:
     pathEngine = path_engine.PathEngine(stopSearchRadius, stopSearchRadius, stopSearchRadius, sys.float_info.max, sys.float_info.max,
-                                        stopSearchRadius, 1, 1, 1, sys.maxint, sys.maxint)
+                                        stopSearchRadius, 1, 1, 1, sys.maxsize, sys.maxsize)
     pathEngine.limitClosestPoints = 8
     pathEngine.limitSimultaneousPaths = 6
     pathEngine.maxHops = 12
@@ -534,6 +534,30 @@ def dumpBusStops(gtfsStops, stopLinkMap, userName, networkName, outFile = sys.st
         "@type pointOnLink: graph.PointOnLink"
         print('"%d","%d","%s","%d"' % (stopID, pointOnLink.link.id, gtfsStops[stopID].stopName, int(pointOnLink.dist)), file = outFile) 
 
+def readBusRecords(shapePath, vistaGraph, gtfsShapes, unusedShapeIDs, restrictService):
+    # Read in the routes information:
+    print("INFO: Read GTFS routesfile...", file=sys.stderr)
+    gtfsRoutes = gtfs.fillRoutes(shapePath)
+    "@type gtfsRoutes: dict<int, RoutesEntry>"
+    
+    # Read in the stops information:
+    print("INFO: Read GTFS stopsfile...", file=sys.stderr)
+    gtfsStops = gtfs.fillStops(shapePath, vistaGraph.gps)
+    "@type gtfsStops: dict<int, StopsEntry>"
+    
+    # Read in the trips information:
+    print("INFO: Read GTFS tripsfile...", file=sys.stderr)
+    (gtfsTrips, unusedTripIDs) = gtfs.fillTrips(shapePath, gtfsShapes, gtfsRoutes, unusedShapeIDs, restrictService)
+    "@type gtfsTrips: dict<int, TripsEntry>"
+    "@type unusedTripIDs: set<int>"
+        
+    # Read stop times information:
+    print("INFO: Read GTFS stop times...", file=sys.stderr)
+    gtfsStopTimes = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs)
+    "@type gtfsStopTimes: dict<TripsEntry, list<StopTimesEntry>>"
+
+    return gtfsRoutes, gtfsStops, gtfsTrips, gtfsStopTimes
+
 def main(argv):
     global problemReport
     excludeUpstream = False
@@ -608,26 +632,9 @@ def main(argv):
     (vistaGraph, gtfsShapes, gtfsNodes, unusedShapeIDs) = restorePathMatch(dbServer, networkName, userName,
         password, shapePath, pathMatchFilename)
     
-    # Read in the routes information:
-    print("INFO: Read GTFS routesfile...", file = sys.stderr)
-    gtfsRoutes = gtfs.fillRoutes(shapePath)
-    "@type gtfsRoutes: dict<int, RoutesEntry>"
-    
-    # Read in the stops information:
-    print("INFO: Read GTFS stopsfile...", file = sys.stderr)
-    gtfsStops = gtfs.fillStops(shapePath, vistaGraph.gps)
-    "@type gtfsStops: dict<int, StopsEntry>"
-    
-    # Read in the trips information:
-    print("INFO: Read GTFS tripsfile...", file = sys.stderr)
-    (gtfsTrips, unusedTripIDs) = gtfs.fillTrips(shapePath, gtfsShapes, gtfsRoutes, unusedShapeIDs, restrictService)
-    "@type gtfsTrips: dict<int, TripsEntry>"
-    "@type unusedTripIDs: set<int>"
-        
-    # Read stop times information:
-    print("INFO: Read GTFS stop times...", file = sys.stderr)
-    gtfsStopTimes = gtfs.fillStopTimes(shapePath, gtfsTrips, gtfsStops, unusedTripIDs)
-    "@type gtfsStopTimes: dict<TripsEntry, list<StopTimesEntry>>"
+    # Read in the stuff from GTFS that further defines buses:
+    _, gtfsStops, gtfsTrips, gtfsStopTimes = readBusRecords(shapePath, vistaGraph, gtfsShapes, unusedShapeIDs,
+        restrictService)
         
     # Output the routes_link file:
     print("INFO: Dumping public.bus_route_link.csv...", file = sys.stderr)

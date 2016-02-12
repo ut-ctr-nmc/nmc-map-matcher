@@ -36,6 +36,7 @@ class ShapesEntry:
         @type lat: float
         @type lng: float
         @type hintFlag: bool
+        @ivar typeID: int
         """
         self.shapeID = shapeID
         self.shapeSeq = shapeSeq
@@ -45,6 +46,8 @@ class ShapesEntry:
         
         self.pointX = 0
         self.pointY = 0
+        
+        self.typeID = 0
 
 def fillShapes(filePath, gps):
     """

@@ -40,7 +40,7 @@ def connect(dbServer, userName, password, networkName):
     database = psycopg2.connect(host = dbServer, user = userName, password = password, database = dbName)
     return database
 
-def fillGraph(database):
+def fillGraph(database, useDirectDist=True):
     """
     fillGraph fills up the Graph structure from the VISTA database.
     @type database: psycopg2.connection
@@ -52,7 +52,7 @@ def fillGraph(database):
     # Step 1: Figure out the geographic center of the network and create the Graph:  
     cursor.execute('SELECT AVG(x), AVG(y) FROM nodes WHERE type = 1')
     row = cursor.fetchone()
-    graphLib = graph.GraphLib(row[1], row[0])
+    graphLib = graph.GraphLib(row[1], row[0], useDirectDist)
     
     # Step 2: Fill out the nodes:
     cursor.execute('SELECT id, x, y FROM nodes WHERE type = 1')
@@ -67,7 +67,7 @@ def fillGraph(database):
             print("WARNING: Link %d has bad Node IDs %d and/or %d" % (row[0], row[1], row[2]), file = sys.stderr)
             continue 
         link = graph.GraphLink(row[0], graphLib.nodeMap[row[1]], graphLib.nodeMap[row[2]])
-        #link.distance = row[3] # Use reported distance rather than measured distance.
+        link.distance = row[3] # This is the reported distance, but may be replaced if GraphLib.useDirectDist is true.
         graphLib.addLink(link)
         
     # There we are.

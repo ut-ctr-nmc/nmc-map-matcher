@@ -124,7 +124,7 @@ class GraphLib:
     @ivar linkMap: Collection of links
     @type linkMap: dict<int, GraphLink>
     """
-    def __init__(self, gpsCtrLat, gpsCtrLng):
+    def __init__(self, gpsCtrLat, gpsCtrLng, useDirectDist=True):
         """
         @type gpsCtrLat: float
         @type gpsCtrLng: float
@@ -132,6 +132,7 @@ class GraphLib:
         self.gps = gps.GPS(gpsCtrLat, gpsCtrLng)
         self.nodeMap = {}
         self.linkMap = {}
+        self.useDirectDist = useDirectDist
 
     def addNode(self, node):
         """
@@ -150,7 +151,9 @@ class GraphLib:
         if link.origNode.id not in self.nodeMap:
             print('WARNING: Node %d is not present.' % link.origNode, file = sys.stderr)
             return
-        link.distance = linear.getNorm(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY)
+        if self.useDirectDist:
+            link.distance = linear.getNorm(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY)
+            # Otherwise, we must supply it ourselves.
         self.linkMap[link.id] = link
         self.nodeMap[link.origNode.id].outgoingLinkMap[link.id] = link
         
