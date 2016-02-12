@@ -157,7 +157,7 @@ class GraphLib:
         self.linkMap[link.id] = link
         self.nodeMap[link.origNode.id].outgoingLinkMap[link.id] = link
         
-    def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints = sys.maxint):
+    def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints = sys.maxsize):
         """
         findPointsOnLinks searches through the graph and finds all PointOnLinks that are within the radius.
         Then, eligible links are proposed primaryRadius distance around the GTFS point, or secondaryRadius

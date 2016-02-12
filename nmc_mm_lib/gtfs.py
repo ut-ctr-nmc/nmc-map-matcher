@@ -149,7 +149,7 @@ class TripsEntry:
     def __eq__(self, other):
         return self.tripID == other.tripID
 
-def fillTrips(filePath, shapes, routes, unusedShapeIDs = set(), restrictService = set()):
+def fillTrips(filePath, shapes, routes, unusedShapeIDs=None, restrictService=None):
     """
     fillTrips retrieves the trip information from a GTFS repository.
     @type filePath: str
@@ -160,6 +160,10 @@ def fillTrips(filePath, shapes, routes, unusedShapeIDs = set(), restrictService 
     @return A map of trip_id to TripsEntry records, as well as a list of unused trip IDs
     @rtype (dict<int, TripsEntry>, set<int>)
     """
+    if not unusedShapeIDs:
+        unusedShapeIDs = set()
+    if not restrictService:
+        restrictService = set()
     ret = {}
     "@type ret: dict<int, TripsEntry>"
     unusedTripIDs = set()
