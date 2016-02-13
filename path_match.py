@@ -24,7 +24,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-from nmc_mm_lib import gtfs, vista_network, path_engine
+from nmc_mm_lib import gtfs, vista_network, path_engine, compat
 import sys
 
 def syntax():
@@ -72,7 +72,7 @@ def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap = N
     pathFinder.maxHops = maxHops
     
     # Begin iteration through each shape:
-    shapeIDs = list(gtfsShapes.keys())
+    shapeIDs = compat.listkeys(gtfsShapes)
     "@type shapeIDs: list<int>"
     shapeIDs.sort()
     gtfsNodesResults = {}
@@ -115,7 +115,7 @@ def main(argv):
     print("INFO: Print output...", file = sys.stderr)
     path_engine.dumpStandardHeader()
 
-    shapeIDs = list(gtfsNodesResults.keys())
+    shapeIDs = compat.listkeys(gtfsNodesResults)
     "@type shapeIDs: list<int>"
     shapeIDs.sort()
     for shapeID in shapeIDs:

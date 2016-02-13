@@ -23,6 +23,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
+from nmc_mm_lib import compat
 import transit_gtfs, sys
 
 def dumpGPS(gtfsNodes, vistaGraph, outFile = sys.stdout):
@@ -33,7 +34,7 @@ def dumpGPS(gtfsNodes, vistaGraph, outFile = sys.stdout):
     """
     print("shapeID,shapeSeq,linkID,linkDist,gtfsLat,gtfsLng,vistaLat,vistaLng,vistaNodeLat,vistaNodeLng", file = outFile)
 
-    shapeIDs = list(gtfsNodes.keys())
+    shapeIDs = compat.listkeys(gtfsNodes)
     shapeIDs.sort()
     for shapeID in shapeIDs:
         gtfsNodeList = gtfsNodes[shapeID]

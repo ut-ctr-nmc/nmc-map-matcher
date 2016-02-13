@@ -24,7 +24,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-from nmc_mm_lib import gtfs, graph
+from nmc_mm_lib import gtfs, graph, compat
 import path_refine, difflib, sys
 
 SEQUENCE_CUTOFF = 0.6
@@ -44,7 +44,7 @@ def filterSimilarity(gtfsShapes):
     Compares among all entries and figures out which ones are enough of duplicates. Keeps the
     longer lists.
     """
-    shapeIDs = list(gtfsShapes.keys())
+    shapeIDs = compat.listkeys(gtfsShapes)
     
     excludedIDs = set()
     "@type excluded: set<int>"
@@ -98,7 +98,7 @@ def main(argv):
     
     # Extract useful information:
     print("INFO: Print output...", file = sys.stderr)
-    shapeIDs = list(gtfsShapes.keys())
+    shapeIDs = compat.listkeys(gtfsShapes)
     "@type shapeIDs: list<int>"
     shapeIDs.sort()
     

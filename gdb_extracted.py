@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
 from datetime import datetime
-from nmc_mm_lib import gtfs, vista_network, path_engine
+from nmc_mm_lib import gtfs, vista_network, path_engine, compat
 import operator, sys
 
 # A module that deals with reading CSV files extracted from a GDB format.
@@ -126,7 +126,7 @@ def pathMatch(dbServer, networkName, userName, password, filename, limitMap = No
     pathFinder.maxHops = maxHops
     
     # Begin iteration through each shape:
-    datafileIDs = list(gpsTracks.keys())
+    datafileIDs = compat.listkeys(gpsTracks)
     "@type datafileIDs: list<str>"
     datafileIDs.sort()
     nodesResults = {}
@@ -169,7 +169,7 @@ def main(argv):
     print("INFO: Print output...", file = sys.stderr)
     path_engine.dumpStandardHeader()
 
-    datafileIDs = list(gtfsNodesResults.keys())
+    datafileIDs = compat.listkeys(gtfsNodesResults)
     "@type datafileIDs: list<str>"
     datafileIDs.sort()
     for datafileID in datafileIDs:
