@@ -36,7 +36,7 @@ def gdbReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
     """
     print("objID,datafileID,linkID,time,speed,dist,restart,lat,lng,vistaLat,vistaLng", file = outFile)
 
-    datafileIDs = gtfsNodes.keys()
+    datafileIDs = list(gtfsNodes.keys())
     datafileIDs.sort()
     for datafileID in datafileIDs:
         gtfsNodeList = gtfsNodes[datafileID]
@@ -135,7 +135,7 @@ def main(argv):
     # And, each route corresponds with one trip.
     
     # Filter out nodes that have one or zero links:
-    for shapeID in nodes.keys():
+    for shapeID in list(nodes.keys()):
         ctr = 0
         for node in nodes[shapeID]:
             ctr += len(node.routeInfo)
@@ -180,7 +180,7 @@ def main(argv):
         trips[vehCtr] = gtfs.TripsEntry(vehCtr, routes[routeID], "", gpsTracks[routes[routeID].shortName])
         stopTimes[trips[vehCtr]] = list() # Fake the system by having no stops defined.
         vehCtr += 1
-    tripIDs = trips.keys()
+    tripIDs = list(trips.keys())
     tripIDs.sort()
        
     # Output the routes file:

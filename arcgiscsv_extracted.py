@@ -129,7 +129,7 @@ def pathMatch(dbServer, networkName, userName, password, filename, limitMap = No
     pathFinder.maxHops = maxHops
     
     # Begin iteration through each shape:
-    datafileIDs = gpsTracks.keys()
+    datafileIDs = list(gpsTracks.keys())
     "@type datafileIDs: list<str>"
     datafileIDs.sort()
     nodesResults = {}
@@ -172,7 +172,7 @@ def main(argv):
     print("INFO: Print output...", file = sys.stderr)
     path_engine.dumpStandardHeader()
 
-    datafileIDs = gtfsNodesResults.keys()
+    datafileIDs = list(gtfsNodesResults.keys())
     "@type datafileIDs: list<str>"
     datafileIDs.sort()
     for datafileID in datafileIDs:

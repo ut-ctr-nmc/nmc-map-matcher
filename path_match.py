@@ -72,7 +72,7 @@ def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap = N
     pathFinder.maxHops = maxHops
     
     # Begin iteration through each shape:
-    shapeIDs = gtfsShapes.keys()
+    shapeIDs = list(gtfsShapes.keys())
     "@type shapeIDs: list<int>"
     shapeIDs.sort()
     gtfsNodesResults = {}
@@ -115,7 +115,7 @@ def main(argv):
     print("INFO: Print output...", file = sys.stderr)
     path_engine.dumpStandardHeader()
 
-    shapeIDs = gtfsNodesResults.keys()
+    shapeIDs = list(gtfsNodesResults.keys())
     "@type shapeIDs: list<int>"
     shapeIDs.sort()
     for shapeID in shapeIDs:

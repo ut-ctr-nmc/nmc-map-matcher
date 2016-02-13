@@ -196,7 +196,7 @@ def pathsRefine(gtfsNodes, hintEntries, vistaGraph):
     pathFinder.limitHintClosest = limitHintClosest
     
     # Begin iteration through each shape:
-    shapeIDs = gtfsNodes.keys()
+    shapeIDs = list(gtfsNodes.keys())
     "@type shapeIDs: list<int>"
     shapeIDs.sort()
     gtfsNodesResults = {}
@@ -263,7 +263,7 @@ def main(argv):
     print("INFO: Print output...", file = sys.stderr)
     path_engine.dumpStandardHeader()
 
-    shapeIDs = gtfsNodesResults.keys()
+    shapeIDs = list(gtfsNodesResults.keys())
     "@type shapeIDs: list<int>"
     shapeIDs.sort()
     for shapeID in shapeIDs:

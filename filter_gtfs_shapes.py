@@ -44,7 +44,7 @@ def filterSimilarity(gtfsShapes):
     Compares among all entries and figures out which ones are enough of duplicates. Keeps the
     longer lists.
     """
-    shapeIDs = gtfsShapes.keys()
+    shapeIDs = list(gtfsShapes.keys())
     
     excludedIDs = set()
     "@type excluded: set<int>"
@@ -98,7 +98,7 @@ def main(argv):
     
     # Extract useful information:
     print("INFO: Print output...", file = sys.stderr)
-    shapeIDs = gtfsShapes.keys()
+    shapeIDs = list(gtfsShapes.keys())
     "@type shapeIDs: list<int>"
     shapeIDs.sort()
     

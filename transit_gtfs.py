@@ -85,7 +85,7 @@ def restorePathMatch(dbServer, networkName, userName, password, shapePath, pathM
 
     # Filter out the unused shapes:
     unusedShapeIDs = set()
-    for shapeID in gtfsShapes.keys():
+    for shapeID in list(gtfsShapes.keys()):
         if shapeID not in gtfsNodes:
             del gtfsShapes[shapeID]
             unusedShapeIDs.add(shapeID)
@@ -111,7 +111,7 @@ def dumpBusRoutes(gtfsTrips, userName, networkName, outFile = sys.stdout):
     print("\"id\",\"name\",", file = outFile)
     
     # Remember, we are treating each route as a trip.
-    tripIDs = gtfsTrips.keys()
+    tripIDs = list(gtfsTrips.keys())
     tripIDs.sort()
     for tripID in tripIDs:
         append = ""
@@ -184,7 +184,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
     problemReportNodes = {}
     "@type problemReportNodes: dict<?, path_engine.PathEnd>"
     
-    tripIDs = gtfsTrips.keys()
+    tripIDs = list(gtfsTrips.keys())
     tripIDs.sort()
     for tripID in tripIDs:
         if gtfsTrips[tripID].shapeEntries[0].shapeID not in gtfsNodes:
@@ -505,7 +505,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSea
         print("INFO: Output problem report CSV...", file = sys.stderr)
         problemReportNodesOut = {}
         for shapeID in problemReportNodes:
-            seqs = problemReportNodes[shapeID].keys()
+            seqs = list(problemReportNodes[shapeID].keys())
             seqs.sort()
             ourTgtList = []
             for seq in seqs:
@@ -667,7 +667,7 @@ def main(argv):
         # a bus in the simulation wrt the topology that supports it, skipping those stops that
         # may fall outside the topology.)
         totalCycle = int((newEndTime - newStartTime).total_seconds()) 
-        tripIDs = gtfsTrips.keys()
+        tripIDs = list(gtfsTrips.keys())
         tripIDs.sort()
         for tripID in tripIDs:
             stopsEntries = gtfsStopTimes[gtfsTrips[tripID]]

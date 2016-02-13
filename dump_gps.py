@@ -33,7 +33,7 @@ def dumpGPS(gtfsNodes, vistaGraph, outFile = sys.stdout):
     """
     print("shapeID,shapeSeq,linkID,linkDist,gtfsLat,gtfsLng,vistaLat,vistaLng,vistaNodeLat,vistaNodeLng", file = outFile)
 
-    shapeIDs = gtfsNodes.keys()
+    shapeIDs = list(gtfsNodes.keys())
     shapeIDs.sort()
     for shapeID in shapeIDs:
         gtfsNodeList = gtfsNodes[shapeID]
