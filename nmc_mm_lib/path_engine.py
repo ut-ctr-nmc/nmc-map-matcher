@@ -24,7 +24,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-import graph, linear, gtfs, operator, sys, copy
+from nmc_mm_lib import graph, linear, gtfs
+import operator, sys, copy
 
 INSUFFICIENT_HINT_PENALTY = 5000
 "@var INSUFFICIET_HINT_PENALTY: The score to add to paths when a hint zone is exited and not all of the hints were traversed."

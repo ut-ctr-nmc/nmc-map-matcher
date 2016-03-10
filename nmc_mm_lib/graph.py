@@ -24,7 +24,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
 from collections import deque
-import linear, gps, sys, math, operator
+from nmc_mm_lib import linear, gps 
+import sys, math, operator
 
 class GraphLink:
     """
