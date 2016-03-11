@@ -111,25 +111,26 @@ class PathEngine:
         self.shapeScatterCache = None
         "@type self.shapeScatterCache: list<graph.PointOnLink>"
         
-    def scoreFunction(self, prevVISTAPoint, distance, vistaPoint):
+    def scoreFunction(self, prevGTFSPoint, distance, gtfsPoint):
         """
         scoreFunction calculates a cost value given prior path distance, and deviation from the VISTA link.
         This corresponds with algorithm "ScoreFunction" in Perrine et al., 2015.
-        @type prevGTFSPoint: graph.PointOnLink
+        @type prevGTFSPoint: PathEnd
         @type distance: float
-        @type gtfsPoint: graph.PointOnLink
+        @type gtfsPoint: PathEnd
         @rtype float
         """
-        if prevVISTAPoint is None:
+        if not prevGTFSPoint or not prevGTFSPoint.pointOnLink:
             # We are starting anew.  Count the "black line distance" from the VISTA link to the GTFS point:
-            cost = vistaPoint.refDist * self.driftFactor
-            if vistaPoint.nonPerpPenalty:
+            cost = gtfsPoint.pointOnLink.refDist * self.driftFactor
+            if gtfsPoint.pointOnLink.nonPerpPenalty:
                 cost = cost * self.nonPerpPenalty
             return cost
         else:
             # We're jumping from one link to another, so add the "black line" distance to the total VISTA link distance:
-            cost = vistaPoint.refDist * self.driftFactor
-            if vistaPoint.nonPerpPenalty:
+            cost = gtfsPoint.pointOnLink.refDist * self.driftFactor
+            #cost = gtfsPoint.pointOnLink.refDist * distance / max(1,linear.getNorm(prevGTFSPoint.shapeEntry.pointX, prevGTFSPoint.shapeEntry.pointY, gtfsPoint.shapeEntry.pointX, gtfsPoint.shapeEntry.pointY))# * self.driftFactor
+            if gtfsPoint.pointOnLink.nonPerpPenalty:
                 cost = cost * self.nonPerpPenalty            
             return cost + distance * self.distanceFactor
 
@@ -161,8 +162,7 @@ class PathEngine:
                     (traversed, distance) = pathProcessor.walkPath(gtfsPointPrev.pointOnLink, gtfsPoint.pointOnLink)
                 if traversed is not None:
                     # A valid path was found:
-                    cost = self.scoreFunction(gtfsPointPrev.pointOnLink if gtfsPointPrev is not None else None,
-                        distance, gtfsPoint.pointOnLink)
+                    cost = self.scoreFunction(gtfsPointPrev, distance, gtfsPoint)
                     if (gtfsPoint.prevTreeNode is None) or ((gtfsPoint.prevTreeNode is not None) \
                                     and (gtfsPointPrev.totalCost + cost < gtfsPoint.totalCost)):
                         # This is the first proposed parent, or the proposed parent is cheaper than what
@@ -216,8 +216,8 @@ class PathEngine:
                     # Fake a distance and cost from the linear distance so that we something to report later.
                     distance = linear.getNorm(gtfsPointRestart.pointOnLink.pointX, gtfsPointRestart.pointOnLink.pointY,
                                        gtfsPoint.pointOnLink.pointX, gtfsPoint.pointOnLink.pointY)
-                    gtfsPoint.totalCost = gtfsPointRestart.totalCost + self.scoreFunction(gtfsPointRestart.pointOnLink,
-                        distance, gtfsPoint.pointOnLink)
+                    gtfsPoint.totalCost = gtfsPointRestart.totalCost + self.scoreFunction(gtfsPointRestart, distance,
+                        pointOnLink)
                     gtfsPoint.totalDist = gtfsPointRestart.totalDist + distance
         else:
             # Trim off lowest-scoring paths:

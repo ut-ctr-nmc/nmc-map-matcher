@@ -216,6 +216,12 @@ class WalkPathProcessor:
     WalkPathProcessor contains methods used to conduct the walkPath algorithm.  It maintains a cache that
     persists in-between individual pathfinding operations.
     
+    @ivar uTurnInterPenalty: Set this to none if U-turns are not allowed in intersections; otherwise, this
+        number of feet are added at intersection U-turns.
+    @type uTurnInterPenalty: float
+    @ivar uTurnDeadEndPenalty: Set this to none to use the penalty value in uTurnInterEnable; otherwise,
+        this number of feet are added at U-turns at dead-ends.
+    @type uTurnDeadEndPenalty: float
     @ivar backCache: Caches previous walkPath operations to accelerate processing a little bit 
     @type backCache: dict<int, dict<int, GraphLink>>
     @ivar winner: Records the winning queue element 
@@ -241,6 +247,9 @@ class WalkPathProcessor:
 
         self.limitRadius = limitRadius
         self.limitRadiusSq = (limitRadius ** 2) if limitRadius < sys.float_info.max else sys.float_info.max
+
+        self.uTurnInterPenalty = None # Disable U-turns in intersections
+        self.uTurnDeadEndPenalty = None # Disable U-turns at dead-ends
 
         # walkPath cache:
         self.backCache = {}
@@ -385,11 +394,22 @@ class WalkPathProcessor:
         else:
             myList = walkPathElem.incomingLink.destNode.outgoingLinkMap.values()
         for link in myList:
-            """
             # Filter out U-turns:
             if walkPathElem.incomingLink.isComplementary(link):
-                continue
-            """
+                # Is it a dead-end?
+                if len(link.destNode.outgoingLinkMap) == 1:
+                    if self.uTurnDeadEndPenalty is None:
+                        if self.uTurnInterPenalty is None:
+                            continue
+                        else:
+                            walkPathElem.distance += self.uTurnInterPenalty
+                    else:
+                        walkPathElem.distance += self.uTurnDeadEndPenalty
+                else:
+                    if self.uTurnInterPenalty is None:
+                        continue
+                    else:
+                        walkPathElem.distance += self.uTurnInterPenalty
             
             # Had we visited this before?
             if link.id in walkPathElem.backtrackSet:
