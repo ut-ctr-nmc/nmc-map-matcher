@@ -23,7 +23,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-import linear, gps, sys
+from nmc_mm_lib import linear, gps
+import sys
 from heapq import heappush, heappop
 
 "The maximum number of lines allowed in a quad for optimized QuadSet lookup."

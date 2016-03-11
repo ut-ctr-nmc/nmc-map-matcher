@@ -28,7 +28,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-from nmc_mm_lib import gtfs, vista_network, path_engine, graph
+from nmc_mm_lib import gtfs, vista_network, path_engine, graph, compat
 import problem_report, sys, time
 from datetime import datetime, timedelta
 
@@ -97,7 +97,7 @@ def restorePathMatch(dbServer, networkName, userName, password, shapePath, pathM
 
     # Filter out the unused shapes:
     unusedShapeIDs = set()
-    for shapeID in gtfsShapes.keys():
+    for shapeID in compat.listkeys(gtfsShapes):
         if shapeID not in gtfsNodes:
             del gtfsShapes[shapeID]
             unusedShapeIDs.add(shapeID)
@@ -123,7 +123,7 @@ def dumpBusRoutes(gtfsTrips, userName, networkName, outFile = sys.stdout):
     print("\"id\",\"name\",", file = outFile)
     
     # Remember, we are treating each route as a trip.
-    tripIDs = gtfsTrips.keys()
+    tripIDs = compat.listkeys(gtfsTrips)
     tripIDs.sort()
     for tripID in tripIDs:
         append = ""
@@ -514,7 +514,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     "@type shapeStops: dict<int, dict<tuple<int>, _TripsBundle>>"
     
     tripID = trip = stopsList = shapeID = stopsTuples = stopsTuple = tripsBundle = emptyShapes = flag = None
-    tripIDs = gtfsTrips.keys()
+    tripIDs = compat.listkeys(gtfsTrips)
     tripIDs.sort()
     for tripID in tripIDs:
         trip = gtfsTrips[tripID]
@@ -756,7 +756,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         print("INFO: -- Stop %d --" % stopID, file=sys.stderr)
         if len(stopRecord.linkCounts) <= 1:
             if len(stopRecord.linkCounts) == 1:
-                print("INFO: This has 1 matched linkID %d. OK." % (stopRecord.linkCounts.keys()[0]), file=sys.stderr)
+                print("INFO: This has 1 matched linkID %d. OK." % (compat.listkeys(stopRecord.linkCounts)[0]), file=sys.stderr)
             else:
                 print("INFO: This has no links associated with it. Skipping.", file=sys.stderr)
             continue # All routes use the same link for the stop. No discrepancies for this stop.
@@ -885,7 +885,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             for stopsTuple, scores in allScores.iteritems():
                 if scores:
                     scoreMax = max(scores.values())
-                    for linkID in scores.iterkeys():
+                    for linkID in compat.iterkeys(scores):
                         scores[linkID] = scoreMax - scores[linkID] # Flip it so that the high score is the best.
                         scores[linkID] /= scoreMax if scoreMax > 0.0 else 1.0
                         if linkID not in scoreSums:
@@ -993,7 +993,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                 print("WARNING: The evaluations of all candidate links failed.", file=sys.stderr)
             tripIDList = ""
             tripIDCount = 0
-            for stopsTuple in stopResolveRecord.referents.iterkeys(): 
+            for stopsTuple in compat.iterkeys(stopResolveRecord.referents): 
                 for trip in allTripsBundles[stopsTuple].trips:
                     if trip.tripID not in usedTripIDs:
                         if len(tripIDList) > 0:
@@ -1150,7 +1150,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         print("INFO: Output problem report CSV...", file=sys.stderr)
         problemReportNodesOut = {}
         for stopsTuple, prNode in problemReportNodes.iteritems():
-            seqs = prNode.keys()
+            seqs = compat.listkeys(prNode)
             seqs.sort()
             ourTgtList = []
             for seq in seqs:
@@ -1302,7 +1302,7 @@ def main(argv):
         # a bus in the simulation wrt the topology that supports it, skipping those stops that
         # may fall outside the topology.)
         totalCycle = int((newEndTime - newStartTime).total_seconds()) 
-        tripIDs = gtfsTrips.keys()
+        tripIDs = compat.listkeys(gtfsTrips)
         tripIDs.sort()
         for tripID in tripIDs:
             stopsEntries = gtfsStopTimes[gtfsTrips[tripID]]

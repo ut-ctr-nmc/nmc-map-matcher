@@ -27,7 +27,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-from nmc_mm_lib import gtfs, path_engine, graph
+from nmc_mm_lib import gtfs, path_engine, graph, compat
 import problem_report, transit_gtfs, sys, csv, math
 from datetime import datetime, timedelta
 
@@ -318,7 +318,7 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
         print("INFO: Output problem report CSV...", file = sys.stderr)
         problemReportNodesOut = {}
         for idVal in problemReportNodes:
-            seqs = problemReportNodes[idVal].keys()
+            seqs = compat.listkeys(problemReportNodes[idVal])
             seqs.sort()
             ourTgtList = []
             for seq in seqs:

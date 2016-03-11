@@ -24,6 +24,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
+from nmc_mm_lib import compat
 import transit_gtfs, sys
 
 PERP_DIST = 300.0
@@ -40,7 +41,7 @@ def problemReport(gtfsNodes, vistaGraph, byTripFlag=False, outFile=sys.stdout):
     strStart = "shapeID," if not byTripFlag else "tripID,"
     print(strStart + "shapeSeq,linkID,linkDist,problemCode,gtfsLatLon,vistaLatLon", file=outFile)
 
-    shapeIDs = gtfsNodes.keys()
+    shapeIDs = compat.listkeys(gtfsNodes)
     shapeIDs.sort()
     for shapeID in shapeIDs:
         gtfsNodeList = gtfsNodes[shapeID]

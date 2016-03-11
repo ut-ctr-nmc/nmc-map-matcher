@@ -24,7 +24,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-from nmc_mm_lib import gtfs, vista_network, path_engine
+from nmc_mm_lib import gtfs, vista_network, path_engine, compat
 import sys
 
 def syntax():
@@ -45,7 +45,7 @@ def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap = N
     limitLinearDist = 3800      # Path distance (ft) to allow new proposed paths from one point to another
     limitDirectDist = 3500      # Radius (ft) to allow new proposed paths from one point to another
     limitDirectDistRev = 500    # Radius (ft) to allow backtracking on an existing link (e.g. parking lot)
-    distanceFactor = 1.0        # "f_d": Cost multiplier for Linear path distance
+    distanceFactor = 2.0        # "f_d": Cost multiplier for Linear path distance
     driftFactor = 2.0           # "f_r": Cost multiplier for distance from GTFS point to its VISTA link
     nonPerpPenalty = 1.5        # "f_p": Penalty multiplier for GTFS points that aren't perpendicular to VISTA links
     limitClosestPoints = 12     # "q_p": Number of close-proximity points that are considered for each GTFS point 
@@ -72,7 +72,7 @@ def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap = N
     pathFinder.maxHops = maxHops
     
     # Begin iteration through each shape:
-    shapeIDs = gtfsShapes.keys()
+    shapeIDs = compat.listkeys(gtfsShapes)
     "@type shapeIDs: list<int>"
     shapeIDs.sort()
     gtfsNodesResults = {}
@@ -115,7 +115,7 @@ def main(argv):
     print("INFO: Print output...", file = sys.stderr)
     path_engine.dumpStandardHeader()
 
-    shapeIDs = gtfsNodesResults.keys()
+    shapeIDs = compat.listkeys(gtfsNodesResults)
     "@type shapeIDs: list<int>"
     shapeIDs.sort()
     for shapeID in shapeIDs:

@@ -25,7 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
 from datetime import datetime
-from nmc_mm_lib import vista_network, path_engine, gtfs
+from nmc_mm_lib import vista_network, path_engine, gtfs, compat
 import sys, arcgiscsv_extracted, transit_gtfs, problem_report
 
 # TODO: This is not used:
@@ -37,7 +37,7 @@ def arcgiscsvReport(gtfsNodes, vistaGraph, outFile = sys.stdout):
     """
     print("objID,datafileID,linkID,time,restart,lat,lng,vistaLat,vistaLng", file = outFile)
 
-    datafileIDs = gtfsNodes.keys()
+    datafileIDs = compat.listkeys(gtfsNodes)
     datafileIDs.sort()
     for datafileID in datafileIDs:
         gtfsNodeList = gtfsNodes[datafileID]
@@ -129,7 +129,7 @@ def main(argv):
     # And, each route corresponds with one trip.
     
     # Filter out nodes that have one or zero links:
-    for shapeID in nodes.keys():
+    for shapeID in compat.listkeys(nodes):
         ctr = 0
         for node in nodes[shapeID]:
             ctr += len(node.routeInfo)
@@ -168,7 +168,7 @@ def main(argv):
         trips[vehCtr] = gtfs.TripsEntry(vehCtr, routes[routeID], "", gpsTracks[routes[routeID].shortName])
         stopTimes[trips[vehCtr]] = list() # Fake the system by having no stops defined.
         vehCtr += 1
-    tripIDs = trips.keys()
+    tripIDs = compat.listkeys(trips)
     tripIDs.sort()
        
     # Output the routes file:

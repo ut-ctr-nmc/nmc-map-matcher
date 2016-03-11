@@ -24,7 +24,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-import graph, linear, gtfs, operator, math, sys, copy
+from nmc_mm_lib import graph, linear
+import operator, math, sys, copy
 
 RESTART_PENALTY_MULT = 2
 "@var RESTART_PENALTY_MULT: A multiplier for shape-to-shape evaluations that happen while refining on a restart"

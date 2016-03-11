@@ -24,7 +24,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-from nmc_mm_lib import gtfs, path_engine
+from nmc_mm_lib import gtfs, path_engine, compat
 import sys, transit_gtfs
 
 def syntax():
@@ -129,7 +129,7 @@ def pathsRefine(gtfsNodes, vistaGraph):
     pathFinder.maxHops = maxHops
     
     # Begin iteration through each shape:
-    shapeIDs = gtfsNodes.keys()
+    shapeIDs = compat.listkeys(gtfsNodes)
     "@type shapeIDs: list<int>"
     shapeIDs.sort()
     gtfsNodesResults = {}
@@ -183,7 +183,7 @@ def main(argv):
     print("INFO: Print output...", file = sys.stderr)
     path_engine.dumpStandardHeader()
 
-    shapeIDs = gtfsNodesResults.keys()
+    shapeIDs = compat.listkeys(gtfsNodesResults)
     "@type shapeIDs: list<int>"
     shapeIDs.sort()
     for shapeID in shapeIDs:
