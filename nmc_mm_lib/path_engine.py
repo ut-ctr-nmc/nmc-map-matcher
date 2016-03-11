@@ -217,7 +217,7 @@ class PathEngine:
                     distance = linear.getNorm(gtfsPointRestart.pointOnLink.pointX, gtfsPointRestart.pointOnLink.pointY,
                                        gtfsPoint.pointOnLink.pointX, gtfsPoint.pointOnLink.pointY)
                     gtfsPoint.totalCost = gtfsPointRestart.totalCost + self.scoreFunction(gtfsPointRestart, distance,
-                        pointOnLink)
+                        gtfsPoint)
                     gtfsPoint.totalDist = gtfsPointRestart.totalDist + distance
         else:
             # Trim off lowest-scoring paths:
