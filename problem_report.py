@@ -25,14 +25,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
 from nmc_mm_lib import compat
-import transit_gtfs, sys
+import transit_gtfs, sys, math, argparse
 
 PERP_DIST = 300.0
 "@var PERP_DIST: Maximum allowed distance in ft from VISTA line for perpendicular match" 
 NONPERP_DIST = 150.0
 "@var NONPERP_DIST: Maximum allowed distance in ft from VISTA line for non-perpendicular match" 
 
-def problemReport(gtfsNodes, vistaGraph, byTripFlag=False, outFile=sys.stdout):
+def problemReport(gtfsNodes, vistaGraph, showLinks=False, byTripFlag=False, outFile=sys.stdout):
     """
     Takes a GTFS node set and outputs a CSV format of GPS points where there are indications of problems.
     @type gtfsNodes: dict<?, path_engine.PathEnd>
@@ -46,6 +46,7 @@ def problemReport(gtfsNodes, vistaGraph, byTripFlag=False, outFile=sys.stdout):
     for shapeID in shapeIDs:
         gtfsNodeList = gtfsNodes[shapeID]
         "@type gtfsNodeList: list<path_engine.PathEnd>"
+        prevSeq = -1
         for gtfsNode in gtfsNodeList:
             "@type gtfsNode: path_engine.PathEnd"
             (vistaLat, vistaLng) = vistaGraph.gps.feet2gps(gtfsNode.pointOnLink.pointX, gtfsNode.pointOnLink.pointY) 
@@ -58,39 +59,44 @@ def problemReport(gtfsNodes, vistaGraph, byTripFlag=False, outFile=sys.stdout):
                 problemCode = 2
             elif gtfsNode.pointOnLink.nonPerpPenalty and gtfsNode.pointOnLink.refDist > NONPERP_DIST:
                 problemCode = 3
-            
+
+            if showLinks and gtfsNode.routeInfo:
+                divisor = 10 ** int(math.log10(len(gtfsNode.routeInfo) + 1) + 1)
+                increment = 1 / divisor
+                seqCtr = prevSeq + increment
+                for routeInfo in gtfsNode.routeInfo:
+                    "@type routeInfo: graph.GraphLink"
+                    outStr = "%s,%g,%d,%g,%d,%s,%s" % (str(gtfsNode.shapeEntry.shapeID), seqCtr, routeInfo.id,
+                        0, 4, str(routeInfo.origNode.gpsLat) + " " + str(routeInfo.origNode.gpsLng),
+                        str(routeInfo.origNode.gpsLat) + " " + str(routeInfo.origNode.gpsLng))
+                    print(outStr, file=outFile)
+                    seqCtr += increment
+                                
             outStr = "%s,%d,%d,%g,%d,%s,%s" % (str(gtfsNode.shapeEntry.shapeID), gtfsNode.shapeEntry.shapeSeq,
                             gtfsNode.pointOnLink.link.id if gtfsNode.pointOnLink.link is not None else -1,
                             gtfsNode.pointOnLink.dist, problemCode, str(gtfsNode.shapeEntry.lat)
                             + " " + str(gtfsNode.shapeEntry.lng), str(vistaLat) + " " + str(vistaLng))
-            print(outStr, file = outFile)
-
-def syntax():
-    """
-    Print usage information
-    """
-    print("problem_report outputs GPS information for GTFS shapefiles reports potential problems with VISTA path matching.")
-    print("Problem codes: 0: OK; 1: Path restarted; 2: For perpendicular; 3: For nonperpendicular")
-    print("Usage:")
-    print("  python problem_report.py dbServer network user password shapePath pathMatchFile")
-    sys.exit(0)
+            print(outStr, file=outFile)
 
 def main(argv):
     # Initialize from command-line parameters:
-    if len(argv) < 7:
-        syntax()
-    dbServer = argv[1]
-    networkName = argv[2]
-    userName = argv[3]
-    password = argv[4]
-    shapePath = argv[5]
-    pathMatchFilename = argv[6]
+    parser = argparse.ArgumentParser(description="problem_report outputs GPS information for GTFS shapefiles, reporting " +
+        "potential problems with VISTA path matching. Problem codes: 0: OK; 1: Path restarted; 2: For perpendicular; " +
+        "3: For nonperpendicular; 4: Intermediate link")
+    parser.add_argument("dbServer", help="PostgreSQL database server on which this is to run")
+    parser.add_argument("networkName", help="Network name for the underlying topology")
+    parser.add_argument("userName", help="Username for the database")
+    parser.add_argument("password", help="Password for the database")
+    parser.add_argument("shapePath", help="Path to GTFS files")
+    parser.add_argument("pathMatchFile", help="Path match file that was previously outputted by path_match.py or others")
+    parser.add_argument("-L", "--interLinks", action="store_true", help="Outputs intermediate links and positions")
+    args = parser.parse_args()
         
     # Restore the stuff that was built with path_match:
-    (vistaGraph, gtfsShapes, gtfsNodes, unusedShapeIDs) = transit_gtfs.restorePathMatch(dbServer, networkName,
-        userName, password, shapePath, pathMatchFilename)
-    print("INFO: Output CSV...", file = sys.stderr)
-    problemReport(gtfsNodes, vistaGraph)
+    (vistaGraph, gtfsShapes, gtfsNodes, unusedShapeIDs) = transit_gtfs.restorePathMatch(args.dbServer, args.networkName,
+        args.userName, args.password, args.shapePath, args.pathMatchFile)
+    print("INFO: Output CSV...", file=sys.stderr)
+    problemReport(gtfsNodes, vistaGraph, showLinks=args.interLinks)
     print("INFO: Done.", file = sys.stderr)
     
 # Boostrap:
