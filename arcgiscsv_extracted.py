@@ -30,7 +30,6 @@ from nmc_mm_lib import gtfs, vista_network, path_engine, compat
 import operator, sys, csv
 
 # A module that deals with reading CSV files extracted from an ArcGIS CSV export format.
-DIVISOR = 1000L * long(1 << 48)
 
 def syntax():
     """
