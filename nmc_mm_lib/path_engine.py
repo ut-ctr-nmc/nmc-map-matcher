@@ -103,6 +103,7 @@ class PathEngine:
         self.prevCosts = None
         
         self.maxHops = 12 # Limits the number of nodes to be traversed in path-finding.
+        self.tossRatio = 1.0 # Disable the invalidation of short paths.
         
         self.logFile = sys.stderr
         "@type self.logFile: file"
@@ -260,7 +261,7 @@ class PathEngine:
         "@type gtfsPointsPrev: list<PathEnd>"
 
         pathProcessor = graph.WalkPathProcessor(self, self.limitDirectDist, self.limitLinearDist, self.limitDirectDistRev,
-            self.maxHops, tossRatio=sys.float_info.max)
+            self.maxHops)
         "@type pathProcessor: graph.WalkPathProcessor"
         
         shapeCtr = 0
@@ -336,7 +337,7 @@ class PathEngine:
             missingEnds += invalidCtr
         if len(reportStr) > 0:
             print("WARNING: Out of %d georeference points, %s." % (len(shapeEntries), reportStr), file=sys.stderr)
-        if float(missingEnds) / len(shapeEntries) > tossRatio:
+        if float(missingEnds) / len(shapeEntries) > self.tossRatio:
             print("WARNING: Aborting ID %s." % str(shapeEntry.shapeID), file=sys.stderr)
             return None
 

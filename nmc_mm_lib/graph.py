@@ -1,5 +1,5 @@
 """
-graph.py: Links and nodes for graph models; also a rudimentary breadth-first search.
+graph.py: Links and nodes for graph models; also a breadth-first search.
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
@@ -24,11 +24,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
 from nmc_mm_lib import linear, gps
-import sys
+import sys, math
 from heapq import heappush, heappop
 
 "The maximum number of lines allowed in a quad for optimized QuadSet lookup."
-DEFAULT_QUAD_LIMIT = 200 
+DEFAULT_QUAD_LIMIT = 200
+
+"Tolerance in the closest-point finder for dealing with corner arcs."
+EPSILON = 0.001
 
 class GraphLink:
     """
@@ -36,10 +39,11 @@ class GraphLink:
     @ivar id: ?
     @ivar origNode: GraphNode
     @ivar destNode: GraphNode
-    @ivar vertices: list<GraphLinkVirtex>
+    @ivar vertices: list<GraphLinkVertex>
     @ivar distance: float
+    @ivar graphLib: GraphLib
     """
-    def __init__(self, ident, origNode, destNode):
+    def __init__(self, ident, origNode, destNode, graphLib):
         """
         @type ident: int
         @type origNode: GraphNode
@@ -55,6 +59,9 @@ class GraphLink:
         # Placeholders for efficiency of measurement:
         self.distance = 0.0
         
+        # Reference to coordinate system and other links:
+        self.graphLib = graphLib
+        
     def makeVertices(self):
         """
         For links that are straight and have no curvature, creates a pair of vertices that correspond
@@ -69,17 +76,18 @@ class GraphLink:
         Adds the list of vertices to the given link, computing coordinates and distances along the way.
         @type linkVertices: list<GraphLinkVertex>
         """
-        prevVirtex = self.vertices[0]
-        prevVirtex.pointX, prevVirtex.pointY = self.gps.gps2feet(prevVirtex.lat, prevVirtex.lng)
-        prevVirtex.parentLink = self
-        prevVirtex.distance = 0.0
+        gps2feet = self.graphLib.gps.gps2feet
+        prevVertex = linkVertices[0]
+        prevVertex.pointX, prevVertex.pointY = gps2feet(prevVertex.lat, prevVertex.lng)
+        prevVertex.parentLink = self
+        prevVertex.distance = 0.0
         self.vertices = linkVertices
-        for nextVirtex in linkVertices[1:]:
-            nextVirtex.pointX, nextVirtex.pointY = self.gps.gps2feet(nextVirtex.lat, nextVirtex.lng)
-            nextVirtex.distance = prevVirtex.distance + linear.getNorm(prevVirtex.pointX, prevVirtex.pointY,
-                nextVirtex.pointX, nextVirtex.pointY)
-            nextVirtex.parentLink = self
-            prevVirtex = nextVirtex            
+        for nextVertex in linkVertices[1:]:
+            nextVertex.pointX, nextVertex.pointY = gps2feet(nextVertex.lat, nextVertex.lng)
+            nextVertex.distance = prevVertex.distance + linear.getNorm(prevVertex.pointX, prevVertex.pointY,
+                nextVertex.pointX, nextVertex.pointY)
+            nextVertex.parentLink = self
+            prevVertex = nextVertex            
             
     def pointDistSq(self, pointX, pointY):
         """
@@ -89,66 +97,67 @@ class GraphLink:
         @rtype float, float, bool
         """
         minDistSq = sys.float_info.max
-        minLinkDist = minPerpendicular = 0
+        minLinkDist = sys.float_info.max
+        minPerpendicular = False
         minIndex = -1
-        prevVirtex = self.vertices[0]
-        for prevIndex, nextVirtex in enumerate(self.vertices[1:]):
-            distSq, linkDist, perpendicular = linear.pointDistSq(pointX, pointY, prevVirtex.pointX, prevVirtex.pointY,
-                nextVirtex.pointX, nextVirtex.pointY, nextVirtex.distance - prevVirtex.distance)
-            if distSq < minDistSq:
+        prevVertex = self.vertices[0]
+        for prevIndex, nextVertex in enumerate(self.vertices[1:]):
+            distSq, linkDist, perpendicular = linear.pointDistSq(pointX, pointY, prevVertex.pointX, prevVertex.pointY,
+                nextVertex.pointX, nextVertex.pointY, nextVertex.distance - prevVertex.distance)
+            if distSq < minDistSq - EPSILON:
                 minDistSq, minLinkDist, minPerpendicular = distSq, linkDist, perpendicular
                 minIndex = prevIndex
-            prevVirtex = nextVirtex
+            prevVertex = nextVertex
         
         # If we are nonperpendicular, see if the point falls within the arc that sits between the neighboring
         # segments.
-        
-        
-        
-        if not minPerpendicular and minIndex < len(self.vertices) - 2:
-            prevVirtex = self.vertices[minIndex]
-            nextVirtex = self.vertices[minIndex + 2]
-            distSq, linkDist, perpendicular = linear.pointDistSq(pointX, pointY, prevVirtex.pointX, prevVirtex.pointY,
-                nextVirtex.pointX, nextVirtex.pointY, nextVirtex.distance - prevVirtex.distance)
-            minPerpendicular = perpendicular
-        if not minPerpendicular and minIndex > 0:
-            prevVirtex = self.vertices[minIndex]
-            nextVirtex = self.vertices[minIndex + 2]
-            distSq, linkDist, perpendicular = linear.pointDistSq(pointX, pointY, prevVirtex.pointX, prevVirtex.pointY,
-                nextVirtex.pointX, nextVirtex.pointY, nextVirtex.distance - prevVirtex.distance)
-            minPerpendicular = perpendicular
-        
-        return minDistSq, minLinkDist, minPerpendicular
+        if not minPerpendicular:
+            if minIndex > 0 and (minIndex < len(self.vertices) - 1 or minLinkDist < (self.vertices[-1].distance \
+                    - self.vertices[-2].distance) / 2 - EPSILON): 
+                minPerpendicular = True
+                
+        return minDistSq, minLinkDist + self.vertices[minIndex].distance, minPerpendicular 
             
     def isComplementary(self, otherLink):
         """
         Return True if the given link directly flows in the opposite direction of this link.
         @type otherLink: GraphLink
         """
-        blah
-        # TODO: Maybe have isComplementary compare the vertices.
+        # Test 1: Check that the nodes are shared in a complementary way:
+        if not (otherLink.destNode is self.origNode and otherLink.origNode is self.destNode \
+                and self.origNode is not self.destNode):
+            return False
+
+        # Test 2: Compare vertices in between the nodes:
+        index = 1
+        limit = math.ceil(len(self.vertices) / 2)
+        while index < limit:
+            if abs(self.vertices[-(index + 2)].pointX - self.vertices[index].pointX) >= EPSILON \
+                    or abs(self.vertices[-(index + 2)].pointY - self.vertices[index].pointY) >= EPSILON:
+                return False
+            index += 1
         
-        return otherLink.destNode is self.origNode and otherLink.origNode is self.destNode
+        return True
     
 class GraphLinkVertex:
     """
     GraphLinkVertex is a vertex possibly among several for a GraphLink. Use GraphLib.addVerticesToLink()
     to associate this with the parent link and compute coordinates.
-    @ivar gpsLat: float
-    @ivar gpsLng: float
+    @ivar lat: float
+    @ivar lng: float
     @ivar pointX: float
     @ivar pointY: float
     @ivar distance: float
     @ivar parentLink: GraphLink
     """
-    def __init__(self, gpsLat, gpsLng):
+    def __init__(self, lat, lng):
         """
         Sets the next vertex to allow for a segment to be expressed between this object and nextVertex.
         @type gpsLat: float
         @type gpsLng: float
         """
-        self.gpsLat = gpsLat
-        self.gpsLng = gpsLng
+        self.lat = lat
+        self.lng = lng
         self.pointX = 0.0
         self.pointY = 0.0
         self.distance = 0.0
@@ -280,18 +289,14 @@ class GraphLib:
             if not link.vertices:
                 link.makeVertices()
             for vertex in link.vertices:
-                minX = min(minX, vertex.coordX)
-                minY = min(minY, vertex.coordY)
-                maxX = max(maxX, vertex.coordX)
-                maxY = max(maxY, vertex.coordY)
+                minX = min(minX, vertex.pointX)
+                minY = min(minY, vertex.pointY)
+                maxX = max(maxX, vertex.pointX)
+                maxY = max(maxY, vertex.pointY)
         
         self.quadSet = linear.QuadSet(self.quadLimit, minX, minY, maxX, maxY)
         for link in self.linkMap.values():
-            
-            blah
-            # Deal with vertices here.
-            
-            self.quadSet.storeLine(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY, link)
+            self.quadSet.storeLink(link)
         
     def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints=sys.maxint):
         """

@@ -246,7 +246,7 @@ def buildSubset(treeNodes, vistaNetwork):
 
             # We shall label our links as indices into the stage we're at in ourGTFSNodes links.  This will allow for access later.
             if prevLinkID not in subset.linkMap:
-                newLink = graph.GraphLink(prevLinkID, subsetNodePrior, subsetNode)
+                newLink = graph.GraphLink(prevLinkID, subsetNodePrior, subsetNode, vistaNetwork)
                 subset.addLink(newLink)
                 outLinkList.append(newLink)
             else:
@@ -259,7 +259,7 @@ def buildSubset(treeNodes, vistaNetwork):
     subsetNode.coordX, subsetNode.coordY = ourGTFSNode.pointOnLink.link.destNode.coordX, ourGTFSNode.pointOnLink.link.destNode.coordY
     subset.addNode(subsetNode)
     if prevLinkID not in subset.linkMap:
-        newLink = graph.GraphLink(prevLinkID, subsetNodePrior, subsetNode)
+        newLink = graph.GraphLink(prevLinkID, subsetNodePrior, subsetNode, vistaNetwork)
         subset.addLink(newLink)
         outLinkList.append(newLink)
     else:

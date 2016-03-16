@@ -25,6 +25,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import sys, math, unittest
 from heapq import heappush, heappop
 
+"Tolerance in the point-distance finder for finding ill-defined lines"
+EPSILON = 0.001
+
 def pointDistSq(pointX, pointY, lineX1, lineY1, lineX2, lineY2, norm):
     """
     pointDistSq returns the squared distance of a line segment from a point, the distance of the segment traversed,
@@ -42,7 +45,7 @@ def pointDistSq(pointX, pointY, lineX1, lineY1, lineX2, lineY2, norm):
     perpendicular = False
     
     # Case 1: We have an ill-defined line:
-    if lineX1 == lineX2 and lineY1 == lineY2:
+    if abs(lineX2 - lineX1) < EPSILON and abs(lineY2 - lineY1) < EPSILON:
         distSq = (pointX - lineX1) ** 2 + (pointY - lineY1) ** 2
         linkDist = 0
     
@@ -177,31 +180,38 @@ class QuadSet:
         self.quadElement = _QuadElement(self, 1, centerX - dimension, centerY - dimension, centerX + dimension, centerY + dimension)
         self.prevQuadElement = None
 
-    def storeLine(self, pointX1, pointY1, pointX2, pointY2, obj):
+    def storeLink(self, link):
         """
-        Drills down and stores the given line in all _QuadElements that intersect it.
+        Drills down and stores the given link in all _QuadElements that intersect it.
         @type pointX1: float
         @type pointY1: float
         @type pointX2: float
         @type pointY2: float
-        @type obj: ?
+        @type link: graph.GraphLink
         """
         # Do a quick test first to see if the line we're attempting to add is entirely contained by the
         # previously written quad:
-        if self.prevQuadElement is not None and \
-                pointX1 >= self.prevQuadElement.uCornerX and pointX1 <= self.prevQuadElement.lCornerX \
-                and pointY1 >= self.prevQuadElement.uCornerY and pointY1 <= self.prevQuadElement.lCornerY \
-                and pointX2 >= self.prevQuadElement.uCornerX and pointX2 <= self.prevQuadElement.lCornerX \
-                and pointY2 >= self.prevQuadElement.uCornerY and pointY2 <= self.prevQuadElement.lCornerY:
-            self.prevQuadElement.storeLine(_QuadElementLine(pointX1, pointY1, pointX2, pointY2, obj))
+        if self.prevQuadElement is not None:
+            target = self.prevQuadElement 
+            # Local copies for speed:
+            vertices = link.vertices
+            for vertIndex, vertex in enumerate(vertices[:-2]):
+                if not (vertex.pointX >= self.prevQuadElement.uCornerX and vertex.pointX <= self.prevQuadElement.lCornerX \
+                        and vertex.pointY >= self.prevQuadElement.uCornerY and vertex.pointY <= self.prevQuadElement.lCornerY \
+                        and vertices[vertIndex + 1].pointX >= self.prevQuadElement.uCornerX and vertices[vertIndex + 1].pointX <= self.prevQuadElement.lCornerX \
+                        and vertices[vertIndex + 1].pointY >= self.prevQuadElement.uCornerY and vertices[vertIndex + 1].pointY <= self.prevQuadElement.lCornerY):
+                    target = self.quadElement
+                    break
         else:
-            # Nope, do the normal searching and storing:
-            self.quadElement.storeLine(_QuadElementLine(pointX1, pointY1, pointX2, pointY2, obj))
+            target = self.quadElement
+        
+        # Nope, do the normal searching and storing:
+        target.storeLink(link, 0)        
 
     def retrieveLines(self, pointX, pointY, maxRadius=None):
         """
         Sets up a generator that returns all line objects in order of perpendicular distance from the
-        point. The yield is the tuple (refDistance, minDistance, lineDist, perpendicular, obj) 
+        point. The yield is the tuple (refDistance, minDistance, lineDist, perpendicular, link) 
         """
         maxRadiusSq = maxRadius ** 2 if maxRadius is not None else sys.float_info.max
         heap = []
@@ -220,43 +230,23 @@ class QuadSet:
                             if distSq <= maxRadiusSq:
                                 heappush(heap, (distSq, quadElement))
                 else:
-                    # We got to the bottom; evaluate all lines that intersect the rectangle:
-                    for line in element.members:
-                        
-                        
-                        # Evaluate the possibly multi-segment line.
-                        distSq, lineDist, perpendicular = line.obj.pointDistSq(pointX, pointY)
-                        blah "Define _QuadElement"
-                        
-                        
-                        "** OLD! **"
-                        distSq, lineDist, perpendicular = pointDistSq(pointX, pointY, line.pointX1, line.pointY1, line.pointX2,
-                                                                      line.pointY2, line.norm) ;"** norm not defined anymore. **"
-                        if distSq <= maxRadiusSq and line not in traversedSet:
-                            heappush(heap, (distSq, (lineDist, perpendicular, line.obj)))
-                            traversedSet.add(line)
-            else: # It's a line, annotated with the stuff that was computed earlier:
-                lineDist, perpendicular, lineObj = element
-                yield math.sqrt(distSq), lineDist, perpendicular, lineObj
-
-class _QuadElementLine:
-    """
-    Storage object for a line to be used by _QuadElement.
-    """
-    def __init__(self, pointX1, pointY1, pointX2, pointY2, obj):
-
-        self.pointX1 = pointX1 
-        self.pointY1 = pointY1 
-        self.pointX2 = pointX2 
-        self.pointY2 = pointY2
-        "TODO: ** Remove this! **"
-        #self.norm = getNorm(pointX1, pointY1, pointX2, pointY2)
-        self.obj = obj
+                    # We got to the bottom; evaluate all links that intersect the rectangle:
+                    for link in element.memberMap:
+                        if link in traversedSet:
+                            continue
+                        distSq, lineDist, perpendicular = link.pointDistSq(pointX, pointY)
+                        if distSq <= maxRadiusSq:
+                            heappush(heap, (distSq, (lineDist, perpendicular, link)))
+                            traversedSet.add(link)
+            else: # It's a link, annotated with the stuff that was computed earlier:
+                linkDist, perpendicular, link = element
+                yield math.sqrt(distSq), linkDist, perpendicular, link
     
 class _QuadElement:
     """
     Represents a rectangle within this QuadSet.
-    @type members: list<?>
+    @type members: list<_QuadElement>
+    @type memberMap: dict<graph.GraphLink, set<int>>
     @type quadSet: QuadSet
     @type bottomLayer: bool
     @type uCornerX: float
@@ -275,7 +265,8 @@ class _QuadElement:
         @type centerX: float
         @type centerY: float
         """
-        self.members = []
+        self.members = None
+        self.memberMap = {}
         self.bottomLayer = True
         self.quadSet = quadSet
         self.layer = layer
@@ -306,14 +297,16 @@ class _QuadElement:
                 self.uCornerX + pad, self.uCornerY + pad, edgeNorm)
             return min(distSq1, distSq2, distSq3, distSq4)    
 
-    def storeLine(self, line):
+    def storeLink(self, link, vertIndex):
         """
-        Drills down and stores the given line in all _QuadElements that intersect it.
-        @type line _QuadElementLine
+        Drills down and stores the given link in all _QuadElements that intersect it.
+        @type link graph.GraphLink
         """
         if self.bottomLayer:
-            if len(self.members) < self.quadSet.pointLimit:
-                self.members.append(line)
+            if link not in self.memberMap:
+                self.memberMap[link] = set()
+            if len(self.memberMap) < self.quadSet.pointLimit:
+                self.memberMap[link].add(vertIndex)
                 self.quadSet.prevQuadElement = self
             else:
                 # Promote this layer to be above the bottom:
@@ -322,27 +315,29 @@ class _QuadElement:
         if not self.bottomLayer:
             # Get local copies for optimization purposes:
             centerX, centerY = (self.centerX, self.centerY)
-            pointX1, pointY1, pointX2, pointY2 = (line.pointX1, line.pointY1, line.pointX2, line.pointY2)
             uCornerX, uCornerY, lCornerX, lCornerY = (self.uCornerX, self.uCornerY, self.lCornerX, self.lCornerY)
             _prepareBelow = self._prepareBelow
-            
+            vertices = link.vertices
+            pointX1, pointY1, pointX2, pointY2 = (vertices[vertIndex].pointX, vertices[vertIndex].pointY,
+                vertices[vertIndex + 1].pointX, vertices[vertIndex + 1].pointY)
+    
             # Check if there is intersection in any of these rectangles:
             if lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, uCornerX, uCornerY, centerX, centerY):
                 quadElement = _prepareBelow(0, uCornerX, uCornerY, centerX, centerY)
                 if quadElement is not None:
-                    quadElement.storeLine(line)
+                    quadElement.storeLink(link, vertIndex)
             if lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, centerX, uCornerY, lCornerX, centerY):
                 quadElement = _prepareBelow(1, centerX, uCornerY, lCornerX, centerY)
                 if quadElement is not None:
-                    quadElement.storeLine(line)
+                    quadElement.storeLink(link, vertIndex)
             if lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, centerX, centerY, lCornerX, lCornerY):
                 quadElement = _prepareBelow(2, centerX, centerY, lCornerX, lCornerY)
                 if quadElement is not None:
-                    quadElement.storeLine(line)
+                    quadElement.storeLink(link, vertIndex)
             if lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, uCornerX, centerY, centerX, lCornerY):
                 quadElement = _prepareBelow(3, uCornerX, centerY, centerX, lCornerY)
                 if quadElement is not None:
-                    quadElement.storeLine(line)
+                    quadElement.storeLink(link, vertIndex)
 
     def _prepareBelow(self, index, uCornerX, uCornerY, lCornerX, lCornerY):
         """
@@ -356,11 +351,13 @@ class _QuadElement:
         """
         Moves all member lines to new elements below.
         """
-        lines = self.members
         self.members = 4 * [None]
+        memberMap = self.memberMap
+        self.memberMap = None
         self.bottomLayer = False
-        for lineElement in lines:
-            self.storeLine(lineElement)
+        for link, vertexSet in memberMap.iteritems():
+            for vertexIndex in vertexSet:
+                self.storeLink(link, vertexIndex)
         
 class TestLinear(unittest.TestCase):
 
