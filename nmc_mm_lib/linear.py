@@ -208,7 +208,7 @@ class QuadSet:
         # Nope, do the normal searching and storing:
         target.storeLink(link, 0)        
 
-    def retrieveLines(self, pointX, pointY, maxRadius=None):
+    def retrieveLinks(self, pointX, pointY, maxRadius=None):
         """
         Sets up a generator that returns all line objects in order of perpendicular distance from the
         point. The yield is the tuple (refDistance, minDistance, lineDist, perpendicular, link) 

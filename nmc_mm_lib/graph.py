@@ -79,14 +79,12 @@ class GraphLink:
         gps2feet = self.graphLib.gps.gps2feet
         prevVertex = linkVertices[0]
         prevVertex.pointX, prevVertex.pointY = gps2feet(prevVertex.lat, prevVertex.lng)
-        prevVertex.parentLink = self
         prevVertex.distance = 0.0
         self.vertices = linkVertices
         for nextVertex in linkVertices[1:]:
             nextVertex.pointX, nextVertex.pointY = gps2feet(nextVertex.lat, nextVertex.lng)
             nextVertex.distance = prevVertex.distance + linear.getNorm(prevVertex.pointX, prevVertex.pointY,
                 nextVertex.pointX, nextVertex.pointY)
-            nextVertex.parentLink = self
             prevVertex = nextVertex            
             
     def pointDistSq(self, pointX, pointY):
@@ -148,7 +146,6 @@ class GraphLinkVertex:
     @ivar pointX: float
     @ivar pointY: float
     @ivar distance: float
-    @ivar parentLink: GraphLink
     """
     def __init__(self, lat, lng):
         """
@@ -161,7 +158,6 @@ class GraphLinkVertex:
         self.pointX = 0.0
         self.pointY = 0.0
         self.distance = 0.0
-        self.parentLink = None
 
 class GraphNode:
     """
@@ -318,8 +314,8 @@ class GraphLib:
         secondaryRadiusSq = secondaryRadius ** 2
 
         # Find perpendicular and non-perpendicular PointOnLinks that are within radius.
-        for refDist, linkDist, perpendicular, link in self.quadSet.retrieveLines(pointX, pointY, radius):
-            # Everything coming back from retrieveLines is sorted according to the distance from point to
+        for refDist, linkDist, perpendicular, link in self.quadSet.retrieveLinks(pointX, pointY, radius):
+            # Everything coming back from retrieveLinks is sorted according to the distance from point to
             # line, and is limited to the given radius. Are we done?
             if len(retList) >= limitClosestPoints:
                 break
