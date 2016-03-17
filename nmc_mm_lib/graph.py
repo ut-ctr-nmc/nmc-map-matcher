@@ -438,23 +438,51 @@ class WalkPathProcessor:
             """
             self.prevStruct = prevStruct
             self.incomingLink = incomingLink
+            
+            
+            if not prevStruct and processor.pointOnLinkOrig.link.id == 31 and processor.pointOnLinkDest.link.id == 33 \
+                    and incomingLink.id == 31:
+                j = 1
+                j += 1
+            if prevStruct and processor.pointOnLinkOrig.link.id == 31 and processor.pointOnLinkDest.link.id == 33 \
+                    and prevStruct.incomingLink.id == 31 and incomingLink.id == 33:
+                j = 1
+                j += 1
+            
+            
+            
             if prevStruct is None:
                 # First-time initialization:
-                self.distance = processor.pointOnLinkOrig.link.distance - processor.pointOnLinkOrig.dist
+                linkDistance = processor.pointOnLinkOrig.link.distance - processor.pointOnLinkOrig.dist
                 self.stepCount = 0
             else:
-                self.distance = prevStruct.distance + incomingLink.distance
+                linkDistance = incomingLink.distance
                 self.stepCount = prevStruct.stepCount + 1
 
             if incomingLink is processor.pointOnLinkDest.link:
                 # Last-time initialization; we have hit the destination link:
                 # We are stopping midway through this link.  So, subtract off the distance from the
                 # end that we aren't traversing.
-                self.distance -= processor.pointOnLinkDest.link.distance - processor.pointOnLinkDest.dist
-                self.cost = startupCost + processor.pathEngine.scoreFunction(processor.pointOnLinkOrig, self.distance, processor.pointOnLinkDest)
+                linkDistance -= processor.pointOnLinkDest.link.distance - processor.pointOnLinkDest.dist
+                self.cost = startupCost + processor.pathEngine.scoreFunction(processor.pointOnLinkOrig, linkDistance, processor.pointOnLinkDest)
+                
+                """
+                # TEST!                
+                print("B: pil=%d; il=%d; sc=%g; d=%g; c=%g" % (prevStruct.incomingLink.id if prevStruct else -1, incomingLink.id, startupCost,
+                                                               linkDistance, self.cost))
+                """
+                
             else:
                 # Normal operation; we hadn't encountered the destination link yet:
-                self.cost = startupCost + processor.pathEngine.scoreFunction(processor.pointOnLinkOrig, self.distance, None)
+                self.cost = startupCost + processor.pathEngine.scoreFunction(processor.pointOnLinkOrig, linkDistance, None)
+                
+                """
+                # TEST!                
+                print("A: pil=%d; il=%d; sc=%g; d=%g; c=%g" % (prevStruct.incomingLink.id if prevStruct else -1, incomingLink.id, startupCost,
+                                                               linkDistance, self.cost))
+                """
+                
+            self.distance = prevStruct.distance if prevStruct else 0.0 + linkDistance
 
             # Make a copy of the set only if it is to change, and add in the new incoming link ID:
             oldBacktrackSet = prevStruct.backtrackSet if prevStruct is not None else set()
@@ -474,7 +502,7 @@ class WalkPathProcessor:
         origin.
         @type pointOnLinkOrig: PointOnLink
         @type pointOnLinkDest: PointOnLink
-        @return List of new GraphLinks traversed, distance, and cost 
+        @return List of new GraphLinks traversed, distance, and total cost 
         @rtype list<GraphLink>, float, float
         """
         # Initializations:
@@ -568,6 +596,7 @@ class WalkPathProcessor:
             myList = walkPathElem.incomingLink.destNode.outgoingLinkMap.values()
         for link in myList:
             # Filter out U-turns:
+            penalty = 0.0
             if walkPathElem.incomingLink.isComplementary(link):
                 # Is it a dead-end?
                 if len(link.destNode.outgoingLinkMap) == 1:
@@ -575,14 +604,15 @@ class WalkPathProcessor:
                         if self.uTurnInterPenalty is None:
                             continue
                         else:
-                            walkPathElem.distance += self.uTurnInterPenalty
+                            penalty = self.uTurnInterPenalty
                     else:
-                        walkPathElem.distance += self.uTurnDeadEndPenalty
+                        penalty = self.uTurnDeadEndPenalty
                 else:
                     if self.uTurnInterPenalty is None:
                         continue
                     else:
-                        walkPathElem.distance += self.uTurnInterPenalty
+                        penalty = self.uTurnInterPenalty
+                penalty = self.pathEngine.scoreFunction(None, penalty, None)
                                     
             # Had we visited this before?
             if link.id in walkPathElem.backtrackSet:
@@ -590,4 +620,4 @@ class WalkPathProcessor:
             
             # Add to the queue for processing later:
             self.queueCounter += 1
-            heappush(self.processingQueue, (walkPathElem.cost, self.queueCounter, self._WalkPathNext(self, walkPathElem, link, walkPathElem.cost)))
+            heappush(self.processingQueue, (walkPathElem.cost + penalty, self.queueCounter, self._WalkPathNext(self, walkPathElem, link, walkPathElem.cost + penalty)))
