@@ -201,6 +201,13 @@ class PathEngine:
                             self.prevCosts[-1] = cost
                         self.prevCosts[:] = sorted(self.prevCosts[:])
                         
+                        
+                        # TEST!
+                        print("From %d to %d: Dist: %g (Total: %g); Cost: %g (Total: %g)" % (gtfsPointPrev.pointOnLink.link.id if gtfsPointPrev else -1, gtfsPoint.pointOnLink.link.id, distance, gtfsPoint.totalDist, cost, gtfsPoint.totalCost))
+                    else:
+                        print("From %d to %d: Dist: %g; Cost: %g (Eliminated)" % (gtfsPointPrev.pointOnLink.link.id, gtfsPoint.pointOnLink.link.id, distance, cost))
+                        
+                        
         # Clean up tree entries that didn't get assigned to a parent:
         if len(gtfsPointsPrev) > 0:
             gtfsPointsWork = []
@@ -275,6 +282,12 @@ class PathEngine:
         for shapeEntry in shapeEntries:
             "@type shapeEntry: ShapesEntry"
             shapeCtr = shapeCtr + 1
+            
+            
+            # TEST!
+            print("--- %d of %d ---" % (shapeCtr, len(shapeEntries)))
+            
+            
             if shapeCtr % 10 == 0:
                 if self.logFile is not None:
                     print("INFO:   ... %d of %d" % (shapeCtr, len(shapeEntries)), file=self.logFile)

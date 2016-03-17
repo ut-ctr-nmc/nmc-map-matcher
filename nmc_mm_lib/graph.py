@@ -137,6 +137,9 @@ class GraphLink:
         
         return True
     
+    def __lt__(self, other):
+        return self.id < other.id
+    
 class GraphLinkVertex:
     """
     GraphLinkVertex is a vertex possibly among several for a GraphLink. Use GraphLib.addVerticesToLink()
@@ -294,7 +297,7 @@ class GraphLib:
         for link in self.linkMap.values():
             self.quadSet.storeLink(link)
         
-    def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints=sys.maxint):
+    def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints=sys.maxsize):
         """
         findPointsOnLinks searches through the graph and finds all PointOnLinks that are within the radius.
         Then, eligible links are proposed primaryRadius distance around the GTFS point, or secondaryRadius
@@ -496,7 +499,7 @@ class WalkPathProcessor:
         # Do the breadth-first search:
         while self.processingQueue:
             self._walkPath(heappop(self.processingQueue)[-1])
-        
+  
         # Set up the return:
         if self.winner is not None:
             # Iterate through all of the links we have traversed. (Ignore first item because we
