@@ -196,12 +196,12 @@ class PathEngine:
                             gtfsPoint.totalCost = cost
                             gtfsPoint.totalDist = 0
                         if len(self.prevCosts) < self.limitSimultaneousPaths:
-                            self.prevCosts.append(cost)
+                            self.prevCosts.append(gtfsPoint.totalCost)
                         else:
-                            self.prevCosts[-1] = cost
+                            self.prevCosts[-1] = gtfsPoint.totalCost
                         self.prevCosts[:] = sorted(self.prevCosts[:])
                         
-                        
+                        """
                         # TEST!
                         print("From %d to %d: Dist: %g (Total: %g); Ref: %g; Perp: %d; Cost: %g (Total: %g)" % (gtfsPointPrev.pointOnLink.link.id if gtfsPointPrev else -1,
                             gtfsPoint.pointOnLink.link.id, distance, gtfsPoint.totalDist, gtfsPoint.pointOnLink.refDist, 0 if gtfsPoint.pointOnLink.nonPerpPenalty else 1,
@@ -209,7 +209,7 @@ class PathEngine:
                     else:
                         print("From %d to %d: Dist: %g; Ref: %g; Perp: %d; Cost: %g (Eliminated)" % (gtfsPointPrev.pointOnLink.link.id, gtfsPoint.pointOnLink.link.id,
                             distance, gtfsPoint.pointOnLink.refDist, 0 if gtfsPoint.pointOnLink.nonPerpPenalty else 1, cost))
-                        
+                        """
                         
         # Clean up tree entries that didn't get assigned to a parent:
         if len(gtfsPointsPrev) > 0:

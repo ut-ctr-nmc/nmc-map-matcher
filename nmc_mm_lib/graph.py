@@ -439,18 +439,6 @@ class WalkPathProcessor:
             self.prevStruct = prevStruct
             self.incomingLink = incomingLink
             
-            
-            if not prevStruct and processor.pointOnLinkOrig.link.id == 31 and processor.pointOnLinkDest.link.id == 33 \
-                    and incomingLink.id == 31:
-                j = 1
-                j += 1
-            if prevStruct and processor.pointOnLinkOrig.link.id == 31 and processor.pointOnLinkDest.link.id == 33 \
-                    and prevStruct.incomingLink.id == 31 and incomingLink.id == 33:
-                j = 1
-                j += 1
-            
-            
-            
             if prevStruct is None:
                 # First-time initialization:
                 linkDistance = processor.pointOnLinkOrig.link.distance - processor.pointOnLinkOrig.dist
@@ -502,7 +490,7 @@ class WalkPathProcessor:
         origin.
         @type pointOnLinkOrig: PointOnLink
         @type pointOnLinkDest: PointOnLink
-        @return List of new GraphLinks traversed, distance, and total cost 
+        @return List of new GraphLinks traversed, distance, and cost 
         @rtype list<GraphLink>, float, float
         """
         # Initializations:
@@ -540,7 +528,7 @@ class WalkPathProcessor:
                 retList.append(element.incomingLink)
                 element = element.prevStruct
             retList.reverse()
-            return (retList, self.winner.distance, self.winner.cost)
+            return (retList, self.winner.distance, self.winner.cost - startupCost)
         else:
             # We didn't find anything.
             return (None, 0.0, 0.0)
