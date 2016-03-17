@@ -203,9 +203,12 @@ class PathEngine:
                         
                         
                         # TEST!
-                        print("From %d to %d: Dist: %g (Total: %g); Cost: %g (Total: %g)" % (gtfsPointPrev.pointOnLink.link.id if gtfsPointPrev else -1, gtfsPoint.pointOnLink.link.id, distance, gtfsPoint.totalDist, cost, gtfsPoint.totalCost))
+                        print("From %d to %d: Dist: %g (Total: %g); Ref: %g; Perp: %d; Cost: %g (Total: %g)" % (gtfsPointPrev.pointOnLink.link.id if gtfsPointPrev else -1,
+                            gtfsPoint.pointOnLink.link.id, distance, gtfsPoint.totalDist, gtfsPoint.pointOnLink.refDist, 0 if gtfsPoint.pointOnLink.nonPerpPenalty else 1,
+                            cost, gtfsPoint.totalCost))
                     else:
-                        print("From %d to %d: Dist: %g; Cost: %g (Eliminated)" % (gtfsPointPrev.pointOnLink.link.id, gtfsPoint.pointOnLink.link.id, distance, cost))
+                        print("From %d to %d: Dist: %g; Ref: %g; Perp: %d; Cost: %g (Eliminated)" % (gtfsPointPrev.pointOnLink.link.id, gtfsPoint.pointOnLink.link.id,
+                            distance, gtfsPoint.pointOnLink.refDist, 0 if gtfsPoint.pointOnLink.nonPerpPenalty else 1, cost))
                         
                         
         # Clean up tree entries that didn't get assigned to a parent:
