@@ -28,7 +28,7 @@ import sys, math
 from heapq import heappush, heappop
 
 "The maximum number of lines allowed in a quad for optimized QuadSet lookup."
-DEFAULT_QUAD_LIMIT = 200
+DEFAULT_QUAD_LIMIT = 10
 
 "Tolerance in the closest-point finder for dealing with corner arcs."
 EPSILON = 0.001
@@ -368,6 +368,29 @@ class GraphLib:
 
         # Return the limitClosestPoints number of points: 
         return retList
+
+    """
+    # TEST!
+    def dumpQuadSet(self, quadElement=None, seqStr=""):
+        "@type quadElement: linear._QuadElement"
+        if not quadElement:
+            quadElement = self.quadSet.quadElement
+        if quadElement.members:
+            for member in quadElement.members:
+                if member:
+                    ourSeqStr = str(seqStr)
+                    if seqStr:
+                        ourSeqStr += ","
+                    ourSeqStr += "(%d,%d)-(%d,%d)" % (int(quadElement.uCornerX), int(quadElement.uCornerY), int(quadElement.lCornerX), int(quadElement.lCornerY))
+                    self.dumpQuadSet(member, ourSeqStr)
+        else:
+            ourSeqStr = ""
+            for link in quadElement.memberMap:
+                if ourSeqStr:
+                    ourSeqStr += ","
+                ourSeqStr += str(link.id)
+            print(seqStr + " -> " + ourSeqStr)
+    """            
 
 class WalkPathProcessor:
     """

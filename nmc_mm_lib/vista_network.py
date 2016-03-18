@@ -83,6 +83,11 @@ def fillGraph(database):
     # Optimize the graph for lookups:
     graphLib.generateQuadSet()
         
+    """
+    # TEST!
+    graphLib.dumpQuadSet()
+    """
+        
     # There we are.
     return graphLib
 

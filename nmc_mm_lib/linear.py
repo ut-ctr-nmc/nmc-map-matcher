@@ -22,6 +22,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
+from nmc_mm_lib import compat
 import sys, math, unittest
 from heapq import heappush, heappop
 
@@ -355,7 +356,7 @@ class _QuadElement:
         memberMap = self.memberMap
         self.memberMap = None
         self.bottomLayer = False
-        for link, vertexSet in memberMap.iteritems():
+        for link, vertexSet in compat.iteritems(memberMap):
             for vertexIndex in vertexSet:
                 self.storeLink(link, vertexIndex)
         
