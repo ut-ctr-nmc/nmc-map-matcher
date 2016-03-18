@@ -171,7 +171,7 @@ class PathEngine:
         
         # Then, for each previous GTFS tree entry, find the shortest path to each current GTFS tree entry:
         # (On the first time through, this loop will be skipped).
-        iterList = gtfsPointsPrev if len(gtfsPointsPrev) > 0 else [None]
+        iterList = gtfsPointsPrev if gtfsPointsPrev else [None]
         for gtfsPointPrev in iterList:
             "@type gtfsPointPrev: PathEnd"
             for gtfsPoint in gtfsPoints:
@@ -180,7 +180,15 @@ class PathEngine:
                 if gtfsPointPrev is None:
                     traversed, distance, cost = ([], 0.0, self.scoreFunction(None, 0.0, gtfsPoint.pointOnLink))
                 else:
-                    traversed, distance, cost = pathProcessor.walkPath(gtfsPointPrev.pointOnLink, gtfsPoint.pointOnLink, gtfsPoint.totalCost)
+                    traversed, distance, cost = pathProcessor.walkPath(gtfsPointPrev.pointOnLink, gtfsPoint.pointOnLink, gtfsPointPrev.totalCost)
+                    
+                """                    
+                # TEST!
+                print("From %d to %d: Dist: %g; Cost: %g; Trav: %d" % (gtfsPointPrev.pointOnLink.link.id if gtfsPointPrev else -1,
+                    gtfsPoint.pointOnLink.link.id, distance, cost, len(traversed) if traversed is not None else -1))
+                """
+                    
+                    
                 if traversed is not None:
                     # A valid path was found:
                     if (gtfsPoint.prevTreeNode is None) or ((gtfsPoint.prevTreeNode is not None) \
@@ -203,12 +211,12 @@ class PathEngine:
                         
                         """
                         # TEST!
-                        print("From %d to %d: Dist: %g (Total: %g); Ref: %g; Perp: %d; Cost: %g (Total: %g)" % (gtfsPointPrev.pointOnLink.link.id if gtfsPointPrev else -1,
+                        print("From %d to %d: Dist: %g; (Total: %g); Ref: %g; Perp: %d; Cost: %g (Total: %g)" % (gtfsPointPrev.pointOnLink.link.id if gtfsPointPrev else -1,
                             gtfsPoint.pointOnLink.link.id, distance, gtfsPoint.totalDist, gtfsPoint.pointOnLink.refDist, 0 if gtfsPoint.pointOnLink.nonPerpPenalty else 1,
                             cost, gtfsPoint.totalCost))
                     else:
-                        print("From %d to %d: Dist: %g; Ref: %g; Perp: %d; Cost: %g (Eliminated)" % (gtfsPointPrev.pointOnLink.link.id, gtfsPoint.pointOnLink.link.id,
-                            distance, gtfsPoint.pointOnLink.refDist, 0 if gtfsPoint.pointOnLink.nonPerpPenalty else 1, cost))
+                        print("From %d to %d: Dist: %g; Ref: %g; Perp: %d; Cost: %g (Total: %g) (Eliminated)" % (gtfsPointPrev.pointOnLink.link.id, gtfsPoint.pointOnLink.link.id,
+                            distance, gtfsPoint.pointOnLink.refDist, 0 if gtfsPoint.pointOnLink.nonPerpPenalty else 1, cost, gtfsPointPrev.totalCost + cost if gtfsPointPrev else -1))
                         """
                         
         # Clean up tree entries that didn't get assigned to a parent:
@@ -286,17 +294,17 @@ class PathEngine:
             "@type shapeEntry: ShapesEntry"
             shapeCtr = shapeCtr + 1
             
-            
+            """
             # TEST!
             print("--- %d of %d ---" % (shapeCtr, len(shapeEntries)))
-            
+            """
             
             if shapeCtr % 10 == 0:
                 if self.logFile is not None:
                     print("INFO:   ... %d of %d" % (shapeCtr, len(shapeEntries)), file=self.logFile)
             pointX, pointY = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
             # TODO: move the forceLinks stuff to vistaGraph.findPointsOnLinks().
-            if self.forceLinks is not None and shapeCtr < len(self.forceLinks) \
+            if self.forceLinks and shapeCtr < len(self.forceLinks) \
                     and self.forceLinks[shapeCtr] is not None:
                 # Custom behavior for forcing the use of a limited set of links:
                 closestVISTA = []
@@ -311,8 +319,8 @@ class PathEngine:
                                 self.pointSearchSecondary, [gtfsPointPrev.pointOnLink for gtfsPointPrev in gtfsPointsPrev],
                                 self.limitClosestPoints)
             "@type closestVISTA: list<graph.PointOnLink>"
-            
-            if len(closestVISTA) == 0:
+                        
+            if not closestVISTA:
                 lastValidIndex = shapeCtr
                 invalidCtr += 1
                 if self.logFile is not None:
@@ -336,6 +344,12 @@ class PathEngine:
             # (We're adding another layer to the tree, and previous tree nodes can be found by accessing
             # PathEnd.prevTreeNode)
             gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, vistaGraph)
+
+            """
+            # TEST!
+            for pp in gtfsPointsPrev:
+                print("id: %d; rd: %g; td: %g; tc: %g" % (pp.pointOnLink.link.id, pp.pointOnLink.refDist, pp.totalDist, pp.totalCost))
+            """
 
         if startInvalidCheckFlag:
             startValidIndex = len(shapeEntries)

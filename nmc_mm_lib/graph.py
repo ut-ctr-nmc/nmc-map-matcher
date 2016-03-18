@@ -76,6 +76,18 @@ class GraphLink:
         Adds the list of vertices to the given link, computing coordinates and distances along the way.
         @type linkVertices: list<GraphLinkVertex>
         """
+        """
+        # TEST!
+        newList = [None] * 4
+        newList[0] = linkVertices[0]
+        newList[1] = GraphLinkVertex((linkVertices[1].lat - linkVertices[0].lat) / 3.0 + linkVertices[0].lat,
+                                     (linkVertices[1].lng - linkVertices[0].lng) / 3.0 + linkVertices[0].lng)
+        newList[2] = GraphLinkVertex((linkVertices[1].lat - linkVertices[0].lat) * 2 / 3.0 + linkVertices[0].lat,
+                                     (linkVertices[1].lng - linkVertices[0].lng) * 2 / 3.0 + linkVertices[0].lng)
+        newList[3] = linkVertices[1]
+        linkVertices = newList
+        """
+        
         gps2feet = self.graphLib.gps.gps2feet
         prevVertex = linkVertices[0]
         prevVertex.pointX, prevVertex.pointY = gps2feet(prevVertex.lat, prevVertex.lng)
@@ -110,10 +122,15 @@ class GraphLink:
         # If we are nonperpendicular, see if the point falls within the arc that sits between the neighboring
         # segments.
         if not minPerpendicular:
-            if minIndex > 0 and (minIndex < len(self.vertices) - 1 or minLinkDist < (self.vertices[-1].distance \
-                    - self.vertices[-2].distance) / 2 - EPSILON): 
+            if (minIndex > 0 or minIndex == 0 and minLinkDist > EPSILON) and (minIndex < len(self.vertices) - 1 \
+                    or minIndex == len(self.vertices) - 1 and minLinkDist + self.vertices[-2].distance < self.vertices[-1].distance - EPSILON): 
                 minPerpendicular = True
                 
+        """
+        # TEST!
+        print("md: %g; ld: %g; p: %d" % (math.sqrt(minDistSq), minLinkDist + self.vertices[minIndex].distance, minPerpendicular))
+        """
+
         return minDistSq, minLinkDist + self.vertices[minIndex].distance, minPerpendicular 
             
     def isComplementary(self, otherLink):
@@ -142,8 +159,8 @@ class GraphLink:
     
 class GraphLinkVertex:
     """
-    GraphLinkVertex is a vertex possibly among several for a GraphLink. Use GraphLib.addVerticesToLink()
-    to associate this with the parent link and compute coordinates.
+    GraphLinkVertex is a vertex possibly among several for a GraphLink. Use GraphLink.addVertices()
+    to associate this with the parent link to compute distance and X-Y coordinates.
     @ivar lat: float
     @ivar lng: float
     @ivar pointX: float
@@ -276,9 +293,9 @@ class GraphLib:
             
     def generateQuadSet(self):
         """
-        This performs the task of generating the quadtree for this GraphLib. Calls to addVerticesToLink()
-        should have been made, or if there are no vertices, makeVerticesForLink() will be called to create
-        straight segments between nodes.
+        This performs the task of generating the quadtree for this GraphLib. Calls to GraphLink.addVertices()
+        should have been made, or if there are no vertices, makeVertices() will be called to create straight
+        segments between nodes.
         """
         minX = sys.float_info.max
         minY = sys.float_info.max
@@ -327,6 +344,11 @@ class GraphLib:
             # nonperpendicular match to the start of the following link. Keep the downstream one:                
             if not perpendicular and linkDist > 0 and len(link.destNode.outgoingLinkMap) > 0:
                 continue
+            
+            """
+            # TEST!
+            print("id: %d, ld: %g, rd: %g" % (link.id, linkDist, refDist))
+            """
             
             # Here is a candidate.
             pointOnLink = PointOnLink(link, linkDist, not perpendicular, refDist)
@@ -539,6 +561,13 @@ class WalkPathProcessor:
         _walkPath is the internal processing element for the pathfinder.
         @type walkPathElem: _WalkPathNext
         """
+        """
+        # TEST!
+        if self.pointOnLinkOrig.link.id == 31 and self.pointOnLinkDest.link.id == 31:
+            j = 0
+            j += 1
+        """
+        
         # Check maximum number of steps:
         if walkPathElem.stepCount >= self.limitSteps:
             return
@@ -585,7 +614,7 @@ class WalkPathProcessor:
         for link in myList:
             # Filter out U-turns:
             penalty = 0.0
-            if walkPathElem.incomingLink.isComplementary(link):
+            if (self.uTurnDeadEndPenalty != 0 or self.uTurnDeadEndPenalty != 0) and walkPathElem.incomingLink.isComplementary(link):
                 # Is it a dead-end?
                 if len(link.destNode.outgoingLinkMap) == 1:
                     if self.uTurnDeadEndPenalty is None:

@@ -195,7 +195,7 @@ class QuadSet:
             target = self.prevQuadElement 
             # Local copies for speed:
             vertices = link.vertices
-            for vertIndex, vertex in enumerate(vertices[:-2]):
+            for vertIndex, vertex in enumerate(vertices[:-1]):
                 if not (vertex.pointX >= self.prevQuadElement.uCornerX and vertex.pointX <= self.prevQuadElement.lCornerX \
                         and vertex.pointY >= self.prevQuadElement.uCornerY and vertex.pointY <= self.prevQuadElement.lCornerY \
                         and vertices[vertIndex + 1].pointX >= self.prevQuadElement.uCornerX and vertices[vertIndex + 1].pointX <= self.prevQuadElement.lCornerX \
