@@ -294,10 +294,12 @@ class PathEngine:
             "@type shapeEntry: ShapesEntry"
             shapeCtr = shapeCtr + 1
             
-            """
+            
             # TEST!
             print("--- %d of %d ---" % (shapeCtr, len(shapeEntries)))
-            """
+            if shapeEntry.shapeSeq < 127 or shapeEntry.shapeSeq > 171:
+                continue
+            
             
             if shapeCtr % 10 == 0:
                 if self.logFile is not None:
@@ -309,8 +311,7 @@ class PathEngine:
                 # Custom behavior for forcing the use of a limited set of links:
                 closestVISTA = []
                 for link in self.forceLinks[shapeCtr]:
-                    distSq, linkDist, perpendicular = linear.pointDistSq(pointX, pointY, link.origNode.coordX,
-                        link.origNode.coordY, link.destNode.coordX, link.destNode.coordY, link.distance)
+                    distSq, linkDist, perpendicular = link.pointDistSq(pointX, pointY)
                     closestVISTA.append(graph.PointOnLink(link, linkDist, not perpendicular, math.sqrt(distSq)))
                 closestVISTA.sort(key = operator.attrgetter('refDist'))
             else:
@@ -458,8 +459,7 @@ class PathEngine:
                         # Specialized operation: force the use of the given link:
                         self.shapeScatterCache = []
                         link = self.forceLinks[pathIndex]
-                        distSq, linkDist, perpendicular = linear.pointDistSq(oldTreeNode.shapeEntry.pointX, oldTreeNode.shapeEntry.pointY,
-                            link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY, link.distance)
+                        distSq, linkDist, perpendicular = link.pointDistSq(oldTreeNode.shapeEntry.pointX, oldTreeNode.shapeEntry.pointY)
                         self.shapeScatterCache.append(graph.PointOnLink(link, linkDist, not perpendicular, math.sqrt(distSq)))
                     else:
                         # Normal operation: find closest limitClosestPoints points to the shape point among all links: 
@@ -737,9 +737,8 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
                 continue
             
             # Recalculate parameters needed for the tree node:
-            (pointX, pointY) = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
-            (distRef, distLinear, perpFlag) = linear.pointDist(pointX, pointY, link.origNode.coordX, link.origNode.coordY,
-                                                               link.destNode.coordX, link.destNode.coordY)
+            pointX, pointY = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
+            distRef, distLinear, perpFlag = vistaGraph.linkMap[linkID].pointDist(pointX, pointY)
             pointOnLink = graph.PointOnLink(link, distLinear, not perpFlag, distRef)
             newEntry = PathEnd(shapeEntry, pointOnLink)
             newEntry.totalCost = distTotal # TotalCost won't be available.

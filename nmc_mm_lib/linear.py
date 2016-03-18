@@ -190,6 +190,12 @@ class QuadSet:
         @type pointY2: float
         @type link: graph.GraphLink
         """
+        
+        if link.id == 5778:
+            j = 0
+            j += 1
+        
+        
         # Do a quick test first to see if the line we're attempting to add is entirely contained by the
         # previously written quad:
         if self.prevQuadElement is not None:

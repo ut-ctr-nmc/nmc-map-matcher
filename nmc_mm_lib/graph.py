@@ -28,7 +28,7 @@ import sys, math
 from heapq import heappush, heappop
 
 "The maximum number of lines allowed in a quad for optimized QuadSet lookup."
-DEFAULT_QUAD_LIMIT = 10
+DEFAULT_QUAD_LIMIT = 50
 
 "Tolerance in the closest-point finder for dealing with corner arcs."
 EPSILON = 0.001
@@ -53,7 +53,7 @@ class GraphLink:
         self.origNode = origNode
         self.destNode = destNode
         
-        # The head of the linked-list of member vertices within this Link
+        # The head of the array of member vertices within this Link
         self.vertices = None
         
         # Placeholders for efficiency of measurement:
@@ -131,7 +131,17 @@ class GraphLink:
         print("md: %g; ld: %g; p: %d" % (math.sqrt(minDistSq), minLinkDist + self.vertices[minIndex].distance, minPerpendicular))
         """
 
-        return minDistSq, minLinkDist + self.vertices[minIndex].distance, minPerpendicular 
+        return minDistSq, minLinkDist + self.vertices[minIndex].distance, minPerpendicular
+    
+    def pointDist(self, pointX, pointY):
+        """
+        Convenience method for getting the pointDistSq() tuple with the reference distance in linear dimensions.
+        @return Tuple of the minimum squared distance of a line segment from the point, the distance of the link traversed,
+            and also returns whether that point is effectively perpendicular from the entire segment.
+        @rtype float, float, bool
+        """
+        distSq, distance, perpendicular = self.pointDistSq(pointX, pointY)
+        return math.sqrt(distSq), distance, perpendicular
             
     def isComplementary(self, otherLink):
         """
@@ -217,7 +227,7 @@ class PointOnLink:
     @ivar pointY: The point y-coordinate
     @type pointY: float
     """
-    def __init__(self, link, dist, nonPerpPenalty = False, refDist = 0.0):
+    def __init__(self, link, dist, nonPerpPenalty=False, refDist=0.0):
         """
         @type link: GraphLink
         @type dist: float
@@ -229,15 +239,25 @@ class PointOnLink:
         self.nonPerpPenalty = nonPerpPenalty
         self.refDist = refDist
         
-        if link is not None:
-            if link.distance == 0:
-                dist = 0
-                norm = 1
-            else:
-                norm = link.distance
+        if link:
+            # Get to the vertex pair that includes the point:
+            prevVertex = link.vertices[0]
+            "@type prevVertex: GraphLinkVertex"
             
-            self.pointX = link.origNode.coordX + (link.destNode.coordX - link.origNode.coordX) * dist / norm
-            self.pointY = link.origNode.coordY + (link.destNode.coordY - link.origNode.coordY) * dist / norm
+            for prevIndex, nextVertex in enumerate(link.vertices[1:]):
+                "@type prevIndex: int"
+                "@type nextVertex: GraphLinkVertex"
+                if dist < nextVertex.distance or prevIndex == len(link.vertices) - 2:
+                    norm = nextVertex.distance - prevVertex.distance
+                    if norm < EPSILON:
+                        self.pointX = prevVertex.pointX
+                        self.pointY = prevVertex.pointY
+                    else:
+                        factor = (dist - prevVertex.distance) / norm
+                        self.pointX = prevVertex.pointX + (nextVertex.pointX - prevVertex.pointX) * factor
+                        self.pointY = prevVertex.pointY + (nextVertex.pointY - prevVertex.pointY) * factor
+                    break
+                prevVertex = nextVertex
         else:
             self.pointX = 0
             self.pointY = 0
@@ -347,11 +367,17 @@ class GraphLib:
             
             """
             # TEST!
-            print("id: %d, ld: %g, rd: %g" % (link.id, linkDist, refDist))
+            print("id: %d, ld: %g, rd: %g, p: %d" % (link.id, linkDist, refDist, 1 if perpendicular else 0))
             """
             
             # Here is a candidate.
             pointOnLink = PointOnLink(link, linkDist, not perpendicular, refDist)
+            
+            
+            # TEST!
+            print("id: %d, ld: %g, rd: %g, p: %d, px: %g, py: %g" % (link.id, linkDist, refDist, 1 if perpendicular else 0, pointOnLink.pointX, pointOnLink.pointY))
+            
+            
             if refDist <= primaryRadius:
                 retList.append(pointOnLink)
             else:

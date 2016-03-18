@@ -37,7 +37,7 @@ def syntax():
     print("  python path_match.py dbServer network user password shapePath")
     sys.exit(0)
 
-def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap = None):
+def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap=None):
     # Default parameters, with explanations and cross-references to Perrine et al., 2015:
     pointSearchRadius = 1000    # "k": Radius (ft) to search from GTFS point to perpendicular VISTA links
     pointSearchPrimary = 350    # "k_p": Radius (ft) to search from GTFS point to new VISTA links    
@@ -77,6 +77,12 @@ def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap = N
     shapeIDs.sort()
     gtfsNodesResults = {}
     "@type gtfsNodesResults: dict<int, list<path_engine.PathEnd>>"
+    
+    
+    # TEST!
+    limitMap = set()
+    limitMap.add(34213)
+    
     
     if limitMap is not None:
         for shapeID in limitMap:

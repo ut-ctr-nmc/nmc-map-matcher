@@ -93,7 +93,7 @@ def main(argv):
     args = parser.parse_args()
         
     # Restore the stuff that was built with path_match:
-    (vistaGraph, gtfsShapes, gtfsNodes, unusedShapeIDs) = transit_gtfs.restorePathMatch(args.dbServer, args.networkName,
+    vistaGraph, gtfsShapes, gtfsNodes, unusedShapeIDs = transit_gtfs.restorePathMatch(args.dbServer, args.networkName,
         args.userName, args.password, args.shapePath, args.pathMatchFile)
     print("INFO: Output CSV...", file=sys.stderr)
     problemReport(gtfsNodes, vistaGraph, showLinks=args.interLinks)
