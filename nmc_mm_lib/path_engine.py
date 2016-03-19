@@ -294,12 +294,12 @@ class PathEngine:
             "@type shapeEntry: ShapesEntry"
             shapeCtr = shapeCtr + 1
             
-            
+            """
             # TEST!
             print("--- %d of %d ---" % (shapeCtr, len(shapeEntries)))
             if shapeEntry.shapeSeq < 127 or shapeEntry.shapeSeq > 171:
                 continue
-            
+            """
             
             if shapeCtr % 10 == 0:
                 if self.logFile is not None:

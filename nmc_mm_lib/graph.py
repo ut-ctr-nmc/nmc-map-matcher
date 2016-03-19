@@ -373,10 +373,10 @@ class GraphLib:
             # Here is a candidate.
             pointOnLink = PointOnLink(link, linkDist, not perpendicular, refDist)
             
-            
+            """
             # TEST!
             print("id: %d, ld: %g, rd: %g, p: %d, px: %g, py: %g" % (link.id, linkDist, refDist, 1 if perpendicular else 0, pointOnLink.pointX, pointOnLink.pointY))
-            
+            """
             
             if refDist <= primaryRadius:
                 retList.append(pointOnLink)

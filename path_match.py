@@ -78,11 +78,11 @@ def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap=Non
     gtfsNodesResults = {}
     "@type gtfsNodesResults: dict<int, list<path_engine.PathEnd>>"
     
-    
+    """
     # TEST!
     limitMap = set()
     limitMap.add(34213)
-    
+    """
     
     if limitMap is not None:
         for shapeID in limitMap:
