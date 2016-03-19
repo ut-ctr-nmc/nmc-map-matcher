@@ -184,10 +184,6 @@ class QuadSet:
     def storeLink(self, link):
         """
         Drills down and stores the given link in all _QuadElements that intersect it.
-        @type pointX1: float
-        @type pointY1: float
-        @type pointX2: float
-        @type pointY2: float
         @type link: graph.GraphLink
         """
         
@@ -195,25 +191,19 @@ class QuadSet:
             j = 0
             j += 1
         
-        
-        # Do a quick test first to see if the line we're attempting to add is entirely contained by the
-        # previously written quad:
-        if self.prevQuadElement is not None:
-            target = self.prevQuadElement 
-            # Local copies for speed:
-            vertices = link.vertices
-            for vertIndex, vertex in enumerate(vertices[:-1]):
-                if not (vertex.pointX >= self.prevQuadElement.uCornerX and vertex.pointX <= self.prevQuadElement.lCornerX \
-                        and vertex.pointY >= self.prevQuadElement.uCornerY and vertex.pointY <= self.prevQuadElement.lCornerY \
-                        and vertices[vertIndex + 1].pointX >= self.prevQuadElement.uCornerX and vertices[vertIndex + 1].pointX <= self.prevQuadElement.lCornerX \
-                        and vertices[vertIndex + 1].pointY >= self.prevQuadElement.uCornerY and vertices[vertIndex + 1].pointY <= self.prevQuadElement.lCornerY):
-                    target = self.quadElement
-                    break
-        else:
-            target = self.quadElement
-        
-        # Nope, do the normal searching and storing:
-        target.storeLink(link, 0)        
+
+        vertices = link.vertices
+        for vertIndex, vertex in enumerate(vertices[:-1]):
+            # Do a quick test first to see if the line we're attempting to add is entirely contained by the
+            # previously written quad:
+            if self.prevQuadElement and vertex.pointX >= self.prevQuadElement.uCornerX and vertex.pointX <= self.prevQuadElement.lCornerX \
+                    and vertex.pointY >= self.prevQuadElement.uCornerY and vertex.pointY <= self.prevQuadElement.lCornerY \
+                    and vertices[vertIndex + 1].pointX >= self.prevQuadElement.uCornerX and vertices[vertIndex + 1].pointX <= self.prevQuadElement.lCornerX \
+                    and vertices[vertIndex + 1].pointY >= self.prevQuadElement.uCornerY and vertices[vertIndex + 1].pointY <= self.prevQuadElement.lCornerY:
+                target = self.prevQuadElement
+            else:
+                target = self.quadElement        
+            target.storeLink(link, vertIndex)        
 
     def retrieveLinks(self, pointX, pointY, maxRadius=None):
         """
@@ -307,12 +297,13 @@ class _QuadElement:
     def storeLink(self, link, vertIndex):
         """
         Drills down and stores the given link in all _QuadElements that intersect it.
-        @type link graph.GraphLink
+        @type link: graph.GraphLink
+        @type vertIndex: int
         """
         if self.bottomLayer:
-            if link not in self.memberMap:
-                self.memberMap[link] = set()
             if len(self.memberMap) < self.quadSet.pointLimit:
+                if link not in self.memberMap:
+                    self.memberMap[link] = set()
                 self.memberMap[link].add(vertIndex)
                 self.quadSet.prevQuadElement = self
             else:
@@ -331,26 +322,22 @@ class _QuadElement:
             # Check if there is intersection in any of these rectangles:
             if lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, uCornerX, uCornerY, centerX, centerY):
                 quadElement = _prepareBelow(0, uCornerX, uCornerY, centerX, centerY)
-                if quadElement is not None:
-                    quadElement.storeLink(link, vertIndex)
+                quadElement.storeLink(link, vertIndex)
             if lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, centerX, uCornerY, lCornerX, centerY):
                 quadElement = _prepareBelow(1, centerX, uCornerY, lCornerX, centerY)
-                if quadElement is not None:
-                    quadElement.storeLink(link, vertIndex)
+                quadElement.storeLink(link, vertIndex)
             if lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, centerX, centerY, lCornerX, lCornerY):
                 quadElement = _prepareBelow(2, centerX, centerY, lCornerX, lCornerY)
-                if quadElement is not None:
-                    quadElement.storeLink(link, vertIndex)
+                quadElement.storeLink(link, vertIndex)
             if lineIntersectsRectangle(pointX1, pointY1, pointX2, pointY2, uCornerX, centerY, centerX, lCornerY):
                 quadElement = _prepareBelow(3, uCornerX, centerY, centerX, lCornerY)
-                if quadElement is not None:
-                    quadElement.storeLink(link, vertIndex)
+                quadElement.storeLink(link, vertIndex)
 
     def _prepareBelow(self, index, uCornerX, uCornerY, lCornerX, lCornerY):
         """
         Checks to see if the quad below exists, and if it doesn't, creates it.
         """
-        if self.members[index] is None:
+        if not self.members[index]:
             self.members[index] = _QuadElement(self.quadSet, self.layer + 1, uCornerX, uCornerY, lCornerX, lCornerY)
         return self.members[index]
     
