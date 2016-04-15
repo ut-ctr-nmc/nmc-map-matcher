@@ -1156,7 +1156,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             for seq in seqs:
                 ourTgtList.append(prNode[seq])
             problemReportNodesOut[stopsTuple] = ourTgtList                
-        problem_report.problemReport(problemReportNodesOut, vistaNetwork)
+        problem_report.problemReport(problemReportNodes, problemReportNodesOut, vistaNetwork)
     
     return ret, warmupStartTime, cooldownEndTime 
 

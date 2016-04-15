@@ -68,6 +68,7 @@ def fillGraph(database):
             print("WARNING: Link %d has bad Node IDs %d and/or %d" % (row[0], row[1], row[2]), file = sys.stderr)
             continue 
         link = graph.GraphLink(row[0], graphLib.nodeMap[row[1]], graphLib.nodeMap[row[2]], graphLib)
+            
         #link.distance = row[3] # Use reported distance rather than measured distance.
         graphLib.addLink(link)
     

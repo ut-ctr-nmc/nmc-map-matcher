@@ -32,50 +32,62 @@ PERP_DIST = 300.0
 NONPERP_DIST = 150.0
 "@var NONPERP_DIST: Maximum allowed distance in ft from VISTA line for non-perpendicular match" 
 
-def problemReport(gtfsNodes, vistaGraph, showLinks=False, byTripFlag=False, outFile=sys.stdout):
+def problemReport(geoTracks, gtfsNodes, vistaGraph, showLinks=False, byTripFlag=False, outFile=sys.stdout):
     """
     Takes a GTFS node set and outputs a CSV format of GPS points where there are indications of problems.
+    @type geoTracks: dict<?, list<gtfs.ShapesEntry>>
     @type gtfsNodes: dict<?, path_engine.PathEnd>
     @type vistaGraph: graph.GraphLib  
     """
     strStart = "shapeID," if not byTripFlag else "tripID,"
     print(strStart + "shapeSeq,linkID,linkDist,problemCode,gtfsLatLon,vistaLatLon", file=outFile)
 
-    shapeIDs = compat.listkeys(gtfsNodes)
+    shapeIDs = compat.listkeys(geoTracks)
     shapeIDs.sort()
     for shapeID in shapeIDs:
-        gtfsNodeList = gtfsNodes[shapeID]
+        if shapeID not in gtfsNodes:
+            gtfsNodeList = []
+        else:
+            gtfsNodeList = gtfsNodes[shapeID]
         "@type gtfsNodeList: list<path_engine.PathEnd>"
         prevSeq = -1
-        for gtfsNode in gtfsNodeList:
-            "@type gtfsNode: path_engine.PathEnd"
-            (vistaLat, vistaLng) = vistaGraph.gps.feet2gps(gtfsNode.pointOnLink.pointX, gtfsNode.pointOnLink.pointY) 
-            
-            # Determine whether we have a problem to report:
-            problemCode = 0
-            if gtfsNode.restart:
-                problemCode = 1
-            elif not gtfsNode.pointOnLink.nonPerpPenalty and gtfsNode.pointOnLink.refDist > PERP_DIST:
-                problemCode = 2
-            elif gtfsNode.pointOnLink.nonPerpPenalty and gtfsNode.pointOnLink.refDist > NONPERP_DIST:
-                problemCode = 3
-
-            if showLinks and gtfsNode.routeInfo:
-                divisor = 10 ** int(math.log10(len(gtfsNode.routeInfo) + 1) + 1)
-                increment = 1 / divisor
-                seqCtr = prevSeq + increment
-                for routeInfo in gtfsNode.routeInfo:
-                    "@type routeInfo: graph.GraphLink"
-                    outStr = "%s,%g,%d,%g,%d,%s,%s" % (str(gtfsNode.shapeEntry.shapeID), seqCtr, routeInfo.id,
-                        0, 4, str(routeInfo.origNode.gpsLat) + " " + str(routeInfo.origNode.gpsLng),
-                        str(routeInfo.origNode.gpsLat) + " " + str(routeInfo.origNode.gpsLng))
-                    print(outStr, file=outFile)
-                    seqCtr += increment
-                                
-            outStr = "%s,%d,%d,%g,%d,%s,%s" % (str(gtfsNode.shapeEntry.shapeID), gtfsNode.shapeEntry.shapeSeq,
-                            gtfsNode.pointOnLink.link.id if gtfsNode.pointOnLink.link is not None else -1,
-                            gtfsNode.pointOnLink.dist, problemCode, str(gtfsNode.shapeEntry.lat)
-                            + " " + str(gtfsNode.shapeEntry.lng), str(vistaLat) + " " + str(vistaLng))
+        nodeIndex = 0
+        for geoPoint in geoTracks[shapeID]:
+            "@type geoPoint: gtfs.ShapesEntry"
+            if nodeIndex < len(gtfsNodeList) and gtfsNodeList[nodeIndex].shapeEntry.shapeSeq == geoPoint.shapeSeq: 
+                gtfsNode = gtfsNodeList[nodeIndex]
+                "@type gtfsNode: path_engine.PathEnd"
+                (vistaLat, vistaLng) = vistaGraph.gps.feet2gps(gtfsNode.pointOnLink.pointX, gtfsNode.pointOnLink.pointY) 
+                
+                # Determine whether we have a problem to report:
+                problemCode = 0
+                if gtfsNode.restart:
+                    problemCode = 1
+                elif not gtfsNode.pointOnLink.nonPerpPenalty and gtfsNode.pointOnLink.refDist > PERP_DIST:
+                    problemCode = 2
+                elif gtfsNode.pointOnLink.nonPerpPenalty and gtfsNode.pointOnLink.refDist > NONPERP_DIST:
+                    problemCode = 3
+    
+                if showLinks and gtfsNode.routeInfo:
+                    divisor = 10 ** int(math.log10(len(gtfsNode.routeInfo) + 1) + 1)
+                    increment = 1 / divisor
+                    seqCtr = prevSeq + increment
+                    for routeInfo in gtfsNode.routeInfo:
+                        "@type routeInfo: graph.GraphLink"
+                        outStr = "%s,%g,%d,%g,%d,%s,%s" % (str(gtfsNode.shapeEntry.shapeID), seqCtr, routeInfo.id,
+                            0, 5, str(routeInfo.origNode.gpsLat) + " " + str(routeInfo.origNode.gpsLng),
+                            str(routeInfo.origNode.gpsLat) + " " + str(routeInfo.origNode.gpsLng))
+                        print(outStr, file=outFile)
+                        seqCtr += increment                                    
+                outStr = "%s,%d,%d,%g,%d,%s,%s" % (str(gtfsNode.shapeEntry.shapeID), gtfsNode.shapeEntry.shapeSeq,
+                                gtfsNode.pointOnLink.link.id if gtfsNode.pointOnLink.link is not None else -1,
+                                gtfsNode.pointOnLink.dist, problemCode, str(gtfsNode.shapeEntry.lat)
+                                + " " + str(gtfsNode.shapeEntry.lng), str(vistaLat) + " " + str(vistaLng))
+                nodeIndex += 1
+            else:
+                # Problem #4: No point-on-link found. We've got a shape entry, but not a corresponding PointOnLink.
+                outStr = "%s,%d,%d,%g,%d,%s,%s" % (str(geoPoint.shapeID), geoPoint.shapeSeq, -1, 0, 4, 
+                                str(geoPoint.lat) + " " + str(geoPoint.lng), str(geoPoint.lat) + " " + str(geoPoint.lng))
             print(outStr, file=outFile)
 
 def main(argv):
@@ -96,7 +108,7 @@ def main(argv):
     vistaGraph, gtfsShapes, gtfsNodes, unusedShapeIDs = transit_gtfs.restorePathMatch(args.dbServer, args.networkName,
         args.userName, args.password, args.shapePath, args.pathMatchFile)
     print("INFO: Output CSV...", file=sys.stderr)
-    problemReport(gtfsNodes, vistaGraph, showLinks=args.interLinks)
+    problemReport(gtfsShapes, gtfsNodes, vistaGraph, showLinks=args.interLinks)
     print("INFO: Done.", file = sys.stderr)
     
 # Boostrap:

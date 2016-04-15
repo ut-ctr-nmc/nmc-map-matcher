@@ -184,7 +184,7 @@ class PathEngine:
                     
                 """                    
                 # TEST!
-                print("From %d to %d: Dist: %g; Cost: %g; Trav: %d" % (gtfsPointPrev.pointOnLink.link.id if gtfsPointPrev else -1,
+                print("FSP: From %d to %d: Dist: %g; Cost: %g; Trav: %d" % (gtfsPointPrev.pointOnLink.link.id if gtfsPointPrev else -1,
                     gtfsPoint.pointOnLink.link.id, distance, cost, len(traversed) if traversed is not None else -1))
                 """
                     
@@ -349,7 +349,7 @@ class PathEngine:
             """
             # TEST!
             for pp in gtfsPointsPrev:
-                print("id: %d; rd: %g; td: %g; tc: %g" % (pp.pointOnLink.link.id, pp.pointOnLink.refDist, pp.totalDist, pp.totalCost))
+                print("PP: id: %d; rd: %g; td: %g; tc: %g" % (pp.pointOnLink.link.id, pp.pointOnLink.refDist, pp.totalDist, pp.totalCost))
             """
 
         if startInvalidCheckFlag:

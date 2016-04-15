@@ -129,22 +129,27 @@ def main(argv):
     # And, each route corresponds with one trip.
     
     # Filter out nodes that have one or zero links:
+    gpsTracksDel = set()
     for shapeID in compat.listkeys(nodes):
         ctr = 0
         for node in nodes[shapeID]:
             ctr += len(node.routeInfo)
         if ctr <= 1:
             print("INFO: Filtering out shapeID %s." % str(shapeID), file = sys.stderr)
-            del nodes[shapeID]
-            del gpsTracks[shapeID]
+            gpsTracksDel.add(shapeID)
 
     # Deal with Problem Report:
     if problemReport:
         print("INFO: Output problem report CSV...", file = sys.stderr)
-        problem_report.problemReport(nodes, vistaGraph)
+        problem_report.problemReport(gpsTracks, nodes, vistaGraph)
         print("INFO: Done.", file = sys.stderr)
         return
 
+    # Purge removed entities:
+    for shapeID in gpsTracksDel:
+        del gpsTracks[shapeID]
+        del nodes[shapeID]
+        
     # TODO: The logic below is a hack to create unique routes given GDB IDs.  There are several
     # long-term problems with this, including the idea that it is impossible to reuse common
     # routes (each instance is its own route) and there are assumptions about vehicle ID

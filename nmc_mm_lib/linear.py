@@ -185,13 +185,7 @@ class QuadSet:
         """
         Drills down and stores the given link in all _QuadElements that intersect it.
         @type link: graph.GraphLink
-        """
-        
-        if link.id == 5778:
-            j = 0
-            j += 1
-        
-
+        """        
         vertices = link.vertices
         for vertIndex, vertex in enumerate(vertices[:-1]):
             # Do a quick test first to see if the line we're attempting to add is entirely contained by the

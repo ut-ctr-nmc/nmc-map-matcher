@@ -57,7 +57,7 @@ class GraphLink:
         self.vertices = None
         
         # Placeholders for efficiency of measurement:
-        self.distance = 0.0
+        self.distance = None
         
         # Reference to coordinate system and other links:
         self.graphLib = graphLib
@@ -97,7 +97,19 @@ class GraphLink:
             nextVertex.pointX, nextVertex.pointY = gps2feet(nextVertex.lat, nextVertex.lng)
             nextVertex.distance = prevVertex.distance + linear.getNorm(prevVertex.pointX, prevVertex.pointY,
                 nextVertex.pointX, nextVertex.pointY)
-            prevVertex = nextVertex            
+            prevVertex = nextVertex
+            
+        """    
+        # TEST!
+        if self.id == 350056:
+            j = 0
+            j += 1
+        """    
+            
+            
+        if self.distance is None:
+            self.distance = nextVertex.distance
+        # TODO: Else, consider scaling according to what's given from the topology set already.            
             
     def pointDistSq(self, pointX, pointY):
         """
@@ -305,7 +317,6 @@ class GraphLib:
         if link.origNode.id not in self.nodeMap:
             print('WARNING: Node %d is not present.' % link.origNode.id, file = sys.stderr)
             return
-        link.distance = linear.getNorm(link.origNode.coordX, link.origNode.coordY, link.destNode.coordX, link.destNode.coordY)
         ourID = link.id
         self.prevLinkID = link.id
         self.linkMap[ourID] = link
@@ -367,7 +378,7 @@ class GraphLib:
             
             """
             # TEST!
-            print("id: %d, ld: %g, rd: %g, p: %d" % (link.id, linkDist, refDist, 1 if perpendicular else 0))
+            print("POL: id: %d, ld: %g, rd: %g, p: %d" % (link.id, linkDist, refDist, 1 if perpendicular else 0))
             """
             
             # Here is a candidate.
@@ -375,7 +386,7 @@ class GraphLib:
             
             """
             # TEST!
-            print("id: %d, ld: %g, rd: %g, p: %d, px: %g, py: %g" % (link.id, linkDist, refDist, 1 if perpendicular else 0, pointOnLink.pointX, pointOnLink.pointY))
+            print("POL: id: %d, ld: %g, rd: %g, p: %d, px: %g, py: %g" % (link.id, linkDist, refDist, 1 if perpendicular else 0, pointOnLink.pointX, pointOnLink.pointY))
             """
             
             if refDist <= primaryRadius:
@@ -460,7 +471,7 @@ class WalkPathProcessor:
         self.limitRadiusSq = (limitRadius ** 2) if limitRadius < sys.float_info.max else sys.float_info.max
 
         self.uTurnInterPenalty = None # Disable U-turns in intersections
-        self.uTurnDeadEndPenalty = None # Disable U-turns at dead-ends
+        self.uTurnDeadEndPenalty = 50 # Allow U-turns at dead-ends
         
         # walkPath cache:
         self.backCache = {}
@@ -570,6 +581,15 @@ class WalkPathProcessor:
         self.winner = None
         self.backtrackScore = self.limitDistance
         
+        
+        """
+        # TEST!
+        if pointOnLinkOrig.link.id == 350056 and pointOnLinkDest.link.id == 1004532:
+            j = 0
+            j += 1 
+        """
+        
+        
         # Are the points too far away to begin with?
         origDestDistSq = linear.getNormSq(self.pointOnLinkDest.pointX, self.pointOnLinkDest.pointY, self.pointOnLinkOrig.pointX, self.pointOnLinkOrig.pointY)
         if origDestDistSq > self.limitRadiusSq:
@@ -662,10 +682,10 @@ class WalkPathProcessor:
             myList = walkPathElem.incomingLink.destNode.outgoingLinkMap.values()
         for link in myList:
             # Filter out U-turns:
-            penalty = 0.0
-            if (self.uTurnDeadEndPenalty != 0 or self.uTurnDeadEndPenalty != 0) and walkPathElem.incomingLink.isComplementary(link):
+            penalty = 0.0            
+            if (self.uTurnDeadEndPenalty != 0 or self.uTurnInterPenalty != 0) and walkPathElem.incomingLink.isComplementary(link):
                 # Is it a dead-end?
-                if len(link.destNode.outgoingLinkMap) == 1:
+                if len(walkPathElem.incomingLink.destNode.outgoingLinkMap) == 1:
                     if self.uTurnDeadEndPenalty is None:
                         if self.uTurnInterPenalty is None:
                             continue
