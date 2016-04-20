@@ -29,7 +29,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
 from nmc_mm_lib import gtfs, vista_network, path_engine, graph, compat
-import problem_report, sys, time
+import problem_report, sys, time, collections
 from datetime import datetime, timedelta
 
 DWELLTIME_DEFAULT = 0
@@ -491,7 +491,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
 
     class _TripsBundle:
         """
-        _TripsBundle is a small structure for tying visible identifiers to lists of trips that are unique to each
+        _TripsBundle is a small structure for trying visible identifiers to lists of trips that are unique to each
         shape/stop sequence.
         @ivar trips: list<gtfs.TripsEntry>
         @ivar label: str
@@ -651,8 +651,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     print("INFO: Resolving discrepancies in bus stop locations across all routes...", file=sys.stderr)    
     class StopRecord:
         """
-        StopRecord is a container for storing all of the information about stops and links so that 
-        the link that is used across all routes may be set to be the same.
+        StopRecord is a container for storing all a stop and links that share the stop.
         @ivar linkCounts: Stores a reference count for each link referring to this stop. LinkID -> reference count.
         @type linkCounts: dict<int, int>
         @ivar referents: Identifies for each trip the index in the respective treeEntry list addresses the stop.
@@ -764,7 +763,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                 print("INFO: This has no links associated with it. Skipping.", file=sys.stderr)
             continue # All routes use the same link for the stop. No discrepancies for this stop.
 
-        print("INFO: There are currently %d matched link(s) among %d trip(s). Disambiguating..." % (len(stopRecord.linkCounts), sum(stopRecord.linkCounts.values())),
+        totalTrips = sum(stopRecord.linkCounts.values())
+        print("INFO: There are currently %d matched link(s) among %d trip(s). Disambiguating..." % (len(stopRecord.linkCounts), totalTrips),
               file=sys.stderr)
                 
         # For each trip that uses this stop, discover closest points.
@@ -912,6 +912,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             prevUsedTripsCount = None        
             while sortList and referenceCnt < stopResolveRecord.refCount:
                 # Find trips that use the linkID
+                localTripIDs = []
                 for stopsTuple, treeEntryIndices in compat.iteritems(stopResolveRecord.referents):
                     if stopsTuple not in usedTrips and sortList[-1][1] in allScores[stopsTuple]:
                         # This highest scoring linkID is in this trip. Invalidate the corresponding point in the tree list.
@@ -953,6 +954,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                                     tripsBundle.resultTree = resultTreeRefined
                                     usedTrips.add(stopsTuple)
                                     for trip in tripsBundle.trips:
+                                        if trip.tripID not in usedTripIDs:
+                                            localTripIDs.append(trip.tripID)
                                         usedTripIDs.add(trip.tripID)
                                     referenceCnt += len(tripsBundle.trips)
                                 
@@ -981,30 +984,47 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                                 tripsBundle.resultTree[treeEntryIndex].restart = prevRestart
                                     
                 if usedTripIDs:
+                    localTripIDs.sort();
+                    tripsString = " Trip(s) %s" % str(localTripIDs).strip("[]")
                     if firstLink:
-                        print("INFO: %d trip(s) were matched with the best-scoring link %d." % (len(usedTripIDs), sortList[-1][1]), file=sys.stderr)
+                        if len(usedTripIDs) == totalTrips:
+                            tripsString = "" 
+                        print("INFO: %d trip(s) are now matched with the best-scoring link %d.%s" % (len(usedTripIDs), sortList[-1][1], tripsString), file=sys.stderr)
                         firstLink = False
                     else:
                         if len(usedTripIDs) - prevUsedTripsCount > 0:
-                            print("WARNING: %d trip(s) were matched with the next-best scoring link %d." % (len(usedTripIDs) - prevUsedTripsCount, sortList[-1][1]), file=sys.stderr)
+                            print("WARNING: %d trip(s) are now matched with the next-best scoring link %d.%s" % (len(usedTripIDs) - prevUsedTripsCount,
+                                sortList[-1][1], tripsString), file=sys.stderr)
                     prevUsedTripsCount = len(usedTripIDs)
+                    del tripsString
                 
                 del sortList[-1]
         if not sortList and referenceCnt < stopResolveRecord.refCount:
             # We have run out of candidates too early:
             if not usedTripIDs:
                 print("WARNING: The evaluations of all candidate links failed.", file=sys.stderr)
-            tripIDList = ""
-            tripIDCount = 0
-            for stopsTuple in compat.iterkeys(stopResolveRecord.referents): 
-                for trip in allTripsBundles[stopsTuple].trips:
+            tripIDLists = {}
+            for stopsTuple, treeEntryIndices in compat.iteritems(stopResolveRecord.referents): 
+                tripsBundle = allTripsBundles[stopsTuple]
+                for trip in tripsBundle.trips:
                     if trip.tripID not in usedTripIDs:
-                        if len(tripIDList) > 0:
-                            tripIDList += ", "
-                        tripIDList += str(trip.tripID)
-                        tripIDCount += 1
-            print("WARNING: %d Trip(s) could not be matched; leaving unchanged: Trip(s) %s." % (tripIDCount, tripIDList), file=sys.stderr)
-            del tripIDList, tripIDCount
+                        for treeEntryIndex in treeEntryIndices:
+                            linkID = tripsBundle.resultTree[treeEntryIndex].pointOnLink.link.id
+                            if linkID not in tripIDLists:
+                                tripIDLists[linkID] = set()
+                            tripIDLists[linkID].add(trip.tripID)
+            linkIDs = compat.listkeys(tripIDLists)
+            linkIDs.sort()
+            tripIDCount = 0
+            for linkID in linkIDs:
+                tripIDCount += len(tripIDLists[linkID])
+            print("WARNING: %d Trip(s) could not be matched; This is what is left unchanged:" % tripIDCount, file=sys.stderr)
+            for linkID in linkIDs:
+                tripIDList = list(tripIDLists[linkID])
+                tripIDList.sort()
+                print("WARNING: --Link %d: Trip(s) %s" % (linkID, str(tripIDList).strip("[]")), file=sys.stderr)
+                del tripIDList
+            del tripIDLists, tripIDCount, linkIDs, linkID
         del stopsTuple, usedTripIDs, usedTrips, firstLink, prevUsedTripsCount, trip, treeEntryIndices, tripsBundle, treeEntryIndex, resultTreeRefined, prevRestart, resetRestartFlag, referenceCnt
             
     problemReportNodes = {}
@@ -1012,6 +1032,10 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     
     print("INFO: -- End stop --", file=sys.stderr)
     print("INFO: Performing final output...", file=sys.stderr)
+    LinkDupsKey = collections.namedtuple("LinkDupsKey", "stopID attemptedLinkID existingLinkID")
+    linkDups = {}
+    "@type linkProblems: dict<LinkDupsKey, list>"
+    "(stopID, attemptedLinkID, existingLinkID) => list of trip IDs"
     for shapeID, stopsTuples in compat.iteritems(shapeStops):
         for stopsTuple, tripsBundle in compat.iteritems(stopsTuples):
             # Deal with Problem Report:
@@ -1081,8 +1105,10 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                             print('"%d","%d","%d","%d","%d",' % (trip.tripID, outSeqCtr, treeEntry.pointOnLink.link.id,
                                 stopID, DWELLTIME_DEFAULT), file=outFile)
                             if stopID in ret and ret[stopID].link.id != treeEntry.pointOnLink.link.id:
-                                print("WARNING: stopID %d is attempted to be assigned to linkID %d, but it had already been assigned to linkID %d." \
-                                    % (stopID, treeEntry.pointOnLink.link.id, ret[stopID].link.id), file=sys.stderr)
+                                linkDupsKey = LinkDupsKey(stopID=stopID, attemptedLinkID=treeEntry.pointOnLink.link.id, existingLinkID=ret[stopID].link.id)
+                                if linkDupsKey not in linkDups:
+                                    linkDups[linkDupsKey] = []
+                                linkDups[linkDupsKey].append(trip.tripID)
                                 # TODO: This is a tricky problem. This means that among multiple bus routes, the same stop had been
                                 # found to best fit two different links, even after running through the disambiguator. Another thing to
                                 # possibly try: create fake stops that are common to all routes.
@@ -1147,6 +1173,11 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                         print("WARNING: Because of time exclusion or subset network, Trip %d, Stop %s of %d will not be in the bus_route_link file." % (trip.tripID, subStr, len(stopTimes)),
                             file=sys.stderr)
                         startGap = -1
+
+    # Output all recorded unresolved links:
+    for linkDupsKey, tripIDs in compat.iteritems(linkDups):
+        print("WARNING: stopID %d is attempted to be assigned to linkID %d in %d trip(s), but it had already been assigned to linkID %d" \
+            % (linkDupsKey.stopID, linkDupsKey.attemptedLinkID, len(tripIDs), linkDupsKey.existingLinkID), file=sys.stderr)
 
     # Deal with Problem Report:
     if problemReport:
