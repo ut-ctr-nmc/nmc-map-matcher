@@ -247,6 +247,7 @@ def buildSubset(treeNodes, vistaNetwork):
             # We shall label our links as indices into the stage we're at in ourGTFSNodes links.  This will allow for access later.
             if prevLinkID not in subset.linkMap:
                 newLink = graph.GraphLink(prevLinkID, subsetNodePrior, subsetNode, vistaNetwork)
+                newLink.addVertices(priorVistaLink.vertices)
                 subset.addLink(newLink)
                 outLinkList.append(newLink)
             else:
@@ -260,10 +261,12 @@ def buildSubset(treeNodes, vistaNetwork):
     subset.addNode(subsetNode)
     if prevLinkID not in subset.linkMap:
         newLink = graph.GraphLink(prevLinkID, subsetNodePrior, subsetNode, vistaNetwork)
+        newLink.addVertices(vistaNetwork.linkMap[prevLinkID].vertices)
         subset.addLink(newLink)
         outLinkList.append(newLink)
     else:
         outLinkList.append(subset.linkMap[prevLinkID])
+    subset.generateQuadSet()
     
     return subset, outLinkList
 
@@ -354,7 +357,7 @@ def zipGTFSWithStops(underlyingNetwork, leftResultTree, rightResultTree):
                         leftDist < rightResultTree[rightIndex].pointOnLink.dist):
                     # For elements that are recorded for the right PathEnds, we want to express the links with link objects that are tied with the
                     # underlying network, not the manufactured subsets.
-                    superPathEnd = path_engine.PathEnd(rightResultTree[rightIndex].shapeEntry, rightResultTree[rightIndex].pointOnLink.copy())
+                    superPathEnd = path_engine.PathEnd(rightResultTree[rightIndex].shapeEntry, rightResultTree[rightIndex].pointOnLink)
                     superPathEnd.pointOnLink.link = underlyingNetwork.linkMap[superPathEnd.pointOnLink.link.id]
                     superPathEnd.totalCost, superPathEnd.totalDist, superPathEnd.routeInfo = rightResultTree[rightIndex].totalCost, rightResultTree[rightIndex].totalDist, currentRouteInfoList
                     if superResultTree:
@@ -427,7 +430,7 @@ def assembleProblemReport(resultTree, vistaNetwork):
         # Reconstruct a tree node in terms of the original network.
         # TODO: Check to make sure that resultTree[0].shapeEntry.shapeID is correct.
         newShape = gtfs.ShapesEntry(resultTree[0].shapeEntry.shapeID,
-            stopNode.shapeEntry.shapeSeq, stopNode.shapeEntry.lat, stopNode.shapeEntry.lng, False)
+            stopNode.shapeEntry.shapeSeq, stopNode.shapeEntry.lat, stopNode.shapeEntry.lng)
         origLink = vistaNetwork.linkMap[stopNode.pointOnLink.link.id] 
         newPointOnLink = graph.PointOnLink(origLink, stopNode.pointOnLink.dist,
             stopNode.pointOnLink.nonPerpPenalty, stopNode.pointOnLink.refDist)
@@ -480,10 +483,10 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
 
     # Initialize the path engine for use later:
     pathEngine = path_engine.PathEngine(stopSearchRadius, stopSearchRadius, stopSearchRadius, sys.float_info.max, sys.float_info.max,
-                                        stopSearchRadius, DISTANCE_FACTOR, DRIFT_FACTOR, NON_PERP_PENALTY, sys.maxint, sys.maxint)
+                                        stopSearchRadius, DISTANCE_FACTOR, DRIFT_FACTOR, NON_PERP_PENALTY, sys.maxsize, sys.maxsize)
     pathEngine.limitClosestPoints = 8
     pathEngine.limitSimultaneousPaths = 6
-    pathEngine.maxHops = sys.maxint
+    pathEngine.maxHops = sys.maxsize
     pathEngine.logFile = None # Suppress the log outputs for the path engine; enough stuff will come from other sources.
 
     class _TripsBundle:
@@ -581,12 +584,12 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     shapeID = stopsTuples = stopsTuple = tripsBundle = varCounter = resultTree = None
     allTripsBundles = {}
     "@type allTripsBundles: dict<tuple<int>, _TripsBundle>"    
-    for shapeID, stopsTuples in shapeStops.iteritems():
+    for shapeID, stopsTuples in compat.iteritems(shapeStops):
         "@type shapeID: int"
         "@type stopsTuples: dict<tuple<int>, _TripsBundle>"
         
         varCounter = 1
-        for stopsTuple, tripsBundle in stopsTuples.iteritems():
+        for stopsTuple, tripsBundle in compat.iteritems(stopsTuples):
             "@type stopsTuple: tuple<int>"
             "@type tripsBundle: _TripsBundle"
         
@@ -667,11 +670,11 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     "@type stopRecords: dict<int, StopRecord>"
 
     shapeID = stopsTuples = stopsTuple = tripsBundle = linkID = stopRecord = treeEntry = treeEntryIndex = None
-    for shapeID, stopsTuples in shapeStops.iteritems():
+    for shapeID, stopsTuples in compat.iteritems(shapeStops):
         "@type shapeID: int"
         "@type stopsTuples: dict<tuple<int>, _TripsBundle>"
         
-        for stopsTuple, tripsBundle in stopsTuples.iteritems():
+        for stopsTuple, tripsBundle in compat.iteritems(stopsTuples):
             "@type stopsTuple: tuple<int>"
             "@type tripsBundle: _TripsBundle"
             
@@ -752,7 +755,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         distanceFactor, driftFactor, nonPerpPenalty, limitClosestPoints, limitSimultaneousPaths, maxHops
     
     pathEngine.setRefineParams(STOP_SEARCH_RADIUS)
-    for stopID, stopRecord in stopRecords.iteritems():
+    for stopID, stopRecord in compat.iteritems(stopRecords):
         print("INFO: -- Stop %d --" % stopID, file=sys.stderr)
         if len(stopRecord.linkCounts) <= 1:
             if len(stopRecord.linkCounts) == 1:
@@ -776,7 +779,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         "@type scores: dict<int, float>"                        
         
         closestLinks = pointOnLink = linkID = None
-        for stopsTuple, treeEntryIndices in stopRecord.referents.iteritems():
+        for stopsTuple, treeEntryIndices in compat.iteritems(stopRecord.referents):
             closestLinks = vistaNetwork.findPointsOnLinks(stopsEntry.pointX, stopsEntry.pointY, pathEngine.pointSearchRadius,
                 pathEngine.pointSearchPrimary, pathEngine.pointSearchSecondary, None, pathEngine.limitClosestPoints)            
             "@type closestLinks: list<graph.PointOnLink>"
@@ -816,7 +819,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             scoreMax = max(scores.values())
                     
             # Build a list for identifying the best links by the refDist perpendicular distance metric:
-            for linkID, linkCount in stopResolveRecord.linkCounts.iteritems():
+            for linkID, linkCount in compat.iteritems(stopResolveRecord.linkCounts):
                 sortList.append((linkCount, scoreMax - scores[linkID], linkID))
             
             # sortList will now have the links with the most common usage and smallest original scores at the bottom: 
@@ -832,7 +835,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                 # Try out this link by invalidating the stop point and doing a refine cycle in each trip:
                 linkID = sortList[-1][2]
                 
-                for stopsTuple, treeEntryIndices in stopResolveRecord.referents.iteritems():
+                for stopsTuple, treeEntryIndices in compat.iteritems(stopResolveRecord.referents):
                     tripsBundle = allTripsBundles[stopsTuple]
                     forceLinks = tripsBundle.forceLinks[:]
                     if stopsTuple not in allScores:
@@ -882,7 +885,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             stopsTuple = scores = score = scoreMax = linkID = None
             scoreSums = {} # linkID -> float
             "@type scoreSums: dict<int, float>"
-            for stopsTuple, scores in allScores.iteritems():
+            for stopsTuple, scores in compat.iteritems(allScores):
                 if scores:
                     scoreMax = max(scores.values())
                     for linkID in compat.iterkeys(scores):
@@ -894,7 +897,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             
             # Use the scores for each link to rank the links:
             sortList = []
-            for linkID, score in scoreSums.iteritems():
+            for linkID, score in compat.iteritems(scoreSums):
                 sortList.append((score, linkID))
                 
             sortList = sorted(sortList)
@@ -909,7 +912,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             prevUsedTripsCount = None        
             while sortList and referenceCnt < stopResolveRecord.refCount:
                 # Find trips that use the linkID
-                for stopsTuple, treeEntryIndices in stopResolveRecord.referents.iteritems():
+                for stopsTuple, treeEntryIndices in compat.iteritems(stopResolveRecord.referents):
                     if stopsTuple not in usedTrips and sortList[-1][1] in allScores[stopsTuple]:
                         # This highest scoring linkID is in this trip. Invalidate the corresponding point in the tree list.
                         tripsBundle = allTripsBundles[stopsTuple] 
@@ -1009,8 +1012,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     
     print("INFO: -- End stop --", file=sys.stderr)
     print("INFO: Performing final output...", file=sys.stderr)
-    for shapeID, stopsTuples in shapeStops.iteritems():
-        for stopsTuple, tripsBundle in stopsTuples.iteritems():
+    for shapeID, stopsTuples in compat.iteritems(shapeStops):
+        for stopsTuple, tripsBundle in compat.iteritems(stopsTuples):
             # Deal with Problem Report:
             # TODO: The Problem Report will include all nodes on each path regardless of valid time interval;
             # However; we will not have gotten here if the trip was entirely outside of it. 
@@ -1081,8 +1084,8 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                                 print("WARNING: stopID %d is attempted to be assigned to linkID %d, but it had already been assigned to linkID %d." \
                                     % (stopID, treeEntry.pointOnLink.link.id, ret[stopID].link.id), file=sys.stderr)
                                 # TODO: This is a tricky problem. This means that among multiple bus routes, the same stop had been
-                                # found to best fit two different links. I don't exactly know the best way to resolve this, other
-                                # than (for NMC analyses) to create a "fake" stop that's tied with the new link. 
+                                # found to best fit two different links, even after running through the disambiguator. Another thing to
+                                # possibly try: create fake stops that are common to all routes.
                             else:
                                 ret[stopID] = treeEntry.pointOnLink
                                 
@@ -1126,7 +1129,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                         #    gtfsStopTime.stop.stopID, gtfsStopTime.stopSeq), file=sys.stderr)
                         
                         if problemReport:
-                            revisedNodeList = problemReportNodes[gtfsTrips[tripID].shapeEntries[0].shapeID]  
+                            revisedNodeList = problemReportNodes[stopsTuple]  
                             if gtfsStopTime.stopSeq not in revisedNodeList:
                                 # Make a dummy "error" node for reporting.
                                 newShape = gtfs.ShapesEntry(gtfsTrips[tripID].shapeEntries[0].shapeID,
@@ -1149,14 +1152,19 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     if problemReport:
         print("INFO: Output problem report CSV...", file=sys.stderr)
         problemReportNodesOut = {}
-        for stopsTuple, prNode in problemReportNodes.iteritems():
+        problemReportShapeSeqs = {}
+        for stopsTuple, prNode in compat.iteritems(problemReportNodes):
             seqs = compat.listkeys(prNode)
             seqs.sort()
             ourTgtList = []
             for seq in seqs:
                 ourTgtList.append(prNode[seq])
             problemReportNodesOut[stopsTuple] = ourTgtList                
-        problem_report.problemReport(problemReportNodes, problemReportNodesOut, vistaNetwork)
+            ourTgtList = []
+            for seq in seqs:
+                ourTgtList.append(prNode[seq].shapeEntry)
+            problemReportShapeSeqs[stopsTuple] = ourTgtList                
+        problem_report.problemReport(problemReportShapeSeqs, problemReportNodesOut, vistaNetwork, showLinks=True)
     
     return ret, warmupStartTime, cooldownEndTime 
 
