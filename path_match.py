@@ -37,7 +37,7 @@ def syntax():
     print("  python path_match.py dbServer network user password shapePath")
     sys.exit(0)
 
-def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap=None):
+def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap=None, pickleOutTopo=None):
     # Default parameters, with explanations and cross-references to Perrine et al., 2015:
     pointSearchRadius = 1000    # "k": Radius (ft) to search from GTFS point to perpendicular VISTA links
     pointSearchPrimary = 350    # "k_p": Radius (ft) to search from GTFS point to new VISTA links    
@@ -60,6 +60,14 @@ def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap=Non
     # Read in the topology from the VISTA database:
     print("INFO: Read topology from database...", file = sys.stderr)
     vistaGraph = vista_network.fillGraph(database)
+    
+    if pickleOutTopo:
+        print("INFO: Writing out underlying topology to %s" % pickleOutTopo, file=sys.stderr)
+        #sys.setrecursionlimit(3800)
+        with open(pickleOutTopo, "wb") as pickleFile:
+            vistaGraph.serialize(pickleFile)
+        pickleFile.close()
+        del pickleFile
     
     # Read in the shapefile information:
     print("INFO: Read GTFS shapefile...", file = sys.stderr)
@@ -107,8 +115,16 @@ def main(argv):
     userName = argv[3]
     password = argv[4]
     shapePath = argv[5]
+    pickleOutTopo = None
     
-    gtfsNodesResults = pathMatch(dbServer, networkName, userName, password, shapePath)
+    i = 6
+    while i < len(argv):
+        if argv[i] == "--ptout" and i < len(argv) - 1:
+            pickleOutTopo = argv[i + 1]
+            i += 1
+        i += 1
+    
+    gtfsNodesResults = pathMatch(dbServer, networkName, userName, password, shapePath, pickleOutTopo=pickleOutTopo)
     
     # Extract useful information:
     print("INFO: -- Final --", file = sys.stderr)

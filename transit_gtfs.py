@@ -29,7 +29,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
 from nmc_mm_lib import gtfs, vista_network, path_engine, graph, compat
-import problem_report, sys, time, collections
+import problem_report, sys, time, collections, pickle
 from datetime import datetime, timedelta
 
 DWELLTIME_DEFAULT = 0
@@ -76,14 +76,21 @@ def syntax(exitCode):
     print("  -p outputs a problem report on the stop matches")
     sys.exit(exitCode)
 
-def restorePathMatch(dbServer, networkName, userName, password, shapePath, pathMatchFilename):
-    # Get the database connected:
-    print("INFO: Connect to database...", file=sys.stderr)
-    database = vista_network.connect(dbServer, userName, password, networkName)
-    
-    # Read in the topology from the VISTA database:
-    print("INFO: Read topology from database...", file=sys.stderr)
-    vistaGraph = vista_network.fillGraph(database)
+def restorePathMatch(dbServer, networkName, userName, password, shapePath, pathMatchFilename, pickleInTopo=None):
+    if not pickleInTopo:
+        # Get the database connected:
+        print("INFO: Connect to database...", file=sys.stderr)
+        database = vista_network.connect(dbServer, userName, password, networkName)
+        
+        # Read in the topology from the VISTA database:
+        print("INFO: Read topology from database...", file=sys.stderr)
+        vistaGraph = vista_network.fillGraph(database)
+    else:
+        print("INFO: Reading in underlying topology from %s" % pickleInTopo, file=sys.stderr)
+        with open(pickleInTopo, mode="rb") as pickleFile:
+            vistaGraph = graph.GraphLib.unserialize(pickleFile)
+        pickleFile.close()
+        del pickleFile
     
     # Read in the shapefile information:
     print("INFO: Read GTFS shapefile...", file=sys.stderr)
@@ -246,7 +253,7 @@ def buildSubset(treeNodes, vistaNetwork):
 
             # We shall label our links as indices into the stage we're at in ourGTFSNodes links.  This will allow for access later.
             if prevLinkID not in subset.linkMap:
-                newLink = graph.GraphLink(prevLinkID, subsetNodePrior, subsetNode, vistaNetwork)
+                newLink = graph.GraphLink(prevLinkID, subsetNodePrior, subsetNode, subset)
                 newLink.addVertices(priorVistaLink.vertices)
                 subset.addLink(newLink)
                 outLinkList.append(newLink)
@@ -446,8 +453,31 @@ def assembleProblemReport(resultTree, vistaNetwork):
         revisedNodeList[stopNode.shapeEntry.shapeSeq] = newNode
     return revisedNodeList 
 
+class _TripsBundle:
+    """
+    _TripsBundle is a small structure for trying visible identifiers to lists of trips that are unique to each
+    shape/stop sequence.
+    @ivar trips: list<gtfs.TripsEntry>
+    @ivar label: str
+    @ivar longestStart: int
+    @ivar resultTree: list<path_engine.PathEnd>"
+    @ivar subset: graph.GraphLib
+    @ivar stopsLookup: dict<int, gtfs.StopTimesEntry>
+    @ivar forceLinks: list<set<graph.GraphLink>
+    @ivar restartCount: int
+    """
+    def __init__(self):
+        self.trips = []
+        self.label = ""
+        self.longestStart = 0
+        self.resultTree = None
+        self.subset = None
+        self.stopsLookup = None
+        self.forceLinks = None
+        self.restartCount = 0
+    
 def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSearchRadius, excludeUpstream, userName,
-        networkName, startTime, endTime, widenBegin, widenEnd, excludeBegin, excludeEnd, outFile=sys.stdout):
+        networkName, startTime, endTime, widenBegin, widenEnd, excludeBegin, excludeEnd, pickleInBundle=None, pickleOutBundle=None, outFile=sys.stdout):
     """
     dumpBusRouteLinks dumps out a public.bus_route_link.csv file contents. This also will remove all stop times and trips
     that fall outside of the valid evaluation interval as dictated by the exclusion parameters.
@@ -489,161 +519,163 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     pathEngine.maxHops = sys.maxsize
     pathEngine.logFile = None # Suppress the log outputs for the path engine; enough stuff will come from other sources.
 
-    class _TripsBundle:
-        """
-        _TripsBundle is a small structure for trying visible identifiers to lists of trips that are unique to each
-        shape/stop sequence.
-        @ivar trips: list<gtfs.TripsEntry>
-        @ivar label: str
-        @ivar longestStart: int
-        @ivar resultTree: list<path_engine.PathEnd>"
-        @ivar subset: graph.GraphLib
-        @ivar stopsLookup: dict<int, gtfs.StopTimesEntry>
-        @ivar forceLinks: list<set<graph.GraphLink>
-        @ivar restartCount: int
-        """
-        def __init__(self):
-            self.trips = []
-            self.label = ""
-            self.longestStart = 0
-            self.resultTree = None
-            self.subset = None
-            self.stopsLookup = None
-            self.forceLinks = None
-            self.restartCount = 0
-    
-    print("INFO: Perform the initial bus stop matching...", file=sys.stderr)
-    shapeStops = {}
-    "@type shapeStops: dict<int, dict<tuple<int>, _TripsBundle>>"
-    
-    tripID = trip = stopsList = shapeID = stopsTuples = stopsTuple = tripsBundle = emptyShapes = flag = None
-    tripIDs = compat.listkeys(gtfsTrips)
-    tripIDs.sort()
-    for tripID in tripIDs:
-        trip = gtfsTrips[tripID]
-        shapeID = trip.shapeEntries[0].shapeID
-        "@type trip: gtfs.TripsEntry"
-        if shapeID not in gtfsNodes:
-            # This happens if the incoming files contain a subset of all available topology.
-            print("WARNING: Skipping route for trip %d because no points are available." % tripID, file=sys.stderr)
-            continue
+    if not pickleInBundle:
+        print("INFO: Perform the initial bus stop matching...", file=sys.stderr)
+        shapeStops = {}
+        "@type shapeStops: dict<int, dict<tuple<int>, _TripsBundle>>"
+        "shapeID => stopsTuple => _TripsBundle()"
         
-        # Identify all elements of analysis: shape ID and stop ID combination. For each, we later want to analyze
-        # all trips that use that combination as a unit.
-        stopsList = [shapeID]
-        "@type stopsList: list<int>"
-        
-        
-        flag = False
-        
-        
-        for stopTimesEntry in gtfsStopTimes[trip]:
-            "@type stopTimesEntry: list<gtfs.StopTimesEntry>"
-            stopsList.append(stopTimesEntry.stop.stopID)
+        tripID = trip = stopsList = shapeID = stopsTuples = stopsTuple = tripsBundle = emptyShapes = flag = None
+        tripIDs = compat.listkeys(gtfsTrips)
+        tripIDs.sort()
+        for tripID in tripIDs:
+            trip = gtfsTrips[tripID]
+            shapeID = trip.shapeEntries[0].shapeID
+            "@type trip: gtfs.TripsEntry"
+            if shapeID not in gtfsNodes:
+                # This happens if the incoming files contain a subset of all available topology.
+                print("WARNING: Skipping route for trip %d because no points are available." % tripID, file=sys.stderr)
+                continue
+            
+            # Identify all elements of analysis: shape ID and stop ID combination. For each, we later want to analyze
+            # all trips that use that combination as a unit.
+            stopsList = [shapeID]
+            "@type stopsList: list<int>"
             
             
-            """
-            if stopTimesEntry.stop.stopID == 2830:
-                flag = True
-        if not flag:
-            continue    
-        """
-        
+            flag = False
             
-        stopsTuple = tuple(stopsList)
-        "@type stopsTuple: tuple<int>"
-        # So now we have a key that is composed of the shape ID and all stop IDs in a sequence to identify all unique
-        # shape/stop ID combinations.
-        
-        
-                    
-        # Ignore trips that are entirely outside our valid time interval.
-        flag = False
-        # TODO: Trips with no stops will be ignored. Is that what we want to do?
-        if not gtfsStopTimes:
-            # This will happen if we don't have stops defined. In this case, we want to go ahead and process the bus_route_link
-            # outputs because we don't know if the trip falls in or out of the valid time range.
-            flag = True
-        else:
-            for stopEntry in gtfsStopTimes[trip]:
-                if (startTime is None or stopEntry.arrivalTime >= startTime) and (endTime is None or stopEntry.arrivalTime <= endTime):
+            
+            for stopTimesEntry in gtfsStopTimes[trip]:
+                "@type stopTimesEntry: list<gtfs.StopTimesEntry>"
+                stopsList.append(stopTimesEntry.stop.stopID)
+                
+                
+                """
+                if stopTimesEntry.stop.stopID == 2830:
                     flag = True
-                    break
-        if not flag:
-            # This will be done silently because (depending upon the valid interval) there could be
-            # hundreds of these in a GTFS set.
-            continue
-        
-        if shapeID not in shapeStops:
-            shapeStops[shapeID] = {}
-        if stopsTuple not in shapeStops[shapeID]:
-            shapeStops[shapeID][stopsTuple] = _TripsBundle()
-        shapeStops[shapeID][stopsTuple].trips.append(trip)    
-    del tripID, trip, stopsList, shapeID, stopsTuples, stopsTuple, tripsBundle, emptyShapes, flag
-    
-    shapeID = stopsTuples = stopsTuple = tripsBundle = varCounter = resultTree = None
-    allTripsBundles = {}
-    "@type allTripsBundles: dict<tuple<int>, _TripsBundle>"    
-    for shapeID, stopsTuples in compat.iteritems(shapeStops):
-        "@type shapeID: int"
-        "@type stopsTuples: dict<tuple<int>, _TripsBundle>"
-        
-        varCounter = 1
-        for stopsTuple, tripsBundle in compat.iteritems(stopsTuples):
+            if not flag:
+                continue    
+            """
+            
+                
+            stopsTuple = tuple(stopsList)
             "@type stopsTuple: tuple<int>"
-            "@type tripsBundle: _TripsBundle"
-        
-            tripsBundle.label = str(shapeID) if len(stopsTuples) <= 1 else str(shapeID) + " (variation %d)" % varCounter
-                
-            # Step 1: Find the longest distance of contiguous valid links within each unique shape. And,
-            # TODO: Note that only the longest contiguous series is found; if there are two or more sections, then they'll be ignored.
-            print("INFO: -- Matching stops for Shape %s: %d trip(s) --" % (tripsBundle.label, len(tripsBundle.trips)), file=sys.stderr)
-            ourGTFSNodes, tripsBundle.longestStart = treeContiguous(gtfsNodes[shapeID], vistaNetwork)
-            "@type ourGTFSNodes: list<path_engine.PathEnd>"
+            # So now we have a key that is composed of the shape ID and all stop IDs in a sequence to identify all unique
+            # shape/stop ID combinations.
             
-            # Step 3: Build a new subset network with new links and nodes that represents the single-path
-            # specified by the GTFS shape (for bus route):
-            tripsBundle.subset, _ = buildSubset(ourGTFSNodes, vistaNetwork)
+            
+                        
+            # Ignore trips that are entirely outside our valid time interval.
+            flag = False
+            # TODO: Trips with no stops will be ignored. Is that what we want to do?
+            if not gtfsStopTimes:
+                # This will happen if we don't have stops defined. In this case, we want to go ahead and process the bus_route_link
+                # outputs because we don't know if the trip falls in or out of the valid time range.
+                flag = True
+            else:
+                for stopEntry in gtfsStopTimes[trip]:
+                    if (startTime is None or stopEntry.arrivalTime >= startTime) and (endTime is None or stopEntry.arrivalTime <= endTime):
+                        flag = True
+                        break
+            if not flag:
+                # This will be done silently because (depending upon the valid interval) there could be
+                # hundreds of these in a GTFS set.
+                continue
+            
+            if shapeID not in shapeStops:
+                shapeStops[shapeID] = {}
+            if stopsTuple not in shapeStops[shapeID]:
+                shapeStops[shapeID][stopsTuple] = _TripsBundle()
+            shapeStops[shapeID][stopsTuple].trips.append(trip)    
+        del tripID, trip, stopsList, shapeID, stopsTuples, stopsTuple, tripsBundle, emptyShapes, flag
+    
+        shapeID = stopsTuples = stopsTuple = tripsBundle = varCounter = resultTree = None
+        allTripsBundles = {}
+        "@type allTripsBundles: dict<tuple<int>, _TripsBundle>"    
+        for shapeID, stopsTuples in compat.iteritems(shapeStops):
+            "@type shapeID: int"
+            "@type stopsTuples: dict<tuple<int>, _TripsBundle>"
+            
+            varCounter = 1
+            for stopsTuple, tripsBundle in compat.iteritems(stopsTuples):
+                "@type stopsTuple: tuple<int>"
+                "@type tripsBundle: _TripsBundle"
+            
+                tripsBundle.label = str(shapeID) if len(stopsTuples) <= 1 else str(shapeID) + " (variation %d)" % varCounter
                     
-            # Step 4: Match up stops to that contiguous list:
-            print("INFO: Mapping stops to VISTA network...", file=sys.stderr)
-            gtfsShapes, tripsBundle.stopsLookup = prepareMapStops(ourGTFSNodes, gtfsStopTimes[tripsBundle.trips[0]])
-            # Here, trip[0] is a representative trip that is identical to all other trips in this bundle. The call above is only
-            # getting the stop sequence, not the times of the stops.
-    
-            # Find a path through our prepared node map subset:
-            resultTree = pathEngine.constructPath(gtfsShapes, tripsBundle.subset)
-            "@type resultTree: list<path_engine.PathEnd>"
-    
-            # So now resultTree is one tree entry per matched stop plus dummy ends.
-            # Strip off the dummy ends:
-            del resultTree[-1]
-            del resultTree[0]
-            if len(resultTree) > 0:
-                resultTree[0].prevTreeNode = None
-                resultTree[0].routeInfo = []
+                # Step 1: Find the longest distance of contiguous valid links within each unique shape. And,
+                # TODO: Note that only the longest contiguous series is found; if there are two or more sections, then they'll be ignored.
+                print("INFO: -- Matching stops for Shape %s: %d trip(s) --" % (tripsBundle.label, len(tripsBundle.trips)), file=sys.stderr)
+                ourGTFSNodes, tripsBundle.longestStart = treeContiguous(gtfsNodes[shapeID], vistaNetwork)
+                "@type ourGTFSNodes: list<path_engine.PathEnd>"
                 
-            # Check if our matched path has any problems:
-            tripsBundle.restartCount = sum([pathEnd.restart for pathEnd in resultTree])
-            if tripsBundle.restartCount > 0:
-                print("WARNING: Shape %s has disjoint sections after initial bus stop matching. Will attempt to refine." % tripsBundle.label, file=sys.stderr)
-    
-            # Put together GTFS points and stop points into the same list and express all links in terms of the underlying network:
-            tripsBundle.resultTree = zipGTFSWithStops(vistaNetwork, ourGTFSNodes, resultTree)
-    
-            # While we're at it, initialize the force links list for later:
-            tripsBundle.forceLinks = [None] * len(tripsBundle.resultTree)
-            
-            # Store this for the next step, where we attempt to use the same bus stop location across all routes that use
-            # that bus stop.
-            allTripsBundles[stopsTuple] = tripsBundle
-   
-            varCounter += 1
-    del shapeID, stopsTuples, stopsTuple, tripsBundle, varCounter, resultTree
-    
-    # At this point, all shapes represented in allTripsBundles are ones we want to analyze, and those extra ones in shapeStops
-    # have disjoints. We'll probably want to output both at the end.
-    print("INFO: -- End matching stops --", file=sys.stderr)
+                # Step 3: Build a new subset network with new links and nodes that represents the single-path
+                # specified by the GTFS shape (for bus route):
+                tripsBundle.subset, _ = buildSubset(ourGTFSNodes, vistaNetwork)
+                        
+                # Step 4: Match up stops to that contiguous list:
+                print("INFO: Mapping stops to VISTA network...", file=sys.stderr)
+                gtfsShapes, tripsBundle.stopsLookup = prepareMapStops(ourGTFSNodes, gtfsStopTimes[tripsBundle.trips[0]])
+                # Here, trip[0] is a representative trip that is identical to all other trips in this bundle. The call above is only
+                # getting the stop sequence, not the times of the stops.
+        
+                # Find a path through our prepared node map subset:
+                resultTree = pathEngine.constructPath(gtfsShapes, tripsBundle.subset)
+                "@type resultTree: list<path_engine.PathEnd>"
+        
+                # So now resultTree is one tree entry per matched stop plus dummy ends.
+                # Strip off the dummy ends:
+                del resultTree[-1]
+                del resultTree[0]
+                if len(resultTree) > 0:
+                    resultTree[0].prevTreeNode = None
+                    resultTree[0].routeInfo = []
+                    
+                # Check if our matched path has any problems:
+                tripsBundle.restartCount = sum([pathEnd.restart for pathEnd in resultTree])
+                if tripsBundle.restartCount > 0:
+                    print("WARNING: Shape %s has disjoint sections after initial bus stop matching. Will attempt to refine." % tripsBundle.label, file=sys.stderr)
+        
+                # Put together GTFS points and stop points into the same list and express all links in terms of the underlying network:
+                tripsBundle.resultTree = zipGTFSWithStops(vistaNetwork, ourGTFSNodes, resultTree)
+        
+                # While we're at it, initialize the force links list for later:
+                tripsBundle.forceLinks = [None] * len(tripsBundle.resultTree)
+                
+                # Store this for the next step, where we attempt to use the same bus stop location across all routes that use
+                # that bus stop.
+                allTripsBundles[stopsTuple] = tripsBundle
+       
+                varCounter += 1
+        del shapeID, stopsTuples, stopsTuple, tripsBundle, varCounter, resultTree
+        
+        # At this point, all shapes represented in allTripsBundles are ones we want to analyze, and those extra ones in shapeStops
+        # have disjoints. We'll probably want to output both at the end.
+        print("INFO: -- End matching stops --", file=sys.stderr)
+        
+        if pickleOutBundle:
+            print("INFO: Writing stop match results to %s" % pickleOutBundle, file=sys.stderr)
+            vistaNetwork._flatten()
+            for tripsBundle in compat.itervalues(allTripsBundles):
+                tripsBundle.subset._flatten()
+            with open(pickleOutBundle, mode="wb") as pickleFile:
+                # TODO: We're rewriting the underlying topology.
+                pickle.dump((vistaNetwork, shapeStops, allTripsBundles), pickleFile)
+            pickleFile.close()
+            del pickleFile        
+            vistaNetwork._unflatten()
+            for tripsBundle in compat.itervalues(allTripsBundles):
+                tripsBundle.subset._unflatten()
+    else:
+        print("INFO: Reading stop match results from %s" % pickleInBundle, file=sys.stderr)
+        with open(pickleInBundle, mode="rb") as pickleFile:
+            vistaNetwork, shapeStops, allTripsBundles = pickle.load(pickleFile)
+        pickleFile.close()
+        del pickleFile
+        vistaNetwork._unflatten()
+        for tripsBundle in compat.itervalues(allTripsBundles):
+            tripsBundle.subset._unflatten()
             
     # Now figure out where stop locations differ among multiple routes that share the same stop. This will involve
     # filling out a StopRecord for each stop and then resolving the discrepancies.
@@ -1237,6 +1269,9 @@ def main(argv):
     widenEnd = False
     excludeBegin = False
     excludeEnd = False
+    pickleOutBundle = None
+    pickleInBundle = None
+    pickleInTopo = None
     
     restrictService = set()
     "@type restrictService: set<string>"
@@ -1271,6 +1306,15 @@ def main(argv):
                 excludeEnd = True
             elif argv[i] == "-p":
                 problemReport = True
+            elif argv[i] == "--pbout" and i < len(argv) - 1:
+                pickleOutBundle = argv[i + 1]
+                i += 1
+            elif argv[i] == "--pbin" and i < len(argv) - 1:
+                pickleInBundle = argv[i + 1]
+                i += 1
+            elif argv[i] == "--ptin" and i < len(argv) - 1:
+                pickleInTopo = argv[i + 1]
+                i += 1
             i += 1
     
     if refTime is None:
@@ -1287,7 +1331,7 @@ def main(argv):
     
     # Restore the stuff that was built with path_match:
     (vistaGraph, gtfsShapes, gtfsNodes, unusedShapeIDs) = restorePathMatch(dbServer, networkName, userName,
-        password, shapePath, pathMatchFilename)
+        password, shapePath, pathMatchFilename, pickleInTopo=pickleInTopo)
     
     # Read in the routes information:
     print("INFO: Read GTFS routesfile...", file=sys.stderr)
@@ -1315,7 +1359,7 @@ def main(argv):
     with open("public.bus_route_link.csv", 'w') as outFile:
         (stopLinkMap, newStartTime, newEndTime) = dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaGraph,
             STOP_SEARCH_RADIUS, excludeUpstream, userName, networkName, refTime, endTime, widenBegin, widenEnd,
-            excludeBegin, excludeEnd, outFile)
+            excludeBegin, excludeEnd, pickleInBundle=pickleInBundle, pickleOutBundle=pickleOutBundle, outFile=outFile)
         "@type stopLinkMap: dict<int, graph.PointOnLink>"
     
     # Filter only to bus stops and stop times that are used in the routes_link output:

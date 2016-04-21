@@ -23,8 +23,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-from nmc_mm_lib import linear, gps
-import sys, math
+from nmc_mm_lib import linear, gps, compat
+import sys, math, pickle
 from heapq import heappush, heappop
 
 "The maximum number of lines allowed in a quad for optimized QuadSet lookup."
@@ -405,6 +405,44 @@ class GraphLib:
 
         # Return the limitClosestPoints number of points: 
         return retList
+    
+    def serialize(self, pickleFile):
+        """
+        serialize goes through the process of marshaling all of the objects in this GraphLib and writing contents out to a file.
+        """
+        # First, flatten the node next-links:
+        self._flatten()
+        pickle.dump(self, pickleFile)
+        self._unflatten()
+    
+    @staticmethod    
+    def unserialize(pickleFile):
+        """
+        unserialize reconstructs a GraphLib from a persistence file and returns that new GraphLib.
+        """
+        graphLib = pickle.load(pickleFile)
+        graphLib._unflatten()
+        return graphLib
+
+    def _flatten(self):
+        """
+        _flatten will convert the node next-links to be link ID integers rather than references. Until _unflatten() is called,
+        the GraphLib will be unusable. This is needed for making the graph manageable for pickling.
+        """
+        for node in compat.itervalues(self.nodeMap):
+            "@type node: GraphNode"
+            for outgoingLinkID in compat.iterkeys(node.outgoingLinkMap):
+                node.outgoingLinkMap[outgoingLinkID] = None
+            
+    def _unflatten(self):
+        """
+        _unflatten will restore the outgoing link IDs to all of the nodes, needed to reconstruct the objects after pickling.
+        """
+        for node in compat.itervalues(self.nodeMap):
+            "@type node: GraphNode"
+            for outgoingLinkID in compat.iterkeys(node.outgoingLinkMap):
+                node.outgoingLinkMap[outgoingLinkID] = self.linkMap[outgoingLinkID]            
+
 
     """
     # TEST!
