@@ -31,7 +31,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import print_function
 from nmc_mm_lib import gtfs, path_engine, graph, compat
 import sys, argparse, xml.sax
-from abc import ABCMeta, abstractmethod
 
 def pathMatch(osmXML, shapePath, limitMap=None, trackpoints=False):
     # Default parameters, with explanations and cross-references to Perrine et al., 2015:
@@ -52,6 +51,13 @@ def pathMatch(osmXML, shapePath, limitMap=None, trackpoints=False):
     # Read in the topology from the OSM XML file:
     print("INFO: Read OpenStreetMap topology...", file=sys.stderr)
     vistaGraph = fillGraph(osmXML)
+    
+    
+    
+    raise
+    
+    
+    
     
     # Read in the shapefile information:
     if not trackpoints:
@@ -102,32 +108,7 @@ class _NodeRef:
         self.node = node
         self.refCount = 0
 
-class PassHandlerBase(xml.sax.ContentHandler):
-    __metaclass__ = ABCMeta
-    def __init__(self):
-        self.tags = []
-        self.attributes = []
-        
-    def startElement(self, tag, attributes):
-        self.tags.append(tag)
-        self.attributes.append(attributes)
-        self.startElementImpl(tag, attributes)
-
-    def endElement(self, tag):
-        if tag != self.tags[-1]:
-            print("ERROR: Mismatched closing tag: '%s'" % tag)
-            raise
-        self.endElementImpl(tag)
-        del self.attributes[-1]
-        del self.tags[-1]
-        
-    @abstractmethod
-    def startElementImpl(self, tag, attributes): pass
-    
-    @abstractmethod
-    def endElementImpl(self, tag): pass
-
-class Pass1Handler(PassHandlerBase):
+class Pass1Handler(xml.sax.ContentHandler):
     def __init__(self):
         super().__init__()
         self.nodeIDList = []
@@ -138,7 +119,7 @@ class Pass1Handler(PassHandlerBase):
         self.wayIDSet = set()
         self.nodeIDRefs = {}
         
-    def startElementImpl(self, tag, attributes):
+    def startElement(self, tag, attributes):
         if tag == "way":
             self.highwayFlag = False
             self.nodeIDList.clear()
@@ -150,7 +131,7 @@ class Pass1Handler(PassHandlerBase):
                     (attributes["k"] == "oneway" and (attributes["v"] == "yes" or attributes["v"] == "1")):
                 self.highwayFlag = True
                 
-    def endElementImpl(self, tag):
+    def endElement(self, tag):
         if tag == "way":
             if self.highwayFlag:
                 for nodeID in self.nodeIDList:
@@ -159,7 +140,7 @@ class Pass1Handler(PassHandlerBase):
                     self.nodeIDRefs[nodeID] += 1
                 self.wayIDSet.add(self.wayID)
            
-class Pass2Handler(PassHandlerBase):
+class Pass2Handler(xml.sax.ContentHandler):
     def __init__(self, nodeIDRefs, wayIDSet):
         super().__init__()
         
@@ -184,7 +165,7 @@ class Pass2Handler(PassHandlerBase):
         # The output:        
         self.graphLib = None
      
-    def startElementImpl(self, tag, attributes):
+    def startElement(self, tag, attributes):
         if tag == "node":
             nodeID = int(attributes["id"])
             if nodeID in self.nodeIDRefs:
@@ -197,7 +178,7 @@ class Pass2Handler(PassHandlerBase):
                 self.lngSum += lng
                 self.rows += 1
                 node = graph.GraphNode(nodeID, lat, lng)
-                nodeRef = _NodeRef(node)
+                nodeRef = _NodeRef(node)                
                 nodeRef.refCount = self.nodeIDRefs[nodeID]
                 self.nodeCollection[nodeID] = _NodeRef(node)
         elif tag == "way":
@@ -205,7 +186,7 @@ class Pass2Handler(PassHandlerBase):
             self.wayID = int(attributes["id"])
             if self.wayID in self.wayIDSet:
                 if not self.graphLib:
-                    self.graphLib = graph.GraphLib(self.latSum / self.rows, self.lonSum / self.rows)
+                    self.graphLib = graph.GraphLib(self.latSum / self.rows, self.lngSum / self.rows)
                 self.oneWayFlag = False
                 self.streetName = ""
                 self.nodeRefList.clear()
@@ -223,20 +204,24 @@ class Pass2Handler(PassHandlerBase):
             if attributes["k"] == "name":
                 self.streetName = attributes["v"]
                 
-    def endElementImpl(self, tag):
+    def endElement(self, tag):
         if tag == "way" and self.wayID:
             if len(self.nodeRefList) >= 2:
                 prevNodeRef = self.nodeRefList[0]
                 vertices = [graph.GraphLinkVertex(prevNodeRef.node.gpsLat, prevNodeRef.node.gpsLng)]
+                if prevNodeRef.node.id not in self.graphLib.nodeMap:
+                    self.graphLib.addNode(prevNodeRef.node)
                 for nodeIndex in range(1, len(self.nodeRefList)):
                     nodeRef = self.nodeRefList[nodeIndex]
                     vertices.append(graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng))
                     if nodeIndex == len(self.nodeRefList) - 1 or nodeRef.refCount > 1:
+                        if nodeRef.node.id not in self.graphLib.nodeMap:
+                            self.graphLib.addNode(nodeRef.node)
                         linkID = self.linkID
                         self.linkID += 1
                         # Or, if we want to label according to nodes: 
                         # linkID = str(prevNodeRef.node.id) + "-" + str(nodeRef.node.id)
-                        link = graph.GraphLink(linkID, prevNodeRef.node, nodeRef.node)
+                        link = graph.GraphLink(linkID, prevNodeRef.node, nodeRef.node, self.graphLib)
                         link.streetName = self.streetName
                         link.addVertices(vertices)
                         prevNodeRef = nodeRef
@@ -255,7 +240,7 @@ class Pass2Handler(PassHandlerBase):
                             self.linkID += 1
                             # Or, if we want to label according to nodes: 
                             # linkID = str(prevNodeRef.node.id) + "-" + str(nodeRef.node.id)
-                            link = graph.GraphLink(linkID, prevNodeRef.node, nodeRef.node)
+                            link = graph.GraphLink(linkID, prevNodeRef.node, nodeRef.node, self.graphLib)
                             link.streetName = self.streetName
                             link.addVertices(vertices)
                             prevNodeRef = nodeRef
@@ -280,7 +265,7 @@ def fillGraph(osmXML):
     xml.sax.parse(osmXML, pass1Handler)
     
     print("INFO: - Pass 2 of 2...", file=sys.stderr)
-    pass2Handler = Pass2Handler(pass1Handler.wayIDSet, pass1Handler.nodeIDRefs)
+    pass2Handler = Pass2Handler(pass1Handler.nodeIDRefs, pass1Handler.wayIDSet)
     xml.sax.parse(osmXML, pass2Handler)
     
     # Optimize the graph for lookups:
