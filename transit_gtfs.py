@@ -41,14 +41,20 @@ STOP_SEARCH_RADIUS = 800
 DISTANCE_FACTOR = 1.0
 "@var DISTANCE_FACTOR: 'f_d': Cost multiplier for Linear path distance in stop matching"
 
-DRIFT_FACTOR = 2.0
+DRIFT_FACTOR = 6.0 #2.0
 "@var DRIFT_FACTOR: 'f_r': Cost multiplier for distance from GTFS point to its VISTA link in stop matching"
 
-NON_PERP_PENALTY = 1.5
+NON_PERP_PENALTY = 1.0 #1.5
 "@var NON_PERP_PENALTY: 'f_p': Penalty multiplier for GTFS points that aren't perpendicular to VISTA links"
 
+problemStopMatch = False
+"@var problemStopMatch: Set to true when the -ps parameter is specified for outputting stop match results."
+
+problemStopMatchZip = False
+"@var problemStopMatchZip: Only valid with problemStopMatch true; outputs post-zipped stop match results."
+
 problemReport = False
-"@var problemReport is set to true when the -p parameter is specified."
+"@var problemReport: Set to true when the -p parameter is specified."
 
 def syntax(exitCode):
     """
@@ -287,7 +293,7 @@ def prepareMapStops(treeNodes, stopTimes, dummyFlag=True):
     @return Prepared stop information
     @rtype (list<gtfs.ShapesEntry>, dict<int, gtfs.StopTimesEntry>)
     """
-    gtfsShapes = []
+    stopShapeEntries = []
     gtfsStopsLookup = {}
     "@type gtfsStopsLookup: dict<int, gtfs.StopTimesEntry>"
     
@@ -297,7 +303,7 @@ def prepareMapStops(treeNodes, stopTimes, dummyFlag=True):
             treeNodes[0].pointOnLink.link.origNode.gpsLng)
         newShapesEntry.pointX, newShapesEntry.pointY = treeNodes[0].pointOnLink.link.origNode.coordX, treeNodes[0].pointOnLink.link.origNode.coordY
         newShapesEntry.typeID = 1 # To signify that this is like a stop.
-        gtfsShapes.append(newShapesEntry)
+        stopShapeEntries.append(newShapesEntry)
     
     # Append all of the stops:
     for gtfsStopTime in stopTimes:
@@ -305,7 +311,7 @@ def prepareMapStops(treeNodes, stopTimes, dummyFlag=True):
         newShapesEntry = gtfs.ShapesEntry(gtfsStopTime.trip.tripID, gtfsStopTime.stopSeq, gtfsStopTime.stop.gpsLat, gtfsStopTime.stop.gpsLng)
         newShapesEntry.pointX, newShapesEntry.pointY = gtfsStopTime.stop.pointX, gtfsStopTime.stop.pointY
         newShapesEntry.typeID = 1 # To signify that this is a stop.
-        gtfsShapes.append(newShapesEntry)
+        stopShapeEntries.append(newShapesEntry)
         gtfsStopsLookup[gtfsStopTime.stopSeq] = gtfsStopTime
 
     if dummyFlag:
@@ -314,9 +320,9 @@ def prepareMapStops(treeNodes, stopTimes, dummyFlag=True):
             treeNodes[-1].pointOnLink.link.destNode.gpsLng)
         newShapesEntry.pointX, newShapesEntry.pointY = treeNodes[-1].pointOnLink.link.destNode.coordX, treeNodes[-1].pointOnLink.link.destNode.coordY
         newShapesEntry.typeID = 1 # To signify that this is like a stop.
-        gtfsShapes.append(newShapesEntry)
+        stopShapeEntries.append(newShapesEntry)
 
-    return gtfsShapes, gtfsStopsLookup
+    return stopShapeEntries, gtfsStopsLookup
 
 def zipGTFSWithStops(underlyingNetwork, leftResultTree, rightResultTree):
     """
@@ -543,6 +549,7 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
             "@type stopsList: list<int>"
             
             
+            # Debug
             flag = False
             
             
@@ -550,10 +557,11 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                 "@type stopTimesEntry: list<gtfs.StopTimesEntry>"
                 stopsList.append(stopTimesEntry.stop.stopID)
                 
-                
-                """
-                if stopTimesEntry.stop.stopID == 2830:
+            """    
+                # Debug
+                if stopTimesEntry.stop.stopID == 4494:
                     flag = True
+            # Debug
             if not flag:
                 continue    
             """
@@ -591,6 +599,9 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
         del tripID, trip, stopsList, shapeID, stopsTuples, stopsTuple, tripsBundle, emptyShapes, flag
     
         shapeID = stopsTuples = stopsTuple = tripsBundle = varCounter = resultTree = None
+        if problemStopMatch:
+            problemSMRecords = {}
+            stopShapes = {}
         allTripsBundles = {}
         "@type allTripsBundles: dict<tuple<int>, _TripsBundle>"    
         for shapeID, stopsTuples in compat.iteritems(shapeStops):
@@ -616,18 +627,17 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                         
                 # Step 4: Match up stops to that contiguous list:
                 print("INFO: Mapping stops to VISTA network...", file=sys.stderr)
-                gtfsShapes, tripsBundle.stopsLookup = prepareMapStops(ourGTFSNodes, gtfsStopTimes[tripsBundle.trips[0]])
+                stopShapeEntries, tripsBundle.stopsLookup = prepareMapStops(ourGTFSNodes, gtfsStopTimes[tripsBundle.trips[0]])
                 # Here, trip[0] is a representative trip that is identical to all other trips in this bundle. The call above is only
                 # getting the stop sequence, not the times of the stops.
         
                 # Find a path through our prepared node map subset:
-                resultTree = pathEngine.constructPath(gtfsShapes, tripsBundle.subset)
+                resultTree = pathEngine.constructPath(stopShapeEntries, tripsBundle.subset)
                 "@type resultTree: list<path_engine.PathEnd>"
         
                 # So now resultTree is one tree entry per matched stop plus dummy ends.
                 # Strip off the dummy ends:
-                del resultTree[-1]
-                del resultTree[0]
+                del resultTree[-1], resultTree[0], stopShapeEntries[-1], stopShapeEntries[0]
                 if len(resultTree) > 0:
                     resultTree[0].prevTreeNode = None
                     resultTree[0].routeInfo = []
@@ -640,6 +650,17 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
                 # Put together GTFS points and stop points into the same list and express all links in terms of the underlying network:
                 tripsBundle.resultTree = zipGTFSWithStops(vistaNetwork, ourGTFSNodes, resultTree)
         
+                # Save this off to a stop match problem report if we need it:
+                if problemStopMatch:
+                    if problemStopMatchZip:
+                        # Make a list of stop+underlying shape points from the ResultTree. Since the problem report generator takes in a
+                        # separate list of shape entries to handle points not found problems, we need to build a separate list.
+                        stopShapes[shapeID] = [pathEnd.shapeEntry for pathEnd in tripsBundle.resultTree]
+                        problemSMRecords[shapeID] = tripsBundle.resultTree
+                    else:
+                        stopShapes[shapeID] = stopShapeEntries
+                        problemSMRecords[shapeID] = resultTree
+        
                 # While we're at it, initialize the force links list for later:
                 tripsBundle.forceLinks = [None] * len(tripsBundle.resultTree)
                 
@@ -649,6 +670,12 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
        
                 varCounter += 1
         del shapeID, stopsTuples, stopsTuple, tripsBundle, varCounter, resultTree
+        
+        if problemStopMatch:
+            print("INFO: Outputting stop match problem report.", file=sys.stderr)
+            
+            problem_report.problemReport(stopShapes, problemSMRecords, vistaNetwork, showLinks=True)            
+            del stopShapes, problemSMRecords
         
         # At this point, all shapes represented in allTripsBundles are ones we want to analyze, and those extra ones in shapeStops
         # have disjoints. We'll probably want to output both at the end.
@@ -784,6 +811,18 @@ def dumpBusRouteLinks(gtfsTrips, gtfsStops, gtfsStopTimes, gtfsNodes, vistaNetwo
     pathEngine.logFile = None # Suppress the log outputs for the path engine; enough stuff will come from other sources.
     del termRefactorRadius, pointSearchRadius, pointSearchPrimary, pointSearchSecondary, limitLinearDist, limitDirectDist, limitDirectDistRev, \
         distanceFactor, driftFactor, nonPerpPenalty, limitClosestPoints, limitSimultaneousPaths, maxHops
+
+
+
+    """
+    # Debug:
+    oldStopRecords = stopRecords
+    stopRecords = {}
+    stopRecords[4494] = oldStopRecords[4494]
+    """
+    
+
+
     
     pathEngine.setRefineParams(STOP_SEARCH_RADIUS)
     for stopID, stopRecord in compat.iteritems(stopRecords):
@@ -1251,7 +1290,7 @@ def dumpBusStops(gtfsStops, stopLinkMap, userName, networkName, outFile = sys.st
         print('"%d","%d","%s","%d"' % (stopID, pointOnLink.link.id, gtfsStops[stopID].stopName, int(pointOnLink.dist)), file = outFile) 
 
 def main(argv):
-    global problemReport
+    global problemReport, problemStopMatch, problemStopMatchZip
     excludeUpstream = False
     
     # Initialize from command-line parameters:
@@ -1306,6 +1345,11 @@ def main(argv):
                 excludeEnd = True
             elif argv[i] == "-p":
                 problemReport = True
+            elif argv[i] == "-ps":
+                problemStopMatch = True
+            elif argv[i] == "-psz":
+                problemStopMatch = True
+                problemStopMatchZip = True
             elif argv[i] == "--pbout" and i < len(argv) - 1:
                 pickleOutBundle = argv[i + 1]
                 i += 1

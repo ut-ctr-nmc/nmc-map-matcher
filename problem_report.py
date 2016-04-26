@@ -54,6 +54,8 @@ def problemReport(geoTracks, gtfsNodes, vistaGraph, showLinks=False, byTripFlag=
         nodeIndex = 0
         for geoPoint in geoTracks[shapeID]:
             "@type geoPoint: gtfs.ShapesEntry"
+            # TODO: Can we get away with not requiring geoTracks and just getting the shape entries from the PathEnd objects?
+            # Will that work in cases where we are dealing with a subset graph?
             if nodeIndex < len(gtfsNodeList) and gtfsNodeList[nodeIndex].shapeEntry.shapeSeq == geoPoint.shapeSeq: 
                 gtfsNode = gtfsNodeList[nodeIndex]
                 "@type gtfsNode: path_engine.PathEnd"
@@ -89,6 +91,7 @@ def problemReport(geoTracks, gtfsNodes, vistaGraph, showLinks=False, byTripFlag=
                 outStr = "%s,%d,%d,%g,%d,%s,%s" % (str(geoPoint.shapeID), geoPoint.shapeSeq, -1, 0, 4, 
                                 str(geoPoint.lat) + " " + str(geoPoint.lng), str(geoPoint.lat) + " " + str(geoPoint.lng))
             print(outStr, file=outFile)
+            prevSeq = geoPoint.shapeSeq
 
 def main(argv):
     # Initialize from command-line parameters:
