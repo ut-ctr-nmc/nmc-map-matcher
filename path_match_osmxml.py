@@ -130,11 +130,13 @@ class PassHandlerBase(xml.sax.ContentHandler):
 class Pass1Handler(PassHandlerBase):
     def __init__(self):
         super().__init__()
-        self.nodeIDRefs = {}
         self.nodeIDList = []
         self.highwayFlag = False
         self.wayID = 0
+        
+        # The outputs:
         self.wayIDSet = set()
+        self.nodeIDRefs = {}
         
     def startElementImpl(self, tag, attributes):
         if tag == "way":
@@ -144,8 +146,8 @@ class Pass1Handler(PassHandlerBase):
         elif tag == "nd":
             self.nodeIDList.append(int(attributes["ref"]))
         elif tag == "tag":
-            if attributes["k"] == "highway" or 
-                    (attributes["k"] == "oneway" and (attributes["v"] == "yes" or atributes["v"] == "1")):
+            if attributes["k"] == "highway" or \
+                    (attributes["k"] == "oneway" and (attributes["v"] == "yes" or attributes["v"] == "1")):
                 self.highwayFlag = True
                 
     def endElementImpl(self, tag):
@@ -170,22 +172,24 @@ class Pass2Handler(PassHandlerBase):
         self.lngSum = 0
         self.rows = 0
         self.nodeCollection = {}
-        self.graphLib = None
         self.orderingFlag = False
+        self.linkID = 1
         
         # Current Way:
-        self.wayID = wayID
+        self.wayID = 0
         self.oneWayFlag = False
         self.streetName = ""
-        self.nodeRefList = []        
-        self.prevNode = None
+        self.nodeRefList = []
+        
+        # The output:        
+        self.graphLib = None
      
     def startElementImpl(self, tag, attributes):
         if tag == "node":
             nodeID = int(attributes["id"])
             if nodeID in self.nodeIDRefs:
                 if self.graphLib and not self.orderingFlag:
-                    print("WARNING: The OSM XML file is assumed to be structured such that nodes come before ways. The center-point may be offset.")
+                    print("WARNING: The OSM XML file is assumed to be structured such that nodes come before ways. The center-point may not be the mean of the entire set.")
                     self.orderingFlag = True
                 lat = float(attributes["lat"])
                 lng = float(attributes["lon"])
@@ -205,25 +209,61 @@ class Pass2Handler(PassHandlerBase):
                 self.oneWayFlag = False
                 self.streetName = ""
                 self.nodeRefList.clear()
-                self.prevNode = None
             else:
                 self.wayID = 0
         elif tag == "nd" and self.wayID:
-            self.
-            self.prevNode
-            
+            nodeID = int(attributes["ref"])
+            if nodeID in self.nodeCollection:
+                self.nodeRefList.append(self.nodeCollection[nodeID])
+            else:
+                print("WARNING: Node %d is attempted to be referenced from Way %d, but it hadn't been defined." % (nodeID, self.wayID), file=sys.stderr)
         elif tag == "tag" and self.wayID:
-            if attributes["k"] == "oneway" and (attributes["v"] == "yes" or atributes["v"] == "1"):
+            if attributes["k"] == "oneway" and (attributes["v"] == "yes" or attributes["v"] == "1"):
                 self.oneWayFlag = True
             if attributes["k"] == "name":
                 self.streetName = attributes["v"]
                 
-                
     def endElementImpl(self, tag):
-        if tag == "way":
-            if self.wayID:
-                
-                
+        if tag == "way" and self.wayID:
+            if len(self.nodeRefList) >= 2:
+                prevNodeRef = self.nodeRefList[0]
+                vertices = [graph.GraphLinkVertex(prevNodeRef.node.gpsLat, prevNodeRef.node.gpsLng)]
+                for nodeIndex in range(1, len(self.nodeRefList)):
+                    nodeRef = self.nodeRefList[nodeIndex]
+                    vertices.append(graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng))
+                    if nodeIndex == len(self.nodeRefList) - 1 or nodeRef.refCount > 1:
+                        linkID = self.linkID
+                        self.linkID += 1
+                        # Or, if we want to label according to nodes: 
+                        # linkID = str(prevNodeRef.node.id) + "-" + str(nodeRef.node.id)
+                        link = graph.GraphLink(linkID, prevNodeRef.node, nodeRef.node)
+                        link.streetName = self.streetName
+                        link.addVertices(vertices)
+                        prevNodeRef = nodeRef
+                        self.graphLib.addLink(link)
+                        if nodeIndex < len(self.nodeRefList) - 1:
+                            vertices = [graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng)]
+                if not self.oneWayFlag:
+                    # We also need to add in the complementary reverse links:
+                    prevNodeRef = self.nodeRefList[-1]
+                    vertices = [graph.GraphLinkVertex(prevNodeRef.node.gpsLat, prevNodeRef.node.gpsLng)]
+                    for nodeIndex in range(len(self.nodeRefList) - 2, 0, -1):
+                        nodeRef = self.nodeRefList[nodeIndex]
+                        vertices.append(graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng))
+                        if nodeIndex == 0 or nodeRef.refCount > 1:
+                            linkID = self.linkID
+                            self.linkID += 1
+                            # Or, if we want to label according to nodes: 
+                            # linkID = str(prevNodeRef.node.id) + "-" + str(nodeRef.node.id)
+                            link = graph.GraphLink(linkID, prevNodeRef.node, nodeRef.node)
+                            link.streetName = self.streetName
+                            link.addVertices(vertices)
+                            prevNodeRef = nodeRef
+                            self.graphLib.addLink(link)
+                            if nodeIndex > 0:
+                                vertices = [graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng)]
+            else:
+                print("WARNING: Two or more nodes must be defined for Way %d to be used." % self.wayID, file=sys.stderr)
 
 def fillGraph(osmXML):
     """
@@ -235,134 +275,19 @@ def fillGraph(osmXML):
     print("INFO: Reading geographic input from OSM XML file '%s'..." % osmXML, file=sys.stderr)
     parser = xml.sax.make_parser()
     parser.setFeature(xml.sax.handler.feature_namespaces, 0)
+    print("INFO: - Pass 1 of 2...", file=sys.stderr)
     pass1Handler = Pass1Handler()
-    print("INFO: - Pass 1 of 3...", file.sys.stderr)
     xml.sax.parse(osmXML, pass1Handler)
     
-    xmlTree = ET.parse(osmXML)
-    xmlRoot = xmlTree.getroot()
+    print("INFO: - Pass 2 of 2...", file=sys.stderr)
+    pass2Handler = Pass2Handler(pass1Handler.wayIDSet, pass1Handler.nodeIDRefs)
+    xml.sax.parse(osmXML, pass2Handler)
     
-    # Step 1: Figure out the geographic center of the network and create the Graph:
-    nodeCollection = {}
-    "@type nodeCollection: dict<str, _NodeRef>"
-    rows = 0
-    latSum = 0
-    lonSum = 0
-    for xmlNode in xmlRoot.iterfind("node"):
-        nodeID = str(xmlNode.attrib["id"])
-        lat = float(xmlNode.attrib["lat"])
-        latSum += lat
-        lon = float(xmlNode.attrib["lon"])
-        lonSum += lon
-        rows += 1
-        
-        node = graph.GraphNode(nodeID, lat, lon)
-        nodeCollection[nodeID] = _NodeRef(node)
-
-    if rows == 0:
-        print("ERROR: The OSM XML file '%s' doesn't have any node data." % osmXML, file=sys.stderr)
-        return None
-    graphLib = graph.GraphLib(latSum / rows, lonSum / rows)
-
-    # Step 2: Collect nodes to OSM ways:
-    # First, prepare reference counts for nodes to later figure out whether they're intersections.
-    for xmlWay in xmlRoot.iterfind("way"):
-        highwayFlag = False
-        for tag in xmlWay.iterfind("tag"):
-            key = tag.attrib("k")
-            if key == "highway":
-                highwayFlag = True
-        if highwayFlag:
-            errFlag = False
-            nodeCount = 0
-            for osmNode in xmlWay.iterfind("nd"):
-                if osmNode.attrib("ref") not in nodeCollection:
-                    print("WARNING: In OSM Way %s, Node %s is not found." % (xmlWay.attrib("id"),
-                        osmNode.attrib("ref")), file=sys.stderr)
-                    errFlag = True
-                    break
-                nodeCount += 1
-            if errFlag:
-                continue
-            if len(nodeCount) < 2:
-                print("WARNING: The OSM Way %s has too few elements." % xmlWay.attrib("id"), file=sys.stderr)
-                continue
-            for osmNode in xmlWay.iterfind("nd"):
-                # Increment the reference count for this node:
-                nodeCollection[osmNode.attrib("ref")].refCount += 1
-
-    # Next, create links between all Nodes that are endpoints or referenced more than once (which implies
-    # intersections or joints between two OSM ways): 
-    for xmlWay in xmlRoot.iterfind("way"):
-        highwayFlag = False
-        onewayFlag = False
-        streetName = ""
-        for tag in xmlWay.iterfind("tag"):
-            key = tag.attrib("k")
-            if key == "highway":
-                highwayFlag = True
-            elif key == "oneway":
-                if tag.attrib("v") == "yes" or tag.attrib("v") == "1":
-                    onewayFlag = True
-            if key == "name":
-                streetName = tag.attrib("v")
-        if highwayFlag:
-            nodeIDList = []
-            errFlag = False
-            for osmNode in xmlWay.iterfind("nd"):
-                nodeIDList.append(osmNode.attrib("ref"))
-                if nodeIDList[-1] not in nodeCollection:
-                    errFlag = True
-                    break
-            if errFlag:
-                continue
-            if len(nodeIDList) < 2:
-                continue
-            for nodeIndex in range(0, len(nodeIDList)):
-                nodeRef = nodeCollection[nodeIDList[nodeIndex]]
-                addFlag = False
-                if nodeIndex == 0 or nodeIndex == len(nodeIDList) - 1 or \
-                        nodeRef.refCount > 1:
-                    addFlag = True
-                if addFlag and nodeID not in graphLib.nodeMap:
-                    graphLib.addNode(nodeRef.node)
-            prevNodeID = nodeIDList[0]
-            nodeRef = nodeCollection[nodeIDList[0]]
-            vertices = [graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng)]
-            for nodeIndex in range(1, len(nodeIDList)):
-                nodeRef = nodeCollection[nodeIDList[nodeIndex]]
-                vertices.append(graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng))
-                if nodeIndex == len(nodeIDList) - 1 or nodeRef.refCount > 1:
-                    linkID = nodeIDList[prevNodeID] + "-" + nodeIDList[nodeIndex]
-                    link = graph.GraphLink(linkID, nodeCollection[prevNodeID], nodeCollection[nodeIDList[nodeIndex]])
-                    link.streetName = streetName
-                    link.addVertices(vertices)
-                    prevNodeID = nodeIDList[nodeIndex]
-                    graphLib.addLink(link)
-                    if nodeIndex < len(nodeIDList) - 1:
-                        vertices = [graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng)]
-            if not onewayFlag:
-                prevNodeID = nodeIDList[-1]
-                nodeRef = nodeCollection[nodeIDList[-1]]
-                vertices = [graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng)]
-                for nodeIndex in range(len(nodeIDList) - 2, 0, -1):
-                    nodeRef = nodeCollection[nodeIDList[nodeIndex]]
-                    vertices.append(graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng))
-                    if nodeIndex == 0 or nodeCollection[nodeIDList[nodeIndex]].refCount > 1:
-                        linkID = nodeIDList[prevNodeID] + "-" + nodeIDList[nodeIndex]
-                        link = graph.GraphLink(linkID, nodeCollection[prevNodeID], nodeCollection[nodeIDList[nodeIndex]])
-                        link.streetName = streetName
-                        link.addVertices(vertices)
-                        prevNodeID = nodeIDList[nodeIndex]
-                        graphLib.addLink(link)
-                        if nodeIndex > 0:
-                            vertices = [graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng)]
-            
     # Optimize the graph for lookups:
-    graphLib.generateQuadSet()
+    pass2Handler.graphLib.generateQuadSet()
         
     # There we are.
-    return graphLib
+    return pass2Handler.graphLib
 
 def main(argv):
     # Initialize from command-line parameters:
@@ -377,8 +302,8 @@ def main(argv):
     gtfsNodesResults = pathMatch(args.osmXML, args.shapePath, trackpoints=args.trackpoints)
     
     # Extract useful information:
-    print("INFO: -- Final --", file = sys.stderr)
-    print("INFO: Print output...", file = sys.stderr)
+    print("INFO: -- Final --", file=sys.stderr)
+    print("INFO: Print output...", file=sys.stderr)
     path_engine.dumpStandardHeader()
 
     shapeIDs = compat.listkeys(gtfsNodesResults)
