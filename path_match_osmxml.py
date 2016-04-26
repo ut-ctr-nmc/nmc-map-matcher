@@ -29,8 +29,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
-from nmc_mm_lib import gtfs, vista_network, path_engine, graph, compat
-import sys, argparse, xml.etree.ElementTree as ET
+from nmc_mm_lib import gtfs, path_engine, graph, compat
+import sys, argparse, xml.sax
+from abc import ABCMeta, abstractmethod
 
 def pathMatch(osmXML, shapePath, limitMap=None, trackpoints=False):
     # Default parameters, with explanations and cross-references to Perrine et al., 2015:
@@ -49,7 +50,7 @@ def pathMatch(osmXML, shapePath, limitMap=None, trackpoints=False):
     maxHops = 12                # Maximum number of VISTA links to pursue in a path-finding operation
     
     # Read in the topology from the OSM XML file:
-    print("INFO: Read OpenStreetMap topology from '%s'..." % osmXML, file=sys.stderr)
+    print("INFO: Read OpenStreetMap topology...", file=sys.stderr)
     vistaGraph = fillGraph(osmXML)
     
     # Read in the shapefile information:
@@ -101,6 +102,129 @@ class _NodeRef:
         self.node = node
         self.refCount = 0
 
+class PassHandlerBase(xml.sax.ContentHandler):
+    __metaclass__ = ABCMeta
+    def __init__(self):
+        self.tags = []
+        self.attributes = []
+        
+    def startElement(self, tag, attributes):
+        self.tags.append(tag)
+        self.attributes.append(attributes)
+        self.startElementImpl(tag, attributes)
+
+    def endElement(self, tag):
+        if tag != self.tags[-1]:
+            print("ERROR: Mismatched closing tag: '%s'" % tag)
+            raise
+        self.endElementImpl(tag)
+        del self.attributes[-1]
+        del self.tags[-1]
+        
+    @abstractmethod
+    def startElementImpl(self, tag, attributes): pass
+    
+    @abstractmethod
+    def endElementImpl(self, tag): pass
+
+class Pass1Handler(PassHandlerBase):
+    def __init__(self):
+        super().__init__()
+        self.nodeIDRefs = {}
+        self.nodeIDList = []
+        self.highwayFlag = False
+        self.wayID = 0
+        self.wayIDSet = set()
+        
+    def startElementImpl(self, tag, attributes):
+        if tag == "way":
+            self.highwayFlag = False
+            self.nodeIDList.clear()
+            self.wayID = int(attributes["id"]) 
+        elif tag == "nd":
+            self.nodeIDList.append(int(attributes["ref"]))
+        elif tag == "tag":
+            if attributes["k"] == "highway" or 
+                    (attributes["k"] == "oneway" and (attributes["v"] == "yes" or atributes["v"] == "1")):
+                self.highwayFlag = True
+                
+    def endElementImpl(self, tag):
+        if tag == "way":
+            if self.highwayFlag:
+                for nodeID in self.nodeIDList:
+                    if nodeID not in self.nodeIDRefs:
+                        self.nodeIDRefs[nodeID] = 0
+                    self.nodeIDRefs[nodeID] += 1
+                self.wayIDSet.add(self.wayID)
+           
+class Pass2Handler(PassHandlerBase):
+    def __init__(self, nodeIDRefs, wayIDSet):
+        super().__init__()
+        
+        # From Pass 1:
+        self.nodeIDRefs = nodeIDRefs
+        self.wayIDSet = wayIDSet
+        
+        # Making GraphLib and Nodes:
+        self.latSum = 0
+        self.lngSum = 0
+        self.rows = 0
+        self.nodeCollection = {}
+        self.graphLib = None
+        self.orderingFlag = False
+        
+        # Current Way:
+        self.wayID = wayID
+        self.oneWayFlag = False
+        self.streetName = ""
+        self.nodeRefList = []        
+        self.prevNode = None
+     
+    def startElementImpl(self, tag, attributes):
+        if tag == "node":
+            nodeID = int(attributes["id"])
+            if nodeID in self.nodeIDRefs:
+                if self.graphLib and not self.orderingFlag:
+                    print("WARNING: The OSM XML file is assumed to be structured such that nodes come before ways. The center-point may be offset.")
+                    self.orderingFlag = True
+                lat = float(attributes["lat"])
+                lng = float(attributes["lon"])
+                self.latSum += lat
+                self.lngSum += lng
+                self.rows += 1
+                node = graph.GraphNode(nodeID, lat, lng)
+                nodeRef = _NodeRef(node)
+                nodeRef.refCount = self.nodeIDRefs[nodeID]
+                self.nodeCollection[nodeID] = _NodeRef(node)
+        elif tag == "way":
+            # We are assuming that all of the ways come after the nodes.
+            self.wayID = int(attributes["id"])
+            if self.wayID in self.wayIDSet:
+                if not self.graphLib:
+                    self.graphLib = graph.GraphLib(self.latSum / self.rows, self.lonSum / self.rows)
+                self.oneWayFlag = False
+                self.streetName = ""
+                self.nodeRefList.clear()
+                self.prevNode = None
+            else:
+                self.wayID = 0
+        elif tag == "nd" and self.wayID:
+            self.
+            self.prevNode
+            
+        elif tag == "tag" and self.wayID:
+            if attributes["k"] == "oneway" and (attributes["v"] == "yes" or atributes["v"] == "1"):
+                self.oneWayFlag = True
+            if attributes["k"] == "name":
+                self.streetName = attributes["v"]
+                
+                
+    def endElementImpl(self, tag):
+        if tag == "way":
+            if self.wayID:
+                
+                
+
 def fillGraph(osmXML):
     """
     fillGraph fills up the Graph structure from the given OSM XML filename
@@ -109,6 +233,12 @@ def fillGraph(osmXML):
     """
     
     print("INFO: Reading geographic input from OSM XML file '%s'..." % osmXML, file=sys.stderr)
+    parser = xml.sax.make_parser()
+    parser.setFeature(xml.sax.handler.feature_namespaces, 0)
+    pass1Handler = Pass1Handler()
+    print("INFO: - Pass 1 of 3...", file.sys.stderr)
+    xml.sax.parse(osmXML, pass1Handler)
+    
     xmlTree = ET.parse(osmXML)
     xmlRoot = xmlTree.getroot()
     
