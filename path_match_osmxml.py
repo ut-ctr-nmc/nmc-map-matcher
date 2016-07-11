@@ -52,13 +52,6 @@ def pathMatch(osmXML, shapePath, limitMap=None, trackpoints=False):
     print("INFO: Read OpenStreetMap topology...", file=sys.stderr)
     vistaGraph = fillGraph(osmXML)
     
-    
-    
-    raise
-    
-    
-    
-    
     # Read in the shapefile information:
     if not trackpoints:
         print("INFO: Read GTFS shapefile...", file=sys.stderr)
@@ -209,18 +202,28 @@ class Pass2Handler(xml.sax.ContentHandler):
             if len(self.nodeRefList) >= 2:
                 prevNodeRef = self.nodeRefList[0]
                 vertices = [graph.GraphLinkVertex(prevNodeRef.node.gpsLat, prevNodeRef.node.gpsLng)]
+                
+                
+                vertices[-1].id = prevNodeRef.node.id
+                
+                
                 if prevNodeRef.node.id not in self.graphLib.nodeMap:
                     self.graphLib.addNode(prevNodeRef.node)
                 for nodeIndex in range(1, len(self.nodeRefList)):
                     nodeRef = self.nodeRefList[nodeIndex]
                     vertices.append(graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng))
+                
+                
+                    vertices[-1].id = nodeRef.node.id
+                
+                
                     if nodeIndex == len(self.nodeRefList) - 1 or nodeRef.refCount > 1:
                         if nodeRef.node.id not in self.graphLib.nodeMap:
                             self.graphLib.addNode(nodeRef.node)
                         linkID = self.linkID
                         self.linkID += 1
                         # Or, if we want to label according to nodes: 
-                        # linkID = str(prevNodeRef.node.id) + "-" + str(nodeRef.node.id)
+                        linkID = str(prevNodeRef.node.id) + "-" + str(nodeRef.node.id)
                         link = graph.GraphLink(linkID, prevNodeRef.node, nodeRef.node, self.graphLib)
                         link.streetName = self.streetName
                         link.addVertices(vertices)
@@ -228,18 +231,35 @@ class Pass2Handler(xml.sax.ContentHandler):
                         self.graphLib.addLink(link)
                         if nodeIndex < len(self.nodeRefList) - 1:
                             vertices = [graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng)]
+                
+                
+                            vertices[-1].id = nodeRef.node.id
+                
+                
+
                 if not self.oneWayFlag:
                     # We also need to add in the complementary reverse links:
                     prevNodeRef = self.nodeRefList[-1]
                     vertices = [graph.GraphLinkVertex(prevNodeRef.node.gpsLat, prevNodeRef.node.gpsLng)]
+                
+                
+                    vertices[-1].id = prevNodeRef.node.id
+                
+                
+
                     for nodeIndex in range(len(self.nodeRefList) - 2, 0, -1):
                         nodeRef = self.nodeRefList[nodeIndex]
                         vertices.append(graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng))
+                
+                
+                        vertices[-1].id = nodeRef.node.id
+                
+                
                         if nodeIndex == 0 or nodeRef.refCount > 1:
                             linkID = self.linkID
                             self.linkID += 1
                             # Or, if we want to label according to nodes: 
-                            # linkID = str(prevNodeRef.node.id) + "-" + str(nodeRef.node.id)
+                            linkID = str(prevNodeRef.node.id) + "-" + str(nodeRef.node.id)
                             link = graph.GraphLink(linkID, prevNodeRef.node, nodeRef.node, self.graphLib)
                             link.streetName = self.streetName
                             link.addVertices(vertices)
@@ -247,6 +267,12 @@ class Pass2Handler(xml.sax.ContentHandler):
                             self.graphLib.addLink(link)
                             if nodeIndex > 0:
                                 vertices = [graph.GraphLinkVertex(nodeRef.node.gpsLat, nodeRef.node.gpsLng)]
+                
+                
+                                vertices[-1].id = nodeRef.node.id
+                
+                
+
             else:
                 print("WARNING: Two or more nodes must be defined for Way %d to be used." % self.wayID, file=sys.stderr)
 

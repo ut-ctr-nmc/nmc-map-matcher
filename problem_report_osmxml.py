@@ -46,6 +46,38 @@ def restorePathMatch(osmXML, shapePath, pathMatchFilename, trackpoints=False):
     print ("INFO: Importing OSM XML from '%s'..." % osmXML, file=sys.stderr)
     underlyingTopo = path_match_osmxml.fillGraph(osmXML)
     
+    
+    
+    
+    # DEBUG
+    import json
+    outp = {}
+    nodes = {}
+    underlyingTopo._flatten()
+    for node in underlyingTopo.nodeMap.values():
+        entry = {}
+        entry["ol"] = compat.listkeys(node.outgoingLinkMap)
+        nodes[node.id] = entry
+    outp["nodes"] = nodes
+    links = {}
+    for link in underlyingTopo.linkMap.values():
+        entry = {}
+        entry["start"] = link.origNode.id
+        entry["end"] = link.destNode.id
+        entry["vc"] = len(link.vertices)
+        entry["sn"] = link.streetName
+        vertices = []
+        for vertex in link.vertices:
+            vertices.append(vertex.id)
+        entry["v"] = vertices
+        links[link.id] = entry
+    outp["links"] = links
+    print(json.dumps(outp, sort_keys=True, indent=4, separators=(',', ': ')))
+    raise Exception
+
+
+    
+    
     if not trackpoints:
         # Read in the shapefile information:
         print("INFO: Read GTFS shapefile...", file=sys.stderr)
@@ -84,7 +116,7 @@ def main(argv):
     # Restore the stuff that was built with path_match:
     underlyingTopo, gtfsShapes, gtfsNodes, unusedShapeIDs = restorePathMatch(args.osmXML, args.shapePath, args.pathMatchFile, trackpoints=args.trackpoints)
     print("INFO: Output CSV...", file=sys.stderr)
-    problem_report.problemReport(gtfsShapes, gtfsNodes, underlyingTopo, showLinks=args.interLinks)
+    problem_report.problemReport(gtfsShapes, gtfsNodes, underlyingTopo, showLinks=args.interlinks)
     print("INFO: Done.", file = sys.stderr)
     
 # Boostrap:
