@@ -590,7 +590,7 @@ class WalkPathProcessor:
                                                                linkDistance, self.cost))
                 """
                 
-            self.distance = prevStruct.distance if prevStruct else 0.0 + linkDistance
+            self.distance = (prevStruct.distance if prevStruct else 0.0) + linkDistance
 
             # Make a copy of the set only if it is to change, and add in the new incoming link ID:
             oldBacktrackSet = prevStruct.backtrackSet if prevStruct is not None else set()

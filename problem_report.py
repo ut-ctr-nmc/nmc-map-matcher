@@ -72,7 +72,7 @@ def problemReport(geoTracks, gtfsNodes, vistaGraph, showLinks=False, byTripFlag=
     
                 if showLinks and gtfsNode.routeInfo:
                     divisor = 10 ** int(math.log10(len(gtfsNode.routeInfo) + 1) + 1)
-                    increment = 1 / divisor
+                    increment = 1.0 / divisor
                     seqCtr = prevSeq + increment
                     for routeInfo in gtfsNode.routeInfo:
                         "@type routeInfo: graph.GraphLink"

@@ -86,8 +86,8 @@ def readAVLCSV(avlCSVFile, gtfsTrips, gps, routeID=None, routeHeadsign=None):
         for fileLine in csvReader:
             if firstRun:
                 # Sanity check:
-                if not (all(x in fileLine for x in ["vehicle_id", "dist_traveled", "speed", "lon", "route_id", "trip_headsign",
-                                                    "timestamp", "lat", "trip_id"])):
+                if not (all(x in fileLine for x in ["vehicle_id", "speed", "longitude", "route_id", "trip_headsign",
+                                                    "timestamp", "latitude", "trip_id"])):
                     print("ERROR: The AVL CSV file %s doesn't have the expected header." % avlCSVFile, file=sys.stderr)
                     return None
                 firstRun = False
@@ -142,11 +142,12 @@ def readAVLCSV(avlCSVFile, gtfsTrips, gps, routeID=None, routeHeadsign=None):
                 gtfsTrip = gtfsTrips[int(fileLine["trip_id"])]
                 
                 # Here we fabricate fake stops for each AVL point:
-                stop = gtfs.StopsEntry(ctr, fileLine["speed"], float(fileLine["lat"]), float(fileLine["lon"]))
+                stop = gtfs.StopsEntry(ctr, fileLine["speed"], float(fileLine["latitude"]), float(fileLine["longitude"]))
                 stop.pointX, stop.pointY = gps.gps2feet(stop.gpsLat, stop.gpsLng)
                 stopTime = gtfs.StopTimesEntry(gtfsTrip, stop, ctr)
                 stopTime.arrivalTime = ourTime
                 stopTime.departureTime = ourTime
+                stopTime.shapeSeq = ctr # This is to make the StopTimesEntry look more like a shape entry for the Problem Report.
                 ctr += 1
                 
                 # Store the stop results:
@@ -191,12 +192,12 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
         
     # Initialize the path engine for use later:
     pathEngine = path_engine.PathEngine(stopSearchRadius, stopSearchRadius, stopSearchRadius, sys.float_info.max, sys.float_info.max,
-                                        stopSearchRadius, 1, 1.5, 1.5, sys.maxint, sys.maxint)
+                                        stopSearchRadius, 1, 2.0, 1.5, sys.maxint, sys.maxint)
     pathEngine.limitClosestPoints = 12
     pathEngine.limitSimultaneousPaths = 12
-    pathEngine.limitLinearDist = 5 * 5280
-    pathEngine.limitDirectDist = 4 * 5280
-    pathEngine.maxHops = 50
+    pathEngine.limitLinearDist = 10 * 5280
+    pathEngine.limitDirectDist = 8 * 5280
+    pathEngine.maxHops = 250
     pathEngine.logFile = None # Suppress the log outputs for the path engine; enough stuff will come from other sources.
 
     problemReportNodes = {}
@@ -205,7 +206,7 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
     # Output header:
     if not problemReport:    
         if not stopsFlag:
-            print("tripID,distance,timestamp,speed", file=outFile)
+            print("tripID,distance,timestamp,speed,latitude,longitude", file=outFile)
         else:
             print("tripID,stopID,stopSeq,distance,arrival,departure,name", file=outFile)
             
@@ -231,25 +232,15 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
         # At this point, we're doing something with this.
         print("INFO: -- Matching stops for trip %d --" % tripID, file=sys.stderr)
         vistaSubset, _ = transit_gtfs.buildSubset(ourGTFSNodes, vistaNetwork)
-        linkList = vistaSubset.linkMap.values()
-        startPointOnLink = None
-        endPointOnLink = None
-        if len(linkList) > 0:
-            # Express the exact start and end locations in terms of links that were created for the subset.
-            startPointOnLink = graph.PointOnLink(linkList[0], ourGTFSNodes[0].pointOnLink.dist, ourGTFSNodes[0].pointOnLink.nonPerpPenalty,
-                ourGTFSNodes[0].pointOnLink.refDist)
-            startPointOnLink.pointX, startPointOnLink.pointY = ourGTFSNodes[0].pointOnLink.pointX, ourGTFSNodes[0].pointOnLink.pointY 
-            endPointOnLink = graph.PointOnLink(linkList[-1], ourGTFSNodes[-1].pointOnLink.dist, ourGTFSNodes[-1].pointOnLink.nonPerpPenalty,
-                ourGTFSNodes[-1].pointOnLink.refDist)
-            endPointOnLink.pointX, endPointOnLink.pointY = ourGTFSNodes[-1].pointOnLink.pointX, ourGTFSNodes[-1].pointOnLink.pointY 
+        linkList = vistaSubset.linkMap.values() 
 
         # Then, prepare the stops as GTFS shapes entries:
         print("INFO: Mapping stops to VISTA network...", file=sys.stderr)
-        gtfsShapes, _ = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes, False)
+        gtfsShapes, _ = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes, True)
         #gtfsShapes, gtfsStopsLookup = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes)
 
         # Find a path through our prepared node map subset:
-        resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset, startPointOnLink, endPointOnLink, 0.2)
+        resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset)
         "@type resultTree: list<path_engine.PathEnd>"
         
         if resultTree is None:
@@ -275,7 +266,7 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
         index = 0
         for pathEnd in resultTree:
             "@type pathEnd: path_engine.PathEnd"
-            if pathEnd.restart:
+            if pathEnd.restart:                
                 # Check to see if the restart happens on a single path. This would be true if we are doing bus stop matching:
                 restartLink = pathEnd.prevTreeNode.pointOnLink.link
                 restartDistance = restartLink.distance - pathEnd.prevTreeNode.pointOnLink.dist
@@ -303,8 +294,8 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
                     # TODO: Fix the system to represent night-owl trips with hours 24 and greater. Can use format24Time().
                     # Currently, the CapMetrics data presumably doesn't have the night-owl trips in the same day, so there
                     # would need to be some processing of the next date file. 
-                    print ("%d,%f,%s,%s" % (pathEnd.shapeEntry.shapeID, pathEnd.totalDist + distCorrection, stopTimes[index].arrivalTime.strftime("%Y-%m-%dT%H:%M:%S"),
-                        stopTimes[index].stop.stopName), file=outFile);
+                    print ("%d,%f,%s,%s,%f,%f" % (pathEnd.shapeEntry.shapeID, pathEnd.totalDist + distCorrection, stopTimes[index].arrivalTime.strftime("%Y-%m-%dT%H:%M:%S"),
+                        stopTimes[index].stop.stopName, stopTimes[index].stop.gpsLat, stopTimes[index].stop.gpsLng), file=outFile);
                 else:
                     # TODO: Fix the system to represent night-owl trips with hours 24 and greater. Can use format24Time().
                     print ("%d,%d,%d,%f,%s,%s,%s" % (pathEnd.shapeEntry.shapeID, stopTimes[index].stop.stopID, stopTimes[index].stopSeq,
@@ -323,8 +314,11 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
             ourTgtList = []
             for seq in seqs:
                 ourTgtList.append(problemReportNodes[idVal][seq])
-            problemReportNodesOut[idVal] = ourTgtList                
-        problem_report.problemReport(problemReportNodesOut, vistaNetwork, True)
+            problemReportNodesOut[idVal] = ourTgtList
+        geoTrack = {}
+        for trip in gtfsStopTimes.keys():
+            geoTrack[trip.tripID] = gtfsStopTimes[trip]             
+        problem_report.problemReport(geoTrack, problemReportNodesOut, vistaNetwork, showLinks=True, byTripFlag=True)
     
     return ret 
 
