@@ -212,6 +212,9 @@ def buildSubset(treeNodes, vistaNetwork):
     @return The network subset and list of link IDs
     @rtype (graph.GraphLib, list<graph.GraphLink>)
     """
+    # TODO: With the introduction of the link list, we may not need the subset anymore. Especially when we get to
+    # allowing penalized alternate paths.
+    
     # We are going to recreate a small VISTA network from ourGTFSNodes and then match up the stops to that.
     # First, prepare the small VISTA network:
     subset = graph.GraphLib(vistaNetwork.gps.latCtr, vistaNetwork.gps.lngCtr)

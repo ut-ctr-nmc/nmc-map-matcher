@@ -231,8 +231,7 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
         # Step 3: Match up stops to that contiguous list:
         # At this point, we're doing something with this.
         print("INFO: -- Matching stops for trip %d --" % tripID, file=sys.stderr)
-        vistaSubset, _ = transit_gtfs.buildSubset(ourGTFSNodes, vistaNetwork)
-        linkList = vistaSubset.linkMap.values() 
+        vistaSubset, linkList = transit_gtfs.buildSubset(ourGTFSNodes, vistaNetwork)
 
         # Then, prepare the stops as GTFS shapes entries:
         print("INFO: Mapping stops to VISTA network...", file=sys.stderr)
@@ -240,7 +239,7 @@ def dumpAVLDistances(gtfsTrips, gtfsStopTimes, gtfsNodes, vistaNetwork, stopSear
         #gtfsShapes, gtfsStopsLookup = transit_gtfs.prepareMapStops(ourGTFSNodes, stopTimes)
 
         # Find a path through our prepared node map subset:
-        resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset)
+        resultTree = pathEngine.constructPath(gtfsShapes, vistaSubset, linkList)
         "@type resultTree: list<path_engine.PathEnd>"
         
         if resultTree is None:

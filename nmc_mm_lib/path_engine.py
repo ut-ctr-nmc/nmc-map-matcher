@@ -41,6 +41,8 @@ class PathEnd:
     @type prevTreeNode: PathEnd
     @ivar totalDist: "s", the total score of the path represented
     @type totalDist: float
+    @ivar totalLinkCount: the number of links that had been traversed 
+    @type totalLinkCount: int
     @ivar routeInfo: "l", a list of map links that have been traversed on the shortest path
     @type routeInfo: list<graph.GraphLink>
     @ivar restart: "r", a Boolean signifying a discontinuity
@@ -57,6 +59,7 @@ class PathEnd:
         self.totalCost = 0.0
         self.prevTreeNode = None
         self.totalDist = 0.0
+        self.totalLinkCount = 0
         self.routeInfo = []
         self.restart = False
         
@@ -177,17 +180,8 @@ class PathEngine:
             for gtfsPoint in gtfsPoints:
                 "@type gtfsPoint: PathEnd"
                 # Calculate path from gtfsPointPrev to vistaPoint.
-                if gtfsPointPrev is None:
-                    traversed, distance, cost = ([], 0.0, self.scoreFunction(None, 0.0, gtfsPoint.pointOnLink))
-                else:
-                    traversed, distance, cost = pathProcessor.walkPath(gtfsPointPrev.pointOnLink, gtfsPoint.pointOnLink, gtfsPointPrev.totalCost)
-                    
-                """                    
-                # TEST!
-                print("FSP: From %d to %d: Dist: %g; Cost: %g; Trav: %d" % (gtfsPointPrev.pointOnLink.link.id if gtfsPointPrev else -1,
-                    gtfsPoint.pointOnLink.link.id, distance, cost, len(traversed) if traversed is not None else -1))
-                """
-                    
+                traversed, distance, cost, totalLinkCount = ([], 0.0, self.scoreFunction(None, 0.0, gtfsPoint.pointOnLink), 0) if not gtfsPointPrev \
+                    else pathProcessor.walkPath(gtfsPointPrev.pointOnLink, gtfsPoint.pointOnLink, gtfsPointPrev.totalCost, gtfsPointPrev.totalLinkCount)
                     
                 if traversed is not None:
                     # A valid path was found:
@@ -197,6 +191,7 @@ class PathEngine:
                         # is there.  Set it:
                         gtfsPoint.prevTreeNode = gtfsPointPrev
                         gtfsPoint.routeInfo = traversed
+                        gtfsPoint.totalLinkCount = totalLinkCount
                         if gtfsPointPrev is not None:
                             gtfsPoint.totalCost = gtfsPointPrev.totalCost + cost
                             gtfsPoint.totalDist = gtfsPointPrev.totalDist + distance
@@ -208,17 +203,7 @@ class PathEngine:
                         else:
                             self.prevCosts[-1] = gtfsPoint.totalCost
                         self.prevCosts[:] = sorted(self.prevCosts[:])
-                        
-                        """
-                        # TEST!
-                        print("From %d to %d: Dist: %g; (Total: %g); Ref: %g; Perp: %d; Cost: %g (Total: %g)" % (gtfsPointPrev.pointOnLink.link.id if gtfsPointPrev else -1,
-                            gtfsPoint.pointOnLink.link.id, distance, gtfsPoint.totalDist, gtfsPoint.pointOnLink.refDist, 0 if gtfsPoint.pointOnLink.nonPerpPenalty else 1,
-                            cost, gtfsPoint.totalCost))
-                    else:
-                        print("From %d to %d: Dist: %g; Ref: %g; Perp: %d; Cost: %g (Total: %g) (Eliminated)" % (gtfsPointPrev.pointOnLink.link.id, gtfsPoint.pointOnLink.link.id,
-                            distance, gtfsPoint.pointOnLink.refDist, 0 if gtfsPoint.pointOnLink.nonPerpPenalty else 1, cost, gtfsPointPrev.totalCost + cost if gtfsPointPrev else -1))
-                        """
-                        
+                                                
         # Clean up tree entries that didn't get assigned to a parent:
         if len(gtfsPointsPrev) > 0:
             gtfsPointsWork = []
@@ -267,7 +252,7 @@ class PathEngine:
             
         return gtfsPoints            
 
-    def constructPath(self, shapeEntries, vistaGraph):
+    def constructPath(self, shapeEntries, vistaGraph, linkList=None):
         """
         constructPath goes through a list of shapeEntries and finds the shortest path through the given vistaGraph.
         This roughly corresponds with algorithms "WalkTrack" and "TrackpointArrives" in Figure 2 of Perrine et al. 2015.
@@ -279,7 +264,7 @@ class PathEngine:
         "@type gtfsPointsPrev: list<PathEnd>"
 
         pathProcessor = graph.WalkPathProcessor(self, self.limitDirectDist, self.limitLinearDist, self.limitDirectDistRev,
-            self.maxHops)
+            self.maxHops, linkList)
         "@type pathProcessor: graph.WalkPathProcessor"
         
         shapeCtr = 0
@@ -293,13 +278,6 @@ class PathEngine:
         for shapeEntry in shapeEntries:
             "@type shapeEntry: ShapesEntry"
             shapeCtr = shapeCtr + 1
-            
-            """
-            # TEST!
-            print("--- %d of %d ---" % (shapeCtr, len(shapeEntries)))
-            if shapeEntry.shapeSeq < 127 or shapeEntry.shapeSeq > 171:
-                continue
-            """
             
             if shapeCtr % 10 == 0:
                 if self.logFile is not None:
@@ -345,12 +323,6 @@ class PathEngine:
             # (We're adding another layer to the tree, and previous tree nodes can be found by accessing
             # PathEnd.prevTreeNode)
             gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, vistaGraph)
-
-            """
-            # TEST!
-            for pp in gtfsPointsPrev:
-                print("PP: id: %d; rd: %g; td: %g; tc: %g" % (pp.pointOnLink.link.id, pp.pointOnLink.refDist, pp.totalDist, pp.totalCost))
-            """
 
         if startInvalidCheckFlag:
             startValidIndex = len(shapeEntries)

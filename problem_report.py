@@ -40,7 +40,7 @@ def problemReport(geoTracks, gtfsNodes, vistaGraph, showLinks=False, byTripFlag=
     @type vistaGraph: graph.GraphLib  
     """
     strStart = "shapeID," if not byTripFlag else "tripID,"
-    print(strStart + "shapeSeq,linkID,linkDist,problemCode,gtfsLatLon,vistaLatLon", file=outFile)
+    print(strStart + "shapeSeq,linkID,linkDist,problemCode,gtfsLatLon,vistaLatLon,totalDist", file=outFile)
 
     shapeIDs = compat.listkeys(geoTracks)
     shapeIDs.sort()
@@ -52,6 +52,7 @@ def problemReport(geoTracks, gtfsNodes, vistaGraph, showLinks=False, byTripFlag=
         "@type gtfsNodeList: list<path_engine.PathEnd>"
         prevSeq = -1
         nodeIndex = 0
+        prevNode = None
         for geoPoint in geoTracks[shapeID]:
             "@type geoPoint: gtfs.ShapesEntry"
             # TODO: Can we get away with not requiring geoTracks and just getting the shape entries from the PathEnd objects?
@@ -74,17 +75,20 @@ def problemReport(geoTracks, gtfsNodes, vistaGraph, showLinks=False, byTripFlag=
                     divisor = 10 ** int(math.log10(len(gtfsNode.routeInfo) + 1) + 1)
                     increment = 1.0 / divisor
                     seqCtr = prevSeq + increment
+                    dist = (prevNode.totalDist - prevNode.pointOnLink.dist + prevNode.pointOnLink.link.distance) if prevNode else 0
                     for routeInfo in gtfsNode.routeInfo:
                         "@type routeInfo: graph.GraphLink"
-                        outStr = "%s,%g,%d,%g,%d,%s,%s" % (str(gtfsNode.shapeEntry.shapeID), seqCtr, routeInfo.id,
+                        outStr = "%s,%g,%d,%g,%d,%s,%s,%g" % (str(gtfsNode.shapeEntry.shapeID), seqCtr, routeInfo.id,
                             0, 5, str(routeInfo.origNode.gpsLat) + " " + str(routeInfo.origNode.gpsLng),
-                            str(routeInfo.origNode.gpsLat) + " " + str(routeInfo.origNode.gpsLng))
+                            str(routeInfo.origNode.gpsLat) + " " + str(routeInfo.origNode.gpsLng), dist)
                         print(outStr, file=outFile)
-                        seqCtr += increment                                    
-                outStr = "%s,%d,%d,%g,%d,%s,%s" % (str(gtfsNode.shapeEntry.shapeID), gtfsNode.shapeEntry.shapeSeq,
+                        seqCtr += increment
+                        dist += routeInfo.distance                                     
+                outStr = "%s,%d,%d,%g,%d,%s,%s,%g" % (str(gtfsNode.shapeEntry.shapeID), gtfsNode.shapeEntry.shapeSeq,
                                 gtfsNode.pointOnLink.link.id if gtfsNode.pointOnLink.link is not None else -1,
                                 gtfsNode.pointOnLink.dist, problemCode, str(gtfsNode.shapeEntry.lat)
-                                + " " + str(gtfsNode.shapeEntry.lng), str(vistaLat) + " " + str(vistaLng))
+                                + " " + str(gtfsNode.shapeEntry.lng), str(vistaLat) + " " + str(vistaLng), gtfsNode.totalDist)
+                prevNode = gtfsNode
                 nodeIndex += 1
             else:
                 # Problem #4: No point-on-link found. We've got a shape entry, but not a corresponding PointOnLink.
