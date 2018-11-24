@@ -45,7 +45,7 @@ class GraphLink:
     """
     def __init__(self, ident, origNode, destNode, graphLib):
         """
-        @type ident: int
+        @type ident: ?
         @type origNode: GraphNode
         @type destNode: GraphNode 
         """
@@ -61,6 +61,9 @@ class GraphLink:
         
         # Reference to coordinate system and other links:
         self.graphLib = graphLib
+        
+        # Generic placeholder for additional data:
+        self.metadata = {}
         
     def makeVertices(self):
         """
@@ -200,6 +203,7 @@ class GraphLinkVertex:
         self.pointX = 0.0
         self.pointY = 0.0
         self.distance = 0.0
+        self.id = None
 
 class GraphNode:
     """
