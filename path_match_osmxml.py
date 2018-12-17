@@ -30,6 +30,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from __future__ import print_function
 from nmc_mm_lib import gtfs, path_engine, graph, compat
+from io import StringIO
 import sys, argparse, xml.sax
 
 def pathMatch(osmXML, shapePath, limitMap=None, trackpoints=False):
@@ -132,6 +133,12 @@ class Pass1Handler(xml.sax.ContentHandler):
                         self.nodeIDRefs[nodeID] = 0
                     self.nodeIDRefs[nodeID] += 1
                 self.wayIDSet.add(self.wayID)
+
+def parseOSMSpeedVal(inStr):
+    if inStr.endswith(" mph"):
+        return int(inStr[:-4]) # Parse numeric part of mph
+    else:
+        return int(int(inStr) * 0.621371) # Convert km to mph 
            
 class Pass2Handler(xml.sax.ContentHandler):
     def __init__(self, nodeIDRefs, wayIDSet):
@@ -154,6 +161,7 @@ class Pass2Handler(xml.sax.ContentHandler):
         self.oneWayFlag = False
         self.streetName = ""
         self.speedLimit = None
+        self.speedLimitRev = None
         self.nodeRefList = []
         
         # The output:        
@@ -196,10 +204,14 @@ class Pass2Handler(xml.sax.ContentHandler):
         elif tag == "tag" and self.wayID:
             if attributes["k"] == "oneway" and (attributes["v"] == "yes" or attributes["v"] == "1"):
                 self.oneWayFlag = True
-            if attributes["k"] == "name":
+            elif attributes["k"] == "name":
                 self.streetName = attributes["v"]
-            if attributes["k"] == "maxspeed":
-                self.speedLimit = int(attributes["v"])
+            elif attributes["k"] == "maxspeed":
+                self.speedLimit = parseOSMSpeedVal(attributes["v"])
+            elif attributes["k"] == "maxspeed:forward":
+                self.speedLimit = parseOSMSpeedVal(attributes["v"])
+            elif attributes["k"] == "maxspeed:backward":
+                self.speedLimitRev = parseOSMSpeedVal(attributes["v"])            
                 
     def endElement(self, tag):
         if tag == "way" and self.wayID:
@@ -235,12 +247,12 @@ class Pass2Handler(xml.sax.ContentHandler):
                             # Create a copy of the vertex list, as it gets modified in addVertices().
                             revVertices = []
                             for vertex in reversed(vertices):
-                                revVertices.append(graph.GraphLinkVertex(vertex.lat, vertex.lon))
+                                revVertices.append(graph.GraphLinkVertex(vertex.lat, vertex.lng))
                                 revVertices[-1].id = vertex.id
                             linkID = str(self.wayID) + ":" + str(nodeRef.node.id) + "-" + str(prevNodeRef.node.id)
                             link = graph.GraphLink(linkID, nodeRef.node, prevNodeRef.node, self.graphLib)
                             link.metadata["streetName"] = self.streetName
-                            link.metadata["speedLimit"] = self.speedLimit
+                            link.metadata["speedLimit"] = self.speedLimitRev if self.speedLimitRev is not None else self.speedLimit
                             link.addVertices(revVertices)
                             self.graphLib.addLink(link)                            
                         
@@ -252,23 +264,26 @@ class Pass2Handler(xml.sax.ContentHandler):
             else:
                 print("WARNING: Two or more nodes must be defined for Way %d to be used." % self.wayID, file=sys.stderr)
 
-def fillGraph(osmXML):
+def fillGraph(osmXML, isString=False):
     """
     fillGraph fills up the Graph structure from the given OSM XML filename
     @return A Graph representing the underlying topology
     @rtype graph.GraphLib
     """
     
-    print("INFO: Reading geographic input from OSM XML file '%s'..." % osmXML, file=sys.stderr)
+    if not isString:
+        print("INFO: Reading geographic input from OSM XML file '%s'..." % osmXML, file=sys.stderr)
     parser = xml.sax.make_parser()
     parser.setFeature(xml.sax.handler.feature_namespaces, 0)
     print("INFO: - Pass 1 of 2...", file=sys.stderr)
     pass1Handler = Pass1Handler()
-    xml.sax.parse(osmXML, pass1Handler)
+    osmXMLPass = osmXML if not isString else StringIO(osmXML)
+    xml.sax.parse(osmXMLPass, pass1Handler)
     
     print("INFO: - Pass 2 of 2...", file=sys.stderr)
     pass2Handler = Pass2Handler(pass1Handler.nodeIDRefs, pass1Handler.wayIDSet)
-    xml.sax.parse(osmXML, pass2Handler)
+    osmXMLPass = osmXML if not isString else StringIO(osmXML)
+    xml.sax.parse(osmXMLPass, pass2Handler)
     
     # Optimize the graph for lookups:
     pass2Handler.graphLib.generateQuadSet()

@@ -363,8 +363,8 @@ class PathEngine:
             missingEnds = startValidIndex
         if lastValidIndex == len(shapeEntries) and startValidIndex < len(shapeEntries):
             if startValidIndex > 0:
-                reportStr += " and"
-            reportStr += " %d are missing from the end" % invalidCtr
+                reportStr += " and "
+            reportStr += "%d are missing from the end" % invalidCtr
             missingEnds += invalidCtr
         if len(reportStr) > 0:
             print("WARNING: Out of %d georeference points, %s." % (len(shapeEntries), reportStr), file=sys.stderr)
