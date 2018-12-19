@@ -138,7 +138,10 @@ def parseOSMSpeedVal(inStr):
     if inStr.endswith(" mph"):
         return int(inStr[:-4]) # Parse numeric part of mph
     else:
-        return int(int(inStr) * 0.621371) # Convert km to mph 
+        try:
+            return int(int(inStr) * 0.621371) # Convert km to mph
+        except ValueError:
+            return inStr
            
 class Pass2Handler(xml.sax.ContentHandler):
     def __init__(self, nodeIDRefs, wayIDSet):
