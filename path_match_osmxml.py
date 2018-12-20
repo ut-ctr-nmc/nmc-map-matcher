@@ -118,21 +118,22 @@ class Pass1Handler(xml.sax.ContentHandler):
             self.highwayFlag = False
             self.nodeIDList.clear()
             self.wayID = int(attributes["id"]) 
-        elif tag == "nd":
+        elif self.wayID and tag == "nd":
             self.nodeIDList.append(int(attributes["ref"]))
-        elif tag == "tag":
+        elif self.wayID and tag == "tag":
             if attributes["k"] == "highway" or \
                     (attributes["k"] == "oneway" and (attributes["v"] == "yes" or attributes["v"] == "1")):
                 self.highwayFlag = True
                 
     def endElement(self, tag):
-        if tag == "way":
+        if self.wayID and tag == "way":
             if self.highwayFlag:
                 for nodeID in self.nodeIDList:
                     if nodeID not in self.nodeIDRefs:
                         self.nodeIDRefs[nodeID] = 0
                     self.nodeIDRefs[nodeID] += 1
                 self.wayIDSet.add(self.wayID)
+            self.wayID = 0
 
 def parseOSMSpeedVal(inStr):
     if inStr.endswith(" mph"):
@@ -185,7 +186,7 @@ class Pass2Handler(xml.sax.ContentHandler):
                 node = graph.GraphNode(nodeID, lat, lng)
                 nodeRef = _NodeRef(node)                
                 nodeRef.refCount = self.nodeIDRefs[nodeID]
-                self.nodeCollection[nodeID] = _NodeRef(node)
+                self.nodeCollection[nodeID] = nodeRef
         elif tag == "way":
             # We are assuming that all of the ways come after the nodes.
             self.wayID = int(attributes["id"])
@@ -198,13 +199,13 @@ class Pass2Handler(xml.sax.ContentHandler):
                 self.nodeRefList.clear()
             else:
                 self.wayID = 0
-        elif tag == "nd" and self.wayID:
+        elif self.wayID and tag == "nd":
             nodeID = int(attributes["ref"])
             if nodeID in self.nodeCollection:
                 self.nodeRefList.append(self.nodeCollection[nodeID])
             else:
                 print("WARNING: Node %d is attempted to be referenced from Way %d, but it hadn't been defined." % (nodeID, self.wayID), file=sys.stderr)
-        elif tag == "tag" and self.wayID:
+        elif self.wayID and tag == "tag":
             if attributes["k"] == "oneway" and (attributes["v"] == "yes" or attributes["v"] == "1"):
                 self.oneWayFlag = True
             elif attributes["k"] == "name":
@@ -266,6 +267,7 @@ class Pass2Handler(xml.sax.ContentHandler):
                             vertices[-1].id = nodeRef.node.id
             else:
                 print("WARNING: Two or more nodes must be defined for Way %d to be used." % self.wayID, file=sys.stderr)
+            self.wayID = 0
 
 def fillGraph(osmXML, isString=False):
     """
