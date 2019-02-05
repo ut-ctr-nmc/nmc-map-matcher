@@ -136,8 +136,9 @@ class Pass1Handler(xml.sax.ContentHandler):
             self.wayID = 0
 
 def parseOSMSpeedVal(inStr):
-    if inStr.endswith(" mph"):
-        return int(inStr[:-4]) # Parse numeric part of mph
+    inStr = inStr.split(";")[0] # TODO: We encounter semicolons sometimes; utilize them.
+    if inStr.endswith("mph"):
+        return int(inStr[:-3]) # Parse numeric part of mph
     else:
         try:
             return int(int(inStr) * 0.621371) # Convert km to mph
@@ -215,7 +216,8 @@ class Pass2Handler(xml.sax.ContentHandler):
             elif attributes["k"] == "maxspeed:forward":
                 self.speedLimit = parseOSMSpeedVal(attributes["v"])
             elif attributes["k"] == "maxspeed:backward":
-                self.speedLimitRev = parseOSMSpeedVal(attributes["v"])            
+                self.speedLimitRev = parseOSMSpeedVal(attributes["v"])
+            # TODO: Truck, school, variable speed zones.
                 
     def endElement(self, tag):
         if tag == "way" and self.wayID:
