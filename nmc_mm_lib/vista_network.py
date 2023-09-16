@@ -1,7 +1,7 @@
 """
 vista_network.py is an underlying node-link data representation of a
     roadway network. This requires psycopg to read a PostgreSQL DB
-    of the format defined in file vista-def.sql.
+    of the format defined in file samples/vista/vista_small_atx.sql.
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
