@@ -34,23 +34,31 @@ BEGIN;
 
 -- nodes contains a geographic point (x = GPS lat, y = GPS lng). All nodes
 -- where type is not 1 will be ignored.
-CREATE TABLE nodes(
-  id INTEGER UNIQUE NOT NULL CHECK (id > 0),
-  type INTEGER NOT NULL,
-  x DOUBLE PRECISION NOT NULL,
-  y DOUBLE PRECISION NOT NULL,
-  PRIMARY KEY (id)
+CREATE TABLE nodes (
+    id integer NOT NULL PRIMARY KEY,
+    "type" integer NOT NULL,
+    x double precision NOT NULL,
+    y double precision NOT NULL
 );
 
 -- linkdetails is a unidirectional link that contains references to an origin
 -- node and destination node. All links where type is not 1 will be ignored.
-CREATE TABLE linkdetails(
-  id INTEGER NOT NULL CHECK (id > 0),
-  type INTEGER NOT NULL,
-  source INTEGER NOT NULL,
-  destination INTEGER NOT NULL,
-  length REAL,
-  PRIMARY KEY (id)
+CREATE TABLE linkdetails (
+    id integer NOT NULL PRIMARY KEY,
+    "type" integer NOT NULL,
+    source integer NOT NULL REFERENCES nodes(id),
+    destination integer NOT NULL REFERENCES nodes(id),
+    length real,
+    speed real,
+    capacity real,
+    lanes integer
+);
+
+-- links has the ability with point series to express roadway curvature. The
+-- beginnings and ends should coincide with respective nodes.
+CREATE TABLE links (
+    id integer NOT NULL PRIMARY KEY REFERENCES linkdetails(id),
+    points path
 );
 
 COMMIT;
