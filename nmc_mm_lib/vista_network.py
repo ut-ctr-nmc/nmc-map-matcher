@@ -37,7 +37,7 @@ def connect(dbServer, userName, password, networkName):
     @type networkName: str
     @rtype psycopg2.connection
     """
-    dbName = userName + "_" + networkName
+    dbName = networkName
     database = psycopg2.connect(host = dbServer, user = userName, password = password, database = dbName)
     return database
 
