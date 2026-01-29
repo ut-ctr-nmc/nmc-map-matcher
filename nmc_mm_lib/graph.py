@@ -4,9 +4,9 @@ graph.py: Links and nodes for graph models; also a breadth-first search.
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
     Cockrell School of Engineering, The University of Texas at Austin 
-@version: 1.0
+@version: 2.0
 
-@copyright: (C) 2014, The University of Texas at Austin
+@copyright: (C) 2026, The University of Texas at Austin
 @license: GPL v3
 
 This program is free software: you can redistribute it and/or modify
@@ -22,6 +22,107 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
+from typing import Hashable, Iterable, Sequence
+import shapely
+import networkx
+import pyproj
+
+
+
+
+class Map:
+    """
+    Map is a container for a node-link graph, maintained internally in
+    a Shapely SRTree for spatial indexing.
+    """
+    fromCRS: pyproj.CRS
+    workingCRS: pyproj.CRS
+    transformer: pyproj.Transformer
+    graph: networkx.DiGraph
+    tree: shapely.strtree.STRtree
+
+    def __init__(self, fromCRS: str = "EPSG:4326", workingCRS: str = "EPSG:3857"):
+        """
+        Initializes an empty Map.
+        @param fromCRS: The coordinate reference system of input geometries
+            (Default: GPS).
+        @param workingCRS: The coordinate reference system to use for internal
+            calculations (Default: Web Mercator).
+        """
+        self.fromCRS = pyproj.CRS(fromCRS)
+        self.workingCRS = pyproj.CRS(workingCRS)
+        self.transformer = pyproj.Transformer.from_crs(self.fromCRS, self.workingCRS, always_xy=True)
+
+        self.graph = networkx.DiGraph()
+        self.tree = shapely.strtree.STRtree([])
+
+    def addNode(self, nodeID: Hashable, lon: float, lat: float, score: float = 0.0, metadata: dict = {}):
+        """
+        Adds a node to the map.
+        @param nodeID: The unique identifier for the node.
+        @param lon: The longitude of the node.
+        @param lat: The latitude of the node.
+        @param score: An optional score (penalty)for the node.
+        @param metadata: Optional additional metadata to associate with the node.
+        """
+        x, y = self.transformer.transform(lon, lat)
+        self.graph.add_node(nodeID, x=x, y=y, score=score, **metadata)
+
+    def addCurvedLink(self,
+                      origNodeID: Hashable,
+                      destNodeID: Hashable, 
+                      controlPoints: Iterable[Sequence[float]] | shapely.geometry.LineString,
+                      linkID: Hashable | None = None,
+                      metadata: dict = {},
+                      hasEndpoints: bool = True,
+                      score: float | None = None,
+                      lengthMultipl: float | None = 1.0):
+        """
+        Adds a directed curved link to the map using control points.
+        @param origNodeID: The originating node ID.
+        @param destNodeID: The destination node ID.
+        @param controlPoints: A list of (lon, lat) tuples (or LineString) representing control points for the curve,
+        @param linkID: The unique identifier for the link (optional).
+        @param metadata: Optional additional metadata to associate with the link.
+        @param hasEndpoints: Whether the control points include the endpoints (default: True).
+        @param score: An optional score (penalty) for the link, or None to use the length as score (default: None).
+        @param lengthMultipl: A multiplier to apply to the length when computing the score, or 0 to deactivate (default: 1.0).
+        @param controlPoints: A list of (lon, lat) tuples representing control points for the curve.
+        """
+        '''
+        lonlats = [(lon, lat) for lon, lat in controlPoints]
+        transformed_points = [self.transformer.transform(lon, lat) for lon, lat in lonlats]
+        geometry = shapely.geometry.LineString(transformed_points)
+        self.graph.add_edge(origNodeID, destNodeID, id=linkID, geometry=geometry, **metadata)
+        self.tree = shapely.strtree.STRtree([data['geometry'] for u, v, data in self.graph.edges(data=True)])
+        '''
+        
+    def addLink(self,
+                origNodeID: Hashable,
+                destNodeID: Hashable,
+                score: float,
+                geometry: shapely.geometry.LineString,
+                metadata: dict = {}):
+        """
+        Adds a directed link to the map.
+        @param origNodeID: The originating node ID.
+        @param destNodeID: The destination node ID.
+        @param score: The score (penalty) for the link.
+        @param geometry: The geometry of the link as a LineString.
+        @param metadata: Optional additional metadata to associate with the link.
+        """
+        transformed_geometry = shapely.ops.transform(self.transformer.transform, geometry)
+        self.graph.add_edge(origNodeID, destNodeID, id=linkID, geometry=transformed_geometry, **metadata)
+        self.tree = shapely.strtree.STRtree([data['geometry'] for u, v, data in self.graph.edges(data=True)])
+
+
+
+
+
+
+
+
+
 from __future__ import print_function
 from nmc_mm_lib import linear, gps, compat
 import sys, math, pickle
