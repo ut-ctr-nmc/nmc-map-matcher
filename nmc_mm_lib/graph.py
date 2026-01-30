@@ -22,28 +22,40 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
-from typing import Hashable, Iterable, Sequence
+import sys
+from typing import Hashable, Iterable, NamedTuple, Sequence, Mapping
 import shapely
+from shapely.ops import transform
 import networkx
 import pyproj
-
-
-
 
 class Map:
     """
     Map is a container for a node-link graph, maintained internally in
     a Shapely SRTree for spatial indexing.
     """
+    class LinkRecord(NamedTuple):
+        """
+        For recording individual links in edge lookups
+        """
+        origNodeID: Hashable
+        destNodeID: Hashable
+        data: Mapping
+
     fromCRS: pyproj.CRS
     workingCRS: pyproj.CRS
     transformer: pyproj.Transformer
     graph: networkx.DiGraph
+    edgeIndexLookup: list[LinkRecord]
     tree: shapely.strtree.STRtree
+    eqCutoff: int = 2 # Decimal places for equality checks
 
-    def __init__(self, fromCRS: str = "EPSG:4326", workingCRS: str = "EPSG:3857"):
+    def __init__(self,
+                 fromCRS: str = "EPSG:4326", # GPS
+                 workingCRS: str = "EPSG:3857"):
         """
         Initializes an empty Map.
+
         @param fromCRS: The coordinate reference system of input geometries
             (Default: GPS).
         @param workingCRS: The coordinate reference system to use for internal
@@ -51,282 +63,294 @@ class Map:
         """
         self.fromCRS = pyproj.CRS(fromCRS)
         self.workingCRS = pyproj.CRS(workingCRS)
-        self.transformer = pyproj.Transformer.from_crs(self.fromCRS, self.workingCRS, always_xy=True)
+        self.transformer = pyproj.Transformer.from_crs(self.fromCRS,
+                                    self.workingCRS, always_xy=True)
 
         self.graph = networkx.DiGraph()
+        self.edgeIndexLookup = []
         self.tree = shapely.strtree.STRtree([])
 
-    def addNode(self, nodeID: Hashable, lon: float, lat: float, score: float = 0.0, metadata: dict = {}):
+    def addNode(self,
+                nodeID: Hashable,
+                lonHoriz: float, latVert: float,
+                score: float = 0.0,
+                metadata: dict = {}):
         """
         Adds a node to the map.
+
         @param nodeID: The unique identifier for the node.
-        @param lon: The longitude of the node.
-        @param lat: The latitude of the node.
+        @param lonHoriz: The longitude or horizontal measure of the node.
+        @param latVert: The latitude or vertical measure of the node.
         @param score: An optional score (penalty)for the node.
         @param metadata: Optional additional metadata to associate with the node.
         """
-        x, y = self.transformer.transform(lon, lat)
-        self.graph.add_node(nodeID, x=x, y=y, score=score, **metadata)
+        x, y = self.transformer.transform(lonHoriz, latVert)
+        self.graph.add_node(nodeID, x=x, y=y, score=score,
+                            lonHoriz=lonHoriz, latVert=latVert, **metadata)
 
-    def addCurvedLink(self,
-                      origNodeID: Hashable,
-                      destNodeID: Hashable, 
-                      controlPoints: Iterable[Sequence[float]] | shapely.geometry.LineString,
-                      linkID: Hashable | None = None,
-                      metadata: dict = {},
-                      hasEndpoints: bool = True,
-                      score: float | None = None,
-                      lengthMultipl: float | None = 1.0):
-        """
-        Adds a directed curved link to the map using control points.
-        @param origNodeID: The originating node ID.
-        @param destNodeID: The destination node ID.
-        @param controlPoints: A list of (lon, lat) tuples (or LineString) representing control points for the curve,
-        @param linkID: The unique identifier for the link (optional).
-        @param metadata: Optional additional metadata to associate with the link.
-        @param hasEndpoints: Whether the control points include the endpoints (default: True).
-        @param score: An optional score (penalty) for the link, or None to use the length as score (default: None).
-        @param lengthMultipl: A multiplier to apply to the length when computing the score, or 0 to deactivate (default: 1.0).
-        @param controlPoints: A list of (lon, lat) tuples representing control points for the curve.
-        """
-        '''
-        lonlats = [(lon, lat) for lon, lat in controlPoints]
-        transformed_points = [self.transformer.transform(lon, lat) for lon, lat in lonlats]
-        geometry = shapely.geometry.LineString(transformed_points)
-        self.graph.add_edge(origNodeID, destNodeID, id=linkID, geometry=geometry, **metadata)
-        self.tree = shapely.strtree.STRtree([data['geometry'] for u, v, data in self.graph.edges(data=True)])
-        '''
-        
     def addLink(self,
                 origNodeID: Hashable,
-                destNodeID: Hashable,
-                score: float,
-                geometry: shapely.geometry.LineString,
-                metadata: dict = {}):
+                destNodeID: Hashable, 
+                controlPoints: Iterable[Sequence[float]] \
+                    | shapely.geometry.LineString | None,
+                linkID: Hashable | None = "",
+                metadata: dict = {},
+                hasEndpoints: bool = True,
+                flatScore: float = 0.0,
+                lengthWeight: float = 1.0):
         """
-        Adds a directed link to the map.
+        Adds a directed curved link to the map using control points.
+
         @param origNodeID: The originating node ID.
         @param destNodeID: The destination node ID.
-        @param score: The score (penalty) for the link.
-        @param geometry: The geometry of the link as a LineString.
+        @param controlPoints: A list of (lon, lat) tuples (or LineString) representing control points for the curve, or None for defaults
+        @param linkID: The unique identifier for the link (optional), "" for default, or None.
         @param metadata: Optional additional metadata to associate with the link.
+        @param hasEndpoints: Whether the control points include the endpoints (default: True).
+        @param flatScore: An optional flat score (penalty) for the link, or 0 use the length as score (default: 0).
+        @param lengthWeight: A multiplier to apply to the length when computing the score, or 0 to deactivate (default: 1.0).
+        @param controlPoints: A list of (lon, lat) tuples representing control points for the curve.
         """
-        transformed_geometry = shapely.ops.transform(self.transformer.transform, geometry)
-        self.graph.add_edge(origNodeID, destNodeID, id=linkID, geometry=transformed_geometry, **metadata)
-        self.tree = shapely.strtree.STRtree([data['geometry'] for u, v, data in self.graph.edges(data=True)])
+        # First, convert controlPoints if None or LineString:
+        if isinstance(controlPoints, shapely.geometry.LineString):
+            controlPoints = controlPoints.coords
+        if controlPoints is None:
+            controlPoints = []
+            hasEndpoints = False
+        else:
+            # Transform control points to working projection:
+            lonlats = [(lon, lat) for lon, lat in controlPoints]
+            controlPoints = [self.transformer.transform(lon, lat) \
+                             for lon, lat in lonlats]
 
+        # Next, add endpoints if needed:
+        if not hasEndpoints:
+            origNode = self.graph.nodes[origNodeID]
+            destNode = self.graph.nodes[destNodeID]
+            controlPoints = [(origNode["x"], origNode["y"])] + controlPoints \
+                + [(destNode["x"], destNode["y"])]
 
+        # Next, convert to LineString:
+        controlPoints = shapely.geometry.LineString(controlPoints)
 
+        # Other attributes to store:
+        if linkID == "":
+            linkID = f"{origNodeID}->{destNodeID}"
+        if linkID:
+            metadata['id'] = linkID
 
-
-
-
-
-
-from __future__ import print_function
-from nmc_mm_lib import linear, gps, compat
-import sys, math, pickle
-from heapq import heappush, heappop
-
-"The maximum number of lines allowed in a quad for optimized QuadSet lookup."
-DEFAULT_QUAD_LIMIT = 50
-
-"Tolerance in the closest-point finder for dealing with corner arcs."
-EPSILON = 0.001
-
-class GraphLink:
-    """
-    GraphLink is a link that connects one node to another.
-    @ivar id: ?
-    @ivar origNode: GraphNode
-    @ivar destNode: GraphNode
-    @ivar vertices: list<GraphLinkVertex>
-    @ivar distance: float
-    @ivar graphLib: GraphLib
-    """
-    def __init__(self, ident, origNode, destNode, graphLib):
-        """
-        @type ident: ?
-        @type origNode: GraphNode
-        @type destNode: GraphNode 
-        """
-        self.id = ident
-        self.origNode = origNode
-        self.destNode = destNode
+        # TODO: Need progressive score multiplier for partial scoring!
+        self.addLineStringLink(origNodeID, destNodeID, controlPoints, metadata,
+                               flatScore=flatScore, lengthWeight=lengthWeight,
+                               alreadyXformed=True)
         
-        # The head of the array of member vertices within this Link
-        self.vertices = None
-        
-        # Placeholders for efficiency of measurement:
-        self.distance = None
-        
-        # Reference to coordinate system and other links:
-        self.graphLib = graphLib
-        
-        # Generic placeholder for additional data:
-        self.metadata = {}
-        
-    def makeVertices(self):
+    def addLineStringLink(self,
+                          origNodeID: Hashable,
+                          destNodeID: Hashable,
+                          geometry: shapely.geometry.LineString,
+                          metadata: dict = {},
+                          flatScore: float = 0.0,
+                          lengthWeight: float = 1.0,
+                          alreadyXformed: bool = False):
         """
-        For links that are straight and have no curvature, creates a pair of vertices that correspond
-        with the given link, drawing a line from the origin node to the destination node.
-        """
-        linkVertices = [GraphLinkVertex(self.origNode.gpsLat, self.origNode.gpsLng), 
-                        GraphLinkVertex(self.destNode.gpsLat, self.destNode.gpsLng)]
-        self.addVertices(linkVertices)
-        
-    def addVertices(self, linkVertices):
-        """
-        Adds the list of vertices to the given link, computing coordinates and distances along the way.
-        @type linkVertices: list<GraphLinkVertex>
-        """
-        """
-        # TEST!
-        newList = [None] * 4
-        newList[0] = linkVertices[0]
-        newList[1] = GraphLinkVertex((linkVertices[1].lat - linkVertices[0].lat) / 3.0 + linkVertices[0].lat,
-                                     (linkVertices[1].lng - linkVertices[0].lng) / 3.0 + linkVertices[0].lng)
-        newList[2] = GraphLinkVertex((linkVertices[1].lat - linkVertices[0].lat) * 2 / 3.0 + linkVertices[0].lat,
-                                     (linkVertices[1].lng - linkVertices[0].lng) * 2 / 3.0 + linkVertices[0].lng)
-        newList[3] = linkVertices[1]
-        linkVertices = newList
-        """
-        
-        gps2feet = self.graphLib.gps.gps2feet
-        prevVertex = linkVertices[0]
-        prevVertex.pointX, prevVertex.pointY = gps2feet(prevVertex.lat, prevVertex.lng)
-        prevVertex.distance = 0.0
-        self.vertices = linkVertices
-        for nextVertex in linkVertices[1:]:
-            nextVertex.pointX, nextVertex.pointY = gps2feet(nextVertex.lat, nextVertex.lng)
-            nextVertex.distance = prevVertex.distance + linear.getNorm(prevVertex.pointX, prevVertex.pointY,
-                nextVertex.pointX, nextVertex.pointY)
-            prevVertex = nextVertex
-            
-        """    
-        # TEST!
-        if self.id == 350056:
-            j = 0
-            j += 1
-        """    
-            
-            
-        if self.distance is None:
-            self.distance = nextVertex.distance
-        # TODO: Else, consider scaling according to what's given from the topology set already.            
-            
-    def pointDistSq(self, pointX, pointY):
-        """
-        Finds the minimal point distance of all of the link segments between the vertices.
-        @return Tuple of the minimum squared distance of a line segment from the point, the distance of the link traversed,
-            and also returns whether that point is effectively perpendicular from the entire segment.
-        @rtype float, float, bool
-        """
-        minDistSq = sys.float_info.max
-        minLinkDist = sys.float_info.max
-        minPerpendicular = False
-        minIndex = -1
-        prevVertex = self.vertices[0]
-        for prevIndex, nextVertex in enumerate(self.vertices[1:]):
-            distSq, linkDist, perpendicular = linear.pointDistSq(pointX, pointY, prevVertex.pointX, prevVertex.pointY,
-                nextVertex.pointX, nextVertex.pointY, nextVertex.distance - prevVertex.distance)
-            if distSq < minDistSq - EPSILON:
-                minDistSq, minLinkDist, minPerpendicular = distSq, linkDist, perpendicular
-                minIndex = prevIndex
-            prevVertex = nextVertex
-        
-        # If we are nonperpendicular, see if the point falls within the arc that sits between the neighboring
-        # segments.
-        if not minPerpendicular:
-            if (minIndex > 0 or minIndex == 0 and minLinkDist > EPSILON) and (minIndex < len(self.vertices) - 1 \
-                    or minIndex == len(self.vertices) - 1 and minLinkDist + self.vertices[-2].distance < self.vertices[-1].distance - EPSILON): 
-                minPerpendicular = True
-                
-        """
-        # TEST!
-        print("md: %g; ld: %g; p: %d" % (math.sqrt(minDistSq), minLinkDist + self.vertices[minIndex].distance, minPerpendicular))
-        """
+        Adds a directed link to the map.
 
-        return minDistSq, minLinkDist + self.vertices[minIndex].distance, minPerpendicular
-    
-    def pointDist(self, pointX, pointY):
+        @param origNodeID: The originating node ID.
+        @param destNodeID: The destination node ID.
+        @param geometry: The geometry of the link as a LineString, already projected.
+        @param metadata: Optional additional metadata to associate with the link.
+        @param flatScore: An optional flat score (penalty) for the link, or 0 use the length as score (default: 0).
+        @param lengthWeight: A multiplier to apply to the length when computing the score, or 0 to deactivate (default: 1.0).
+        @param alreadyXformed: Whether the geometry needs to be transformed to working CRS.
         """
-        Convenience method for getting the pointDistSq() tuple with the reference distance in linear dimensions.
-        @return Tuple of the minimum squared distance of a line segment from the point, the distance of the link traversed,
-            and also returns whether that point is effectively perpendicular from the entire segment.
-        @rtype float, float, bool
+        if not alreadyXformed:
+            geometry = transform(self.transformer.transform, geometry)
+        self.graph.add_edge(origNodeID, destNodeID, geometry=geometry,
+                            flatScore=flatScore, lengthWeight=lengthWeight,
+                            **metadata)
+
+    def completeMap(self):
         """
-        distSq, distance, perpendicular = self.pointDistSq(pointX, pointY)
-        return math.sqrt(distSq), distance, perpendicular
-            
-    def isComplementary(self, otherLink):
+        Completes the map by building the spatial index.
         """
-        Return True if the given link directly flows in the opposite direction of this link.
-        @type otherLink: GraphLink
+        self.edgeIndexLookup = [Map.LinkRecord(origNodeID=u, destNodeID=v,
+                                               data=data) \
+                                for u, v, data in self.graph.edges(data=True)]
+        self.tree = shapely.strtree.STRtree([element.data["geometry"] \
+                                        for element in self.edgeIndexLookup])
+
+    def isReverseLink(self,
+                      linkA: LinkRecord | int,
+                      linkB: LinkRecord | int) -> bool:
         """
-        # Test 1: Check that the nodes are shared in a complementary way:
-        if not (otherLink.destNode is self.origNode and otherLink.origNode is self.destNode \
-                and self.origNode is not self.destNode):
+        Determines if linkB is the reverse of linkA.
+
+        @param linkA: The first link expressed as an edge index or record.
+        @param linkB: The second link, expressed as an edge index or record.
+        @return: True if linkB is the reverse of linkA.
+        """
+        if isinstance(linkA, int):
+            linkA = self.edgeIndexLookup[linkA]
+        if isinstance(linkB, int):
+            linkB = self.edgeIndexLookup[linkB]
+        
+        if linkA.origNodeID != linkB.destNodeID \
+                or linkA.destNodeID != linkB.origNodeID:
             return False
 
-        # Test 2: Compare vertices in between the nodes:
-        index = 1
-        limit = math.ceil(len(self.vertices) / 2)
-        while index < limit:
-            if abs(self.vertices[-(index + 2)].pointX - self.vertices[index].pointX) >= EPSILON \
-                    or abs(self.vertices[-(index + 2)].pointY - self.vertices[index].pointY) >= EPSILON:
+        geomA: shapely.geometry.LineString = linkA.data['geometry']
+        geomB: shapely.geometry.LineString = linkB.data['geometry']
+        if round(geomA.length, self.eqCutoff) != round(geomB.length, self.eqCutoff):
+            return False
+        coordsA = list(geomA.coords)
+        coordsB = list(geomB.coords)[::-1]
+        tolerance = 1 / self.eqCutoff
+        for (xA, yA), (xB, yB) in zip(coordsA, coordsB):
+            if abs(xA - xB) >= tolerance or abs(yA - yB) >= tolerance:
                 return False
-            index += 1
-        
         return True
-    
-    def __lt__(self, other):
-        return self.id < other.id
-    
-class GraphLinkVertex:
-    """
-    GraphLinkVertex is a vertex possibly among several for a GraphLink. Use GraphLink.addVertices()
-    to associate this with the parent link to compute distance and X-Y coordinates.
-    @ivar lat: float
-    @ivar lng: float
-    @ivar pointX: float
-    @ivar pointY: float
-    @ivar distance: float
-    """
-    def __init__(self, lat, lng):
-        """
-        Sets the next vertex to allow for a segment to be expressed between this object and nextVertex.
-        @type gpsLat: float
-        @type gpsLng: float
-        """
-        self.lat = lat
-        self.lng = lng
-        self.pointX = 0.0
-        self.pointY = 0.0
-        self.distance = 0.0
-        self.id = None
 
-class GraphNode:
-    """
-    GraphNode is a node that connects multiple links together.
-    """
-    def __init__(self, ident, gpsLat, gpsLng):
+    def isSimilarLink(self,
+                      linkA: LinkRecord | int,
+                      linkB: LinkRecord | int) -> bool:
         """
-        @type ident: int
-        @type gpsLat: float
-        @type gpsLng: float
+        Determines if linkA is similar to linkB.
+
+        @param linkA: The first link expressed as an edge index or record.
+        @param linkB: The second link, expressed as an edge index or record.
+        @return: True if linkB is the reverse of linkA.
         """
-        self.id = ident
-        self.gpsLat = gpsLat
-        self.gpsLng = gpsLng
-        self.outgoingLinkMap = {}
-        "@type self.outgoingLinkMap: dict<int, GraphLink>" 
+        if isinstance(linkA, int):
+            linkA = self.edgeIndexLookup[linkA]
+        if isinstance(linkB, int):
+            linkB = self.edgeIndexLookup[linkB]
         
-        # Placeholders for coordinates in feet; these won't be filled out until this is added to the GraphLib.
-        self.coordX = 0.0
-        self.coordY = 0.0
+        if linkA.origNodeID != linkB.origNodeID \
+                or linkA.destNodeID != linkB.destNodeID:
+            return False
 
-class PointOnLink:
+        geomA: shapely.geometry.LineString = linkA.data['geometry']
+        geomB: shapely.geometry.LineString = linkB.data['geometry']
+        if round(geomA.length, self.eqCutoff) != round(geomB.length, self.eqCutoff):
+            return False
+        coordsA = list(geomA.coords)
+        coordsB = list(geomB.coords)
+        tolerance = 1 / self.eqCutoff
+        for (xA, yA), (xB, yB) in zip(coordsA, coordsB):
+            if abs(xA - xB) >= tolerance or abs(yA - yB) >= tolerance:
+                return False
+        return True
+
+    class Trackpoint(NamedTuple):
+        """
+        Keeps an original track point and transformed coordinates.
+        """
+        lonHoriz: float
+        latVert: float
+        point: shapely.geometry.Point
+        id: Hashable | None = None
+
+    def makeTrackpoint(self,
+                       lonHoriz: float,
+                       latVert: float,
+                       ident: Hashable | None = None) -> Trackpoint:
+        """
+        Makes a Trackpoint from horizontal/vertical coordinates.
+
+        @param ident: The unique identifier for the point that is written to the Trackpoint object.
+        @param lonHoriz: The longitude or horizontal measure of the point.
+        @param latVert: The latitude or vertical measure of the point.
+        @return: The Trackpoint object.
+        """
+        x, y = self.transformer.transform(lonHoriz, latVert)
+        point = shapely.geometry.Point(x, y)
+        return Map.Trackpoint(id=ident, lonHoriz=lonHoriz, latVert=latVert,
+                              point=point)
+
+    class PointOnLink(NamedTuple):
+        """
+        PointOnLink is a specific point on a link. This is documented in
+        Figure 1 of Perrine, et al. 2015 as "point_on_link".
+        """
+        link: Map.LinkRecord # The link that corresponds with this PointOnLink
+        distPercent: float # Percentage of distance along the link
+        nonPerpPenalty: bool # "not r", True if there is to be a non-perpendicular penalty applied
+        refDist: float # "d_r", the reference distance, or the working radius from the original search point
+        point: Map.Trackpoint # The point as it sits on the link
+
+    def findPointsOnLinks(self,
+                          trackPoint: Trackpoint,
+                          radius: float,
+                          primaryRadius: float,
+                          secondaryRadius: float,
+                          prevPoints: Iterable[PointOnLink],
+                          limitClosestPoints=sys.maxsize):
+        """
+        findPointsOnLinks searches through the graph and finds all PointOnLinks
+        that are within the radius. Then, eligible links are proposed
+        primaryRadius distance around the considered point, or secondaryRadius
+        distance from the previous map points. Returns an empty list if none
+        are found. This corresponds with algorithm "FindPointsOnLinks" in
+        Figure 1 of Perrine, et al. 2015. This expects that completeMap() has
+        already been run.
+        
+        @param trackPoint: The point to search from
+        @param radius: Maximum search radius distance
+        @param primaryRadius: Maximum distance allowed from search point to link
+        @param secondaryRadius: Maximum distance allowed from previous map points to link
+        @param prevPoints: Previous PointOnLinks to consider for secondaryRadius matching
+        @param limitClosestPoints: Maximum number of closest points to return
+        """
+        ret = []
+
+        # Find perpendicular and non-perpendicular PointOnLinks that are within radius.
+        indices = self.tree.query(trackPoint.point, predicate="dwithin", distance=radius)
+        
+
+
+        for refDist, linkDist, perpendicular, link in self.quadSet.retrieveLinks(pointX, pointY, radius):
+            # Everything coming back from retrieveLinks is sorted according to the distance from point to
+            # line, and is limited to the given radius. Are we done?
+            if len(retList) >= limitClosestPoints:
+                break
+            
+            # Filter out duplicate locations represented by a nonperpendicular match to the end of one link and a
+            # nonperpendicular match to the start of the following link. Keep the downstream one:                
+            if not perpendicular and linkDist > 0 and len(link.destNode.outgoingLinkMap) > 0:
+                continue
+            
+            """
+            # TEST!
+            print("POL: id: %d, ld: %g, rd: %g, p: %d" % (link.id, linkDist, refDist, 1 if perpendicular else 0))
+            """
+            
+            # Here is a candidate.
+            pointOnLink = PointOnLink(link, linkDist, not perpendicular, refDist)
+            
+            """
+            # TEST!
+            print("POL: id: %d, ld: %g, rd: %g, p: %d, px: %g, py: %g" % (link.id, linkDist, refDist, 1 if perpendicular else 0, pointOnLink.pointX, pointOnLink.pointY))
+            """
+            
+            if refDist <= primaryRadius:
+                retList.append(pointOnLink)
+            else:
+                # Check to see if the point is close to a previous point. This allows candidate links to be tracked
+                # that can possibly correspond with missing geometry, such as a bus going through a parking lot that
+                # isn't represented in the underlying map.
+                for prevPoint in prevPoints:
+                    "@type prevPoint: PointOnLink"
+                    distSq = linear.getNormSq(pointOnLink.pointX, pointOnLink.pointY, prevPoint.pointX, prevPoint.pointY)
+                    if (distSq < secondaryRadiusSq):
+                        # We have a winner:
+                        retList.append(pointOnLink)
+                        break
+
+        # Return the limitClosestPoints number of points: 
+        return retList
+
+
+class PointOnLink0:
     """
     PointOnLink is a specific point on a link.  This is documented in Figure 1 of Perrine, et al. 2015
     as "point_on_link".
