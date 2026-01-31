@@ -22,8 +22,9 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
+from operator import index
 import sys
-from typing import Hashable, Iterable, NamedTuple, Sequence, Mapping
+from typing import Hashable, Iterable, NamedTuple, Sequence, MutableMapping, Generator, Any
 import shapely
 from shapely.ops import transform
 import networkx
@@ -40,13 +41,13 @@ class Map:
         """
         origNodeID: Hashable
         destNodeID: Hashable
-        data: Mapping
+        data: MutableMapping[str, Any]
 
     fromCRS: pyproj.CRS
     workingCRS: pyproj.CRS
     transformer: pyproj.Transformer
     graph: networkx.DiGraph
-    edgeIndexLookup: list[LinkRecord]
+    edgeIndexLookup: tuple[LinkRecord, ...]
     tree: shapely.strtree.STRtree
     eqCutoff: int = 2 # Decimal places for equality checks
 
@@ -67,7 +68,7 @@ class Map:
                                     self.workingCRS, always_xy=True)
 
         self.graph = networkx.DiGraph()
-        self.edgeIndexLookup = []
+        self.edgeIndexLookup = tuple()
         self.tree = shapely.strtree.STRtree([])
 
     def addNode(self,
@@ -97,7 +98,7 @@ class Map:
                 metadata: dict = {},
                 hasEndpoints: bool = True,
                 flatScore: float = 0.0,
-                lengthWeight: float = 1.0):
+                lengthWeight: float = 1.0) -> None:
         """
         Adds a directed curved link to the map using control points.
 
@@ -151,7 +152,7 @@ class Map:
                           metadata: dict = {},
                           flatScore: float = 0.0,
                           lengthWeight: float = 1.0,
-                          alreadyXformed: bool = False):
+                          alreadyXformed: bool = False) -> None:
         """
         Adds a directed link to the map.
 
@@ -167,15 +168,16 @@ class Map:
             geometry = transform(self.transformer.transform, geometry)
         self.graph.add_edge(origNodeID, destNodeID, geometry=geometry,
                             flatScore=flatScore, lengthWeight=lengthWeight,
-                            **metadata)
+                            treeIndex=-1, **metadata)
 
-    def completeMap(self):
+    def completeMap(self) -> None:
         """
         Completes the map by building the spatial index.
         """
-        self.edgeIndexLookup = [Map.LinkRecord(origNodeID=u, destNodeID=v,
-                                               data=data) \
-                                for u, v, data in self.graph.edges(data=True)]
+        self.edgeIndexLookup = tuple(Map.LinkRecord(origNodeID=u, destNodeID=v,
+                    data=data) for u, v, data in self.graph.edges(data=True))
+        for index, element in enumerate(self.edgeIndexLookup):
+            element.data['treeIndex'] = index
         self.tree = shapely.strtree.STRtree([element.data["geometry"] \
                                         for element in self.edgeIndexLookup])
 
@@ -202,10 +204,8 @@ class Map:
         geomB: shapely.geometry.LineString = linkB.data['geometry']
         if round(geomA.length, self.eqCutoff) != round(geomB.length, self.eqCutoff):
             return False
-        coordsA = list(geomA.coords)
-        coordsB = list(geomB.coords)[::-1]
         tolerance = 1 / self.eqCutoff
-        for (xA, yA), (xB, yB) in zip(coordsA, coordsB):
+        for (xA, yA), (xB, yB) in zip(geomA.coords, geomB.coords[::-1]):
             if abs(xA - xB) >= tolerance or abs(yA - yB) >= tolerance:
                 return False
         return True
@@ -233,13 +233,22 @@ class Map:
         geomB: shapely.geometry.LineString = linkB.data['geometry']
         if round(geomA.length, self.eqCutoff) != round(geomB.length, self.eqCutoff):
             return False
-        coordsA = list(geomA.coords)
-        coordsB = list(geomB.coords)
         tolerance = 1 / self.eqCutoff
-        for (xA, yA), (xB, yB) in zip(coordsA, coordsB):
+        for (xA, yA), (xB, yB) in zip(geomA.coords, geomB.coords):
             if abs(xA - xB) >= tolerance or abs(yA - yB) >= tolerance:
                 return False
         return True
+
+    def outgoingEdges(self,
+                      nodeID: Hashable) -> Generator[LinkRecord]:
+        """
+        Returns a generator of outgoing edges from a given node.
+
+        @param nodeID: The node ID to look up.
+        @return: A tuple of LinkRecords for outgoing edges.
+        """
+        return (self.edgeIndexLookup[treeIndex] \
+            for u, v, treeIndex in self.graph.edges(nodeID, data="treeIndex"))
 
     class Trackpoint(NamedTuple):
         """
@@ -276,7 +285,7 @@ class Map:
         distPercent: float # Percentage of distance along the link
         nonPerpPenalty: bool # "not r", True if there is to be a non-perpendicular penalty applied
         refDist: float # "d_r", the reference distance, or the working radius from the original search point
-        point: Map.Trackpoint # The point as it sits on the link
+        point: shapely.geometry.Point # The point as it sits on the link
 
     def findPointsOnLinks(self,
                           trackPoint: Trackpoint,
@@ -284,7 +293,7 @@ class Map:
                           primaryRadius: float,
                           secondaryRadius: float,
                           prevPoints: Iterable[PointOnLink],
-                          limitClosestPoints=sys.maxsize):
+                          limitClosestPoints: int | None = None) -> list[PointOnLink]:
         """
         findPointsOnLinks searches through the graph and finds all PointOnLinks
         that are within the radius. Then, eligible links are proposed
@@ -300,301 +309,56 @@ class Map:
         @param secondaryRadius: Maximum distance allowed from previous map points to link
         @param prevPoints: Previous PointOnLinks to consider for secondaryRadius matching
         @param limitClosestPoints: Maximum number of closest points to return
+        @return: A list of PointOnLink objects found, sorted by increasing reference distance
         """
-        ret = []
+        foundLinks = []
 
         # Find perpendicular and non-perpendicular PointOnLinks that are within radius.
         indices = self.tree.query(trackPoint.point, predicate="dwithin", distance=radius)
-        
+        for index in indices:
+            linkRecord: Map.LinkRecord = self.edgeIndexLookup[index]
+            geometry: shapely.geometry.LineString = linkRecord.data["geometry"]
+            percentAlong: float = geometry.project(trackPoint.point, normalized=True)
+            pointAlong: shapely.geometry.Point = geometry.interpolate(percentAlong, normalized=True)
+            refDist: float = trackPoint.point.distance(pointAlong)
 
+            # Determine if perpendicular:
+            isPerpendicular = percentAlong > 0.0 and percentAlong < 1.0
 
-        for refDist, linkDist, perpendicular, link in self.quadSet.retrieveLinks(pointX, pointY, radius):
-            # Everything coming back from retrieveLinks is sorted according to the distance from point to
-            # line, and is limited to the given radius. Are we done?
-            if len(retList) >= limitClosestPoints:
-                break
-            
-            # Filter out duplicate locations represented by a nonperpendicular match to the end of one link and a
-            # nonperpendicular match to the start of the following link. Keep the downstream one:                
-            if not perpendicular and linkDist > 0 and len(link.destNode.outgoingLinkMap) > 0:
-                continue
-            
-            """
-            # TEST!
-            print("POL: id: %d, ld: %g, rd: %g, p: %d" % (link.id, linkDist, refDist, 1 if perpendicular else 0))
-            """
-            
-            # Here is a candidate.
-            pointOnLink = PointOnLink(link, linkDist, not perpendicular, refDist)
-            
-            """
-            # TEST!
-            print("POL: id: %d, ld: %g, rd: %g, p: %d, px: %g, py: %g" % (link.id, linkDist, refDist, 1 if perpendicular else 0, pointOnLink.pointX, pointOnLink.pointY))
-            """
-            
+            # Assume that if we are nonperpendicular with respect to the
+            # end of the current link, and there are outgoing links, we may
+            # in fact be perpendicular to one of those outgoing links, which
+            # is more worthwhile.
+            if not isPerpendicular and percentAlong >= 1.0:
+                if self.graph.out_degree(linkRecord.destNodeID) > 0:
+                    continue
+
+            # A candidate:
+            pointOnLink = Map.PointOnLink(linkRecord, percentAlong, not isPerpendicular, refDist, pointAlong)
+
             if refDist <= primaryRadius:
-                retList.append(pointOnLink)
+                # Immediate consideration if we are in the primary radius:
+                foundLinks.append(pointOnLink)
             else:
                 # Check to see if the point is close to a previous point. This allows candidate links to be tracked
                 # that can possibly correspond with missing geometry, such as a bus going through a parking lot that
                 # isn't represented in the underlying map.
                 for prevPoint in prevPoints:
-                    "@type prevPoint: PointOnLink"
-                    distSq = linear.getNormSq(pointOnLink.pointX, pointOnLink.pointY, prevPoint.pointX, prevPoint.pointY)
-                    if (distSq < secondaryRadiusSq):
+                    dist = pointAlong.distance(prevPoint.point)
+                    if (dist < secondaryRadius):
                         # We have a winner:
-                        retList.append(pointOnLink)
+                        # @TODO: Determine if we want to add a penalty for the second radius match.
+                        foundLinks.append(pointOnLink)
                         break
-
-        # Return the limitClosestPoints number of points: 
-        return retList
-
-
-class PointOnLink0:
-    """
-    PointOnLink is a specific point on a link.  This is documented in Figure 1 of Perrine, et al. 2015
-    as "point_on_link".
-    
-    @ivar link: "L", the link that corresponds with this PointOnLink
-    @type link: GraphLink
-    @ivar dist: "d", the distance along the link from the origin in feet
-    @type dist: float
-    @ivar nonPerpPenalty: "not r", true if there is to be a non-perpendicular penalty applied
-    @type nonPerpPenalty: bool
-    @ivar refDist: "d_r", the reference distance, or the working radius from the original search point
-    @type refDist: float
-    @ivar pointX: The point x-coordinate
-    @type pointX: float
-    @ivar pointY: The point y-coordinate
-    @type pointY: float
-    """
-    def __init__(self, link, dist, nonPerpPenalty=False, refDist=0.0):
-        """
-        @type link: GraphLink
-        @type dist: float
-        @type nonPerpPenalty: bool
-        @type refDist: float
-        """
-        self.link = link
-        self.dist = dist
-        self.nonPerpPenalty = nonPerpPenalty
-        self.refDist = refDist
         
-        if link:
-            # Get to the vertex pair that includes the point:
-            prevVertex = link.vertices[0]
-            "@type prevVertex: GraphLinkVertex"
-            
-            for prevIndex, nextVertex in enumerate(link.vertices[1:]):
-                "@type prevIndex: int"
-                "@type nextVertex: GraphLinkVertex"
-                if dist < nextVertex.distance or prevIndex == len(link.vertices) - 2:
-                    norm = nextVertex.distance - prevVertex.distance
-                    if norm < EPSILON:
-                        self.pointX = prevVertex.pointX
-                        self.pointY = prevVertex.pointY
-                    else:
-                        factor = (dist - prevVertex.distance) / norm
-                        self.pointX = prevVertex.pointX + (nextVertex.pointX - prevVertex.pointX) * factor
-                        self.pointY = prevVertex.pointY + (nextVertex.pointY - prevVertex.pointY) * factor
-                    break
-                prevVertex = nextVertex
-        else:
-            self.pointX = 0
-            self.pointY = 0
-                
-class GraphLib:
-    """
-    GraphLib is the container that holds an entire graph.
-    
-    @ivar gps: Reference GPS center coordinates plus calculator
-    @type gps: gps.GPS
-    @ivar nodeMap: Collection of nodes that are in this graph.
-    @type nodeMap: dict<int, GraphNode>
-    @ivar linkMap: Collection of links that are in this graph.
-    @type linkMap: dict<int, GraphLink>
-    @ivar prevLinkID: Previous link ID for cases where we are dealing with single-paths
-    @ivar quadLimit: The maximum number of points allowed at a QuadSet layer.
-    @ivar quadSet: The linear.QuadSet object that assists in finding lines of closest perpendicular distances
-    """
-    def __init__(self, gpsCtrLat, gpsCtrLng, quadLimit=DEFAULT_QUAD_LIMIT):
-        """
-        @type gpsCtrLat: float
-        @type gpsCtrLng: float
-        """
-        self.gps = gps.GPS(gpsCtrLat, gpsCtrLng)
-        self.nodeMap = {}
-        self.linkMap = {}
-        self.prevLinkID = 0
-        self.quadLimit = quadLimit
-        self.quadSet = None
-
-    def addNode(self, node):
-        """
-        addNode adds a node to the GraphLib and translates its coordinates to feet. Not supported for single-path.
-        @type node: GraphNode
-        """
-        node.coordX, node.coordY = self.gps.gps2feet(node.gpsLat, node.gpsLng)
-        self.nodeMap[node.id] = node
-        
-    def addLink(self, link):
-        """
-        addLink adds a link to the GraphLib and updates its respective nodes.  Call 
-        addNode first.
-        @type link: GraphLink
-        """
-        if link.origNode.id not in self.nodeMap:
-            print('WARNING: Node %d is not present.' % link.origNode.id, file = sys.stderr)
-            return
-        ourID = link.id
-        self.prevLinkID = link.id
-        self.linkMap[ourID] = link
-        link.origNode.outgoingLinkMap[link.id] = link
-            
-    def generateQuadSet(self):
-        """
-        This performs the task of generating the quadtree for this GraphLib. Calls to GraphLink.addVertices()
-        should have been made, or if there are no vertices, makeVertices() will be called to create straight
-        segments between nodes.
-        """
-        minX = sys.float_info.max
-        minY = sys.float_info.max
-        maxX = sys.float_info.min
-        maxY = sys.float_info.min
-        for link in self.linkMap.values():
-            if not link.vertices:
-                link.makeVertices()
-            for vertex in link.vertices:
-                minX = min(minX, vertex.pointX)
-                minY = min(minY, vertex.pointY)
-                maxX = max(maxX, vertex.pointX)
-                maxY = max(maxY, vertex.pointY)
-        
-        self.quadSet = linear.QuadSet(self.quadLimit, minX, minY, maxX, maxY)
-        for link in self.linkMap.values():
-            self.quadSet.storeLink(link)
-        
-    def findPointsOnLinks(self, pointX, pointY, radius, primaryRadius, secondaryRadius, prevPoints, limitClosestPoints=sys.maxsize):
-        """
-        findPointsOnLinks searches through the graph and finds all PointOnLinks that are within the radius.
-        Then, eligible links are proposed primaryRadius distance around the GTFS point, or secondaryRadius
-        distance from the previous VISTA points.  Returns an empty list if none are found.  This corresponds
-        with algorithm "FindPointsOnLinks" in Figure 1 of Perrine, et al. 2015. This expects that
-        generateQuadSet has already been run.
-        @type pointX: float
-        @type pointY: float
-        @type radius: float
-        @type primaryRadius: float
-        @type secondaryRadius: float
-        @type prevPoints: list<PointOnLink>
-        @type limitClosestPoints: int
-        @rtype list<PointOnLink>
-        """
-        retList = []
-        secondaryRadiusSq = secondaryRadius ** 2
-
-        # Find perpendicular and non-perpendicular PointOnLinks that are within radius.
-        for refDist, linkDist, perpendicular, link in self.quadSet.retrieveLinks(pointX, pointY, radius):
-            # Everything coming back from retrieveLinks is sorted according to the distance from point to
-            # line, and is limited to the given radius. Are we done?
-            if len(retList) >= limitClosestPoints:
-                break
-            
-            # Filter out duplicate locations represented by a nonperpendicular match to the end of one link and a
-            # nonperpendicular match to the start of the following link. Keep the downstream one:                
-            if not perpendicular and linkDist > 0 and len(link.destNode.outgoingLinkMap) > 0:
-                continue
-            
-            """
-            # TEST!
-            print("POL: id: %d, ld: %g, rd: %g, p: %d" % (link.id, linkDist, refDist, 1 if perpendicular else 0))
-            """
-            
-            # Here is a candidate.
-            pointOnLink = PointOnLink(link, linkDist, not perpendicular, refDist)
-            
-            """
-            # TEST!
-            print("POL: id: %d, ld: %g, rd: %g, p: %d, px: %g, py: %g" % (link.id, linkDist, refDist, 1 if perpendicular else 0, pointOnLink.pointX, pointOnLink.pointY))
-            """
-            
-            if refDist <= primaryRadius:
-                retList.append(pointOnLink)
-            else:
-                # Check to see if the point is close to a previous point. This allows candidate links to be tracked
-                # that can possibly correspond with missing geometry, such as a bus going through a parking lot that
-                # isn't represented in the underlying map.
-                for prevPoint in prevPoints:
-                    "@type prevPoint: PointOnLink"
-                    distSq = linear.getNormSq(pointOnLink.pointX, pointOnLink.pointY, prevPoint.pointX, prevPoint.pointY)
-                    if (distSq < secondaryRadiusSq):
-                        # We have a winner:
-                        retList.append(pointOnLink)
-                        break
-
-        # Return the limitClosestPoints number of points: 
-        return retList
-    
-    def serialize(self, pickleFile):
-        """
-        serialize goes through the process of marshaling all of the objects in this GraphLib and writing contents out to a file.
-        """
-        # First, flatten the node next-links:
-        self._flatten()
-        pickle.dump(self, pickleFile)
-        self._unflatten()
-    
-    @staticmethod    
-    def unserialize(pickleFile):
-        """
-        unserialize reconstructs a GraphLib from a persistence file and returns that new GraphLib.
-        """
-        graphLib = pickle.load(pickleFile)
-        graphLib._unflatten()
-        return graphLib
-
-    def _flatten(self):
-        """
-        _flatten will convert the node next-links to be link ID integers rather than references. Until _unflatten() is called,
-        the GraphLib will be unusable. This is needed for making the graph manageable for pickling.
-        """
-        for node in compat.itervalues(self.nodeMap):
-            "@type node: GraphNode"
-            for outgoingLinkID in compat.iterkeys(node.outgoingLinkMap):
-                node.outgoingLinkMap[outgoingLinkID] = None
-            
-    def _unflatten(self):
-        """
-        _unflatten will restore the outgoing link IDs to all of the nodes, needed to reconstruct the objects after pickling.
-        """
-        for node in compat.itervalues(self.nodeMap):
-            "@type node: GraphNode"
-            for outgoingLinkID in compat.iterkeys(node.outgoingLinkMap):
-                node.outgoingLinkMap[outgoingLinkID] = self.linkMap[outgoingLinkID]            
+        foundLinks.sort(key=lambda entry: entry.refDist)
+        if limitClosestPoints is not None:
+            foundLinks[:] = foundLinks[:limitClosestPoints]
+        return foundLinks
 
 
-    """
-    # TEST!
-    def dumpQuadSet(self, quadElement=None, seqStr=""):
-        "@type quadElement: linear._QuadElement"
-        if not quadElement:
-            quadElement = self.quadSet.quadElement
-        if quadElement.members:
-            for member in quadElement.members:
-                if member:
-                    ourSeqStr = str(seqStr)
-                    if seqStr:
-                        ourSeqStr += ","
-                    ourSeqStr += "(%d,%d)-(%d,%d)" % (int(quadElement.uCornerX), int(quadElement.uCornerY), int(quadElement.lCornerX), int(quadElement.lCornerY))
-                    self.dumpQuadSet(member, ourSeqStr)
-        else:
-            ourSeqStr = ""
-            for link in quadElement.memberMap:
-                if ourSeqStr:
-                    ourSeqStr += ","
-                ourSeqStr += str(link.id)
-            print(seqStr + " -> " + ourSeqStr)
-    """            
+
+
 
 class WalkPathProcessor:
     """
