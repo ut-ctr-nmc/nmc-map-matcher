@@ -22,10 +22,8 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
-from operator import index
-from re import search
-import sys
-from typing import Hashable, Iterable, NamedTuple, Sequence, MutableMapping, Generator, Any
+from typing import Hashable, Iterable, NamedTuple, Sequence, MutableMapping, \
+    Generator, Any
 from typing_extensions import Self
 import shapely
 from shapely.ops import transform
@@ -81,7 +79,7 @@ class Map:
     graph: networkx.DiGraph
     edgeIndexLookup: tuple[LinkRecord, ...]
     tree: shapely.strtree.STRtree | None
-    eqCutoff: int = 2 # Decimal places for equality checks
+    eqCutoff: int = 3 # Decimal places for equality checks
 
     def __init__(self,
                  fromCRS: str = "EPSG:4326", # GPS
@@ -579,7 +577,7 @@ class WalkPathProcessor:
     def walkPath(self,
                  pointOnLinkOrig: Map.PointOnLink,
                  pointOnLinkDest: Map.PointOnLink,
-                 startupCost: float = 0.0,
+                 startupCost: float = 0.0, # TODO: !!! Use link.data['flatScore'] !!!
                  totalLinkCount: int = 0) -> tuple[list[Map.LinkRecord] | None, float, float, int]:
         """
         walkPath uses a breadth-first search to find the shortest distance from a given PointOnLink to another PointOnLink and
@@ -702,7 +700,7 @@ class WalkPathProcessor:
                         continue
                     else:
                         penalty = self.uTurnInterPenalty
-                penalty = self.pathEngine.scoreFunction(None, penalty, None)
+                penalty = self.pathEngine.scoreFunction(None, penalty, None) # TODO: !!! Use stuff in link.data !!!
                 
             # Is this the next link we need to process according to the link list (transit)?
             if self.linkList and walkPathElem.linkListIndex + 1 < len(self.linkList) and self.linkList[walkPathElem.linkListIndex + 1] != link.data['id']:

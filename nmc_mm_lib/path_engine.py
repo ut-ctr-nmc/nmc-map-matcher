@@ -7,7 +7,7 @@ path_engine.py contains logic for matching up GTFS paths to VISTA paths and the
     Cockrell School of Engineering, The University of Texas at Austin 
 @version: 1.0
 
-@copyright: (C) 2014, The University of Texas at Austin
+@copyright: (C) 2026, The University of Texas at Austin
 @license: GPL v3
 
 This program is free software: you can redistribute it and/or modify
@@ -24,50 +24,39 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import shapely
-
-
-
-class PathEngine:
-    """
-    PathEngine maintains
-    """
-
-
-
-
-
-from __future__ import print_function
-from nmc_mm_lib import graph, linear
+from collections.abc import Hashable, Iterable
+from typing import Final, NamedTuple
+from nmc_mm_lib import graph
 import operator, math, sys, copy
 
-RESTART_PENALTY_MULT = 2
-"@var RESTART_PENALTY_MULT: A multiplier for shape-to-shape evaluations that happen while refining on a restart"
+# Multiplier for shape-to-shape evaluations that happen while refining on a
+# restart:
+RESTART_PENALTY_MULT: Final[float] = 2.0
 
 class PathEnd:
     """
-    PathEnd is a single node used within the overall tree structure. This roughly equates
-    to the "path_end" data structure outlined in Figure 2 of Perrine et al., 2015.
-    
-    @ivar totalCost: "s", the total score of the path represented
-    @type totalCost: float
-    @ivar prevTreeNode: "p", the previous PathEnd step in this path
-    @type prevTreeNode: PathEnd
-    @ivar totalDist: "s", the total score of the path represented
-    @type totalDist: float
-    @ivar totalLinkCount: the number of links that had been traversed 
-    @type totalLinkCount: int
-    @ivar routeInfo: "l", a list of map links that have been traversed on the shortest path
-    @type routeInfo: list<graph.GraphLink>
-    @ivar restart: "r", a Boolean signifying a discontinuity
-    @type restart: bool
+    PathEnd is a single node used within the overall tree structure. This
+    roughly equates to the "path_end" data structure outlined in Figure 2 of
+    Perrine et al., 2015.
     """
-    def __init__(self, shapeEntry, pointOnLink):
+    refPoint: graph.Map.Trackpoint # The geographic reference point
+                                   # corresponding with this result
+    pointOnLink: graph.Map.PointOnLink # Current point being considered
+    totalCost: float # "s", the total score of the path represented
+    prevTreeNode: PathEnd | None # "p", the previous PathEnd step in this path
+    totalDist: float # Relates to total score of the path represented
+    totalLinkCount: int # the number of links that had been traversed
+    routeInfo: list[Hashable] # "l", a list of map links that have been
+                              # traversed on the shortest path
+    restart: bool # "r", a Boolean signifying a discontinuity
+
+    def __init__(self,
+                 refPoint: graph.Map.Trackpoint,
+                 pointOnLink: graph.Map.PointOnLink):
         """
-        @type shapeEntry: ShapesEntry
-        @type pointOnLink: graph.PointOnLink
+        Sets up values in this object, many of which need to be mutable
         """
-        self.shapeEntry = shapeEntry
+        self.refPoint = refPoint
         self.pointOnLink = pointOnLink
         
         self.totalCost = 0.0
@@ -77,108 +66,102 @@ class PathEnd:
         self.routeInfo = []
         self.restart = False
         
-    def cleanCopy(self):
+    def cleanCopy(self) -> PathEnd:
         """
         cleanCopy initializes a new PathEnd object based on another one.
-        @rtype: PathEnd
         """
-        return PathEnd(self.shapeEntry, self.pointOnLink)
+        return PathEnd(self.refPoint, self.pointOnLink)
 
 class PathEngine:
     """
     PathEngine contains constraints that guide the creation of a path.
     """
-    def __init__(self, pointSearchRadius, pointSearchPrimary, pointSearchSecondary, limitLinearDist, limitDirectDist,
-                 limitDirectDistRev, distanceFactor, driftFactor, nonPerpPenalty, limitClosestPoints, limitSimultaneousPaths):
+    class Params(NamedTuple):
         """
-        @type pointSearchRadius: float
-        @type pointSearchPrimary: float
-        @type pointSearchSecondary: float
-        @type limitLinearDist: float
-        @type limitDirectDist: float
-        @type limitDirectDistRev: float
-        @type distanceFactor: float
-        @type driftFactor: float
-        @type nonPerpPenalty: float
-        @type limitClosestPoints: int
-        @type limitSimultaneousPaths: int
-        @ivar prevCosts: A list of limitSimultaneousPaths cost values that can be used to determine if proposed paths are
-            worth traversing.
-        @type prevCosts: list<float>
+        Used for configuring the desired behavior of the path engine
         """
-        self.pointSearchRadius = pointSearchRadius
-        self.pointSearchPrimary = pointSearchPrimary
-        self.pointSearchSecondary = pointSearchSecondary
-        self.limitLinearDist = limitLinearDist
-        self.limitDirectDist = limitDirectDist
-        self.limitDirectDistRev = limitDirectDistRev
-        self.distanceFactor = distanceFactor
-        self.driftFactor = driftFactor
-        self.nonPerpPenalty = nonPerpPenalty
-        self.limitClosestPoints = limitClosestPoints
-        self.limitSimultaneousPaths = limitSimultaneousPaths
-        self.prevCosts = None
-        
-        self.maxHops = 12 # Limits the number of nodes to be traversed in path-finding.
-        self.tossRatio = 1.0 # Disable the invalidation of short paths.
-        
-        self.logFile = sys.stderr
-        "@type self.logFile: file"
-        
-        self.shapeScatterCache = None
-        "@type self.shapeScatterCache: list<graph.PointOnLink>"
-        
-        self.forceLinks = None
-        "@type self.forceLinks: list<graph.GraphLink>"
-        
-    def scoreFunction(self, prevGeoPoint, distance, geoPoint):
+        searchRadius: float # TODO: Fill these in with the most common defaults.
+        radiusPrimary: float
+        radiusSecondary: float
+        limitPathDist: float
+        limitDirectDist: float
+        limitDirectDistRev: float
+        distFactor: float
+        driftFactor: float
+        nonPerpPenalty: float
+        limitClosestPoints: int
+        limitSimulPaths: int
+
+    params: Params
+    prevCosts: list[float] # A list of limitSimulPaths cost values that can be
+                           # used to determine if proposed paths are worth
+                           # traversing.
+    maxHops: int = 12 # Limits number of nodes to be traversed in path-finding
+    tossRatio: float = 1.0 # Disable the invalidation of short paths
+    shapeScatterCache: list[graph.Map.PointOnLink] | None = None
+    forceLinks: list[Hashable] | None = None
+
+    def __init__(self, params: Params):
+        """
+        Initializes the path engine with the given parameters; others are
+        implicit from the defaults
+        """
+        self.params = params
+
+    def scoreFunction(self,
+                      prevGeoPoint: graph.Map.PointOnLink | None,
+                      distance: float,
+                      geoPoint: graph.Map.PointOnLink | None) -> float:
         """
         scoreFunction calculates a cost value given prior path distance, and deviation from the VISTA link.
         This corresponds with algorithm "ScoreFunction" in Perrine et al., 2015.
-        @type prevGeoPoint: graph.PointOnLink
-        @type distance: float
-        @type geoPoint: graph.PointOnLink
-        @rtype float
+
+        @param prevGeoPoint: graph.PointOnLink
+        @param distance: float
+        @param geoPoint: graph.PointOnLink
+        @return: Calculated score value
         """
+        cost: float
         if prevGeoPoint is None:
             # We are starting anew.  Count the "black line distance" from the VISTA link to the GTFS point:
             if geoPoint is not None:
-                cost = geoPoint.refDist * self.driftFactor
+                cost = geoPoint.refDist * self.params.driftFactor
                 if geoPoint.nonPerpPenalty:
-                    cost = cost * self.nonPerpPenalty
+                    cost = cost * self.params.nonPerpPenalty
             else:
                 cost = 0.0
             return cost
         else:
             # We're jumping from one link to another, so add the "black line" distance to the total VISTA link distance:
             if geoPoint is not None:
-                cost = geoPoint.refDist * self.driftFactor
+                cost = geoPoint.refDist * self.params.driftFactor
                 if geoPoint.nonPerpPenalty:
-                    cost = cost * self.nonPerpPenalty
+                    cost = cost * self.params.nonPerpPenalty
             else:
                 cost = 0.0            
-            return cost + abs(distance) * self.distanceFactor
+            return cost + abs(distance) * self.params.distFactor
             # Change from Perrine et al., 2015: Use absolute value of distance here because all movement
             # should be incrementing even in cases where a proposed path is moving back and forth on a link
             # because of shape point noise or tiny U-turns.
         
-    def exceedsPreviousCosts(self, cost):
+    def exceedsPreviousCosts(self, cost: float) -> bool:
         """
         Returns true if the given cost value exceeds the most expensive cost already recorded (if the list is
-        limitSimultaneousPaths elements long)
-        @type cost: float
+        limitSimulPaths elements long)
         """
-        return len(self.prevCosts) >= self.limitSimultaneousPaths and cost > self.prevCosts[-1]
+        return len(self.prevCosts) >= self.params.limitSimulPaths \
+            and cost > self.prevCosts[-1]
 
-    def _findShortestPaths(self, pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, vistaGraph, avoidRestartCode = 0):
+    def _findShortestPaths(self, pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, baseMap, avoidRestartCode = 0):
         """
         _findShortestPaths coordinates the creation of a list of new tree nodes for each of the reachable new points.
         This is mostly an implementation of "FindShortestPath" in Figure 2 of Perrine et al., 2015.
+
         @type pathProcessor: graph.WalkPathProcessor
         @type shapeEntry: ShapesEntry
         @type gtfsPointsPrev: list<PathEnd> 
         @type gtfsPoints: list<PathEnd>
-        @type vistaGraph: graph.GraphLib
+        @type baseMap: graph.GraphLib
         @param avoidRestartCode: 0 to allow restarts; 1 to allow restarts but suppress message; 2 to avoid restarts
         @type avoidRestartCode: int
         @rtype list<PathEnd>
@@ -212,7 +195,7 @@ class PathEngine:
                         else:
                             gtfsPoint.totalCost = cost
                             gtfsPoint.totalDist = 0
-                        if len(self.prevCosts) < self.limitSimultaneousPaths:
+                        if len(self.prevCosts) < self.limitSimulPaths:
                             self.prevCosts.append(gtfsPoint.totalCost)
                         else:
                             self.prevCosts[-1] = gtfsPoint.totalCost
@@ -246,7 +229,7 @@ class PathEngine:
                         gtfsPointRestart = gtfsPointPrev
             
             # Mark a "break" in the continuity and link up with the newer candidates.  Keep a limited set.
-            gtfsPoints = gtfsPoints[0:self.limitSimultaneousPaths]
+            gtfsPoints = gtfsPoints[0:self.limitSimulPaths]
             if gtfsPointRestart is not None:
                 for gtfsPoint in gtfsPoints:
                     "@type gtfsPoint: PathEnd"
@@ -262,22 +245,23 @@ class PathEngine:
         else:
             # Trim off lowest-scoring paths:
             gtfsPointsWork.sort(key = operator.attrgetter('totalCost'))
-            gtfsPoints = gtfsPointsWork[0:self.limitSimultaneousPaths]
+            gtfsPoints = gtfsPointsWork[0:self.limitSimulPaths]
             
         return gtfsPoints            
 
-    def constructPath(self, shapeEntries, vistaGraph, linkList=None):
+    def constructPath(self, trackpoints: Iterable[graph.Map.Trackpoint], baseMap: graph.Map, linkList: list[Hashable] | None = None):
         """
-        constructPath goes through a list of shapeEntries and finds the shortest path through the given vistaGraph.
+        constructPath goes through a list of trackpoints and finds the shortest path through the given baseMap.
         This roughly corresponds with algorithms "WalkTrack" and "TrackpointArrives" in Figure 2 of Perrine et al. 2015.
-        @type shapeEntries: list<ShapesEntry>
-        @type vistaGraph: graph.GraphLib
+
+        @type trackpoints: list<ShapesEntry>
+        @type baseMap: graph.GraphLib
         @rtype: list<PathEnd>
         """
         gtfsPointsPrev = []
         "@type gtfsPointsPrev: list<PathEnd>"
 
-        pathProcessor = graph.WalkPathProcessor(self, self.limitDirectDist, self.limitLinearDist, self.limitDirectDistRev,
+        pathProcessor = graph.WalkPathProcessor(self, self.limitDirectDist, self.limitPathDist, self.limitDirectDistRev,
             self.maxHops, linkList)
         "@type pathProcessor: graph.WalkPathProcessor"
         
@@ -289,15 +273,15 @@ class PathEngine:
         if self.logFile is not None:
             print("INFO: Building path...", file=self.logFile)
             
-        for shapeEntry in shapeEntries:
+        for shapeEntry in trackpoints:
             "@type shapeEntry: ShapesEntry"
             shapeCtr = shapeCtr + 1
             
             if shapeCtr % 10 == 0:
                 if self.logFile is not None:
-                    print("INFO:   ... %d of %d" % (shapeCtr, len(shapeEntries)), file=self.logFile)
-            pointX, pointY = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
-            # TODO: move the forceLinks stuff to vistaGraph.findPointsOnLinks().
+                    print("INFO:   ... %d of %d" % (shapeCtr, len(trackpoints)), file=self.logFile)
+            pointX, pointY = baseMap.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
+            # TODO: move the forceLinks stuff to baseMap.findPointsOnLinks().
             if self.forceLinks and shapeCtr < len(self.forceLinks) \
                     and self.forceLinks[shapeCtr] is not None:
                 # Custom behavior for forcing the use of a limited set of links:
@@ -308,8 +292,8 @@ class PathEngine:
                 closestVISTA.sort(key = operator.attrgetter('refDist'))
             else:
                 # Normal behavior: search among all links:
-                closestVISTA = vistaGraph.findPointsOnLinks(pointX, pointY, self.pointSearchRadius, self.pointSearchPrimary,
-                                self.pointSearchSecondary, [gtfsPointPrev.pointOnLink for gtfsPointPrev in gtfsPointsPrev],
+                closestVISTA = baseMap.findPointsOnLinks(pointX, pointY, self.searchRadius, self.radiusPrimary,
+                                self.radiusSecondary, [gtfsPointPrev.pointOnLink for gtfsPointPrev in gtfsPointsPrev],
                                 self.limitClosestPoints)
             "@type closestVISTA: list<graph.PointOnLink>"
                         
@@ -336,10 +320,10 @@ class PathEngine:
             # Find the shortest paths from gtfsPointsPrev to the handful of closestVISTA points:
             # (We're adding another layer to the tree, and previous tree nodes can be found by accessing
             # PathEnd.prevTreeNode)
-            gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, vistaGraph)
+            gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, baseMap)
 
         if startInvalidCheckFlag:
-            startValidIndex = len(shapeEntries)
+            startValidIndex = len(trackpoints)
 
         # Additional reporting on points found and not found:
         reportStr = ""
@@ -347,14 +331,14 @@ class PathEngine:
         if startValidIndex > 0:
             reportStr = "%d are missing from the start" % startValidIndex
             missingEnds = startValidIndex
-        if lastValidIndex == len(shapeEntries) and startValidIndex < len(shapeEntries):
+        if lastValidIndex == len(trackpoints) and startValidIndex < len(trackpoints):
             if startValidIndex > 0:
                 reportStr += " and "
             reportStr += "%d are missing from the end" % invalidCtr
             missingEnds += invalidCtr
         if len(reportStr) > 0:
-            print("WARNING: Out of %d georeference points, %s." % (len(shapeEntries), reportStr), file=sys.stderr)
-        if float(missingEnds) / len(shapeEntries) > self.tossRatio:
+            print("WARNING: Out of %d georeference points, %s." % (len(trackpoints), reportStr), file=sys.stderr)
+        if float(missingEnds) / len(trackpoints) > self.tossRatio:
             print("WARNING: Aborting ID %s." % str(shapeEntry.shapeID), file=sys.stderr)
             return None
 
@@ -412,14 +396,14 @@ class PathEngine:
         """
         self.forceLinks = forceLinks
 
-    def _tryTreeStack(self, pathProcessor, oldTreeNode, prevTreeNodes, vistaGraph, evalCode, firstFlag, pathIndex=None):
+    def _tryTreeStack(self, pathProcessor, oldTreeNode, prevTreeNodes, baseMap, evalCode, firstFlag, pathIndex=None):
         """
         _tryTreeStack() is a potentially recursively called internal worker method that reevaluates tree indices and
         generates new tree nodes.
         @type pathProcessor: graph.WalkPathProcessor
         @type oldTreeNode: PathEnd
         @type prevTreeNodes: list<PathEnd>
-        @type vistaGraph: graph.GraphLib
+        @type baseMap: graph.GraphLib
         @param evalCode: Use 0: no evaluation, 1: full evaluation, 2: wrap up loose ends
         @type evalCode: int
         @type firstFlag: bool
@@ -449,9 +433,9 @@ class PathEngine:
                         self.shapeScatterCache.append(graph.PointOnLink(link, linkDist, not perpendicular, math.sqrt(distSq)))
                     else:
                         # Normal operation: find closest limitClosestPoints points to the shape point among all links: 
-                        self.shapeScatterCache = vistaGraph.findPointsOnLinks(oldTreeNode.shapeEntry.pointX,
-                            oldTreeNode.shapeEntry.pointY, self.pointSearchRadius, self.pointSearchPrimary,
-                            self.pointSearchSecondary, prevPointsOnLinks, self.limitClosestPoints)
+                        self.shapeScatterCache = baseMap.findPointsOnLinks(oldTreeNode.shapeEntry.pointX,
+                            oldTreeNode.shapeEntry.pointY, self.searchRadius, self.radiusPrimary,
+                            self.radiusSecondary, prevPointsOnLinks, self.limitClosestPoints)
                 
                 # Create new PathEnd objects:
                 gtfsPoints = len(self.shapeScatterCache) * []
@@ -469,7 +453,7 @@ class PathEngine:
             if gtfsPoints:
                 # Find the shortest paths from gtfsPointsPrev to the handful of closestVISTA points:
                 curList = self._findShortestPaths(pathProcessor, oldTreeNode.shapeEntry, prevTreeNodes,
-                    gtfsPoints, vistaGraph, 1 if firstFlag else 2)
+                    gtfsPoints, baseMap, 1 if firstFlag else 2)
                 # Check for restarts and penalize.  Only keep the first (cheapest) restart.  Meanwhile, append to
                 # the results list:
                 restartFlag = False
@@ -511,17 +495,17 @@ class PathEngine:
         
         # Limit the number of results:
         # TODO: Re-enable if needed?
-        #curListAll = curListAll[0:self.limitSimultaneousPaths]
+        #curListAll = curListAll[0:self.limitSimulPaths]
         
         #curListAll.sort(key = operator.attrgetter('totalCost'))
         
         return curListAll, evalCode
 
-    def refinePath(self, oldGTFSPath, vistaGraph):
+    def refinePath(self, oldGTFSPath, baseMap):
         """
         refinePath goes through existing GTFS points and  tries to route from a restart. Uses termRefactorRadius.
         @type oldGTFSPath: list<PathEnd>
-        @type vistaGraph: graph.GraphLib
+        @type baseMap: graph.GraphLib
         @rtype: list<PathEnd>
         """
         if self.logFile is not None:
@@ -529,7 +513,7 @@ class PathEngine:
             
         treeNodes = []
         
-        pathProcessor = graph.WalkPathProcessor(self, self.limitDirectDist, self.limitLinearDist, self.limitDirectDistRev,
+        pathProcessor = graph.WalkPathProcessor(self, self.limitDirectDist, self.limitPathDist, self.limitDirectDistRev,
             self.maxHops)
         "@type pathProcessor: graph.WalkPathProcessor"
 
@@ -569,7 +553,7 @@ class PathEngine:
             # TODO: Also if a shape point is flagged to be reevaluated.
             
             # Visit this shape point further and figure out how to reevaluate it.
-            treeNodes, evalCode = self._tryTreeStack(pathProcessor, oldGTFSPath[oldTreeNodeIndex], treeNodes, vistaGraph,
+            treeNodes, evalCode = self._tryTreeStack(pathProcessor, oldGTFSPath[oldTreeNodeIndex], treeNodes, baseMap,
                 evalCode, True, oldTreeNodeIndex)
             
             if evalCode == 2:
@@ -638,10 +622,10 @@ def dumpStandardInfo(treeNodes, outFile=sys.stdout):
                 outStr = outStr + ",%d" % routeTraverse.id
         print(outStr, file=outFile)
 
-def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: int(x)):
+def readStandardDump(baseMap, gtfsShapes, inFile, shapeIDMaker = lambda x: int(x)):
     """
     readStandardDump reconstructs the tree entries that PathEngine had created.
-    @type vistaGraph: graph.GraphLib
+    @type baseMap: graph.GraphLib
     @type gtfsShapes: dict<int, list<gtfs.ShapesEntry>>
     @type inFile: file
     @type shapeIDMaker: function
@@ -682,11 +666,11 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
             contFlag = False
             for index in range(0, len(linksTrav)):
                 linksTravID = int(lineElems[index + 7])
-                if linksTravID not in vistaGraph.linkMap:
+                if linksTravID not in baseMap.linkMap:
                     print("WARNING: The path match file refers to a nonexistent link ID %d." % linksTravID, file=sys.stderr)
                     contFlag = True
                     break
-                linksTrav[index] = vistaGraph.linkMap[linksTravID]
+                linksTrav[index] = baseMap.linkMap[linksTravID]
             if contFlag:
                 # This is run if the break above is run.
                 continue
@@ -703,10 +687,10 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
                 shapeSeqs[shapeID] = -1
                 
             # Resolve the link object:
-            if linkID not in vistaGraph.linkMap:
+            if linkID not in baseMap.linkMap:
                 print("WARNING: The path match file refers to a nonexistent link ID %d." % linkID, file=sys.stderr)
                 continue
-            link = vistaGraph.linkMap[linkID]
+            link = baseMap.linkMap[linkID]
             "@type link: graph.GraphLink"
             
             # Resolve the shape entry:
@@ -723,8 +707,8 @@ def readStandardDump(vistaGraph, gtfsShapes, inFile, shapeIDMaker = lambda x: in
                 continue
             
             # Recalculate parameters needed for the tree node:
-            pointX, pointY = vistaGraph.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
-            distRef, distLinear, perpFlag = vistaGraph.linkMap[linkID].pointDist(pointX, pointY)
+            pointX, pointY = baseMap.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
+            distRef, distLinear, perpFlag = baseMap.linkMap[linkID].pointDist(pointX, pointY)
             pointOnLink = graph.PointOnLink(link, distLinear, not perpFlag, distRef)
             newEntry = PathEnd(shapeEntry, pointOnLink)
             newEntry.totalCost = distTotal # TotalCost won't be available.
