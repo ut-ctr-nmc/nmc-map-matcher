@@ -23,32 +23,64 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 from operator import index
+from re import search
 import sys
 from typing import Hashable, Iterable, NamedTuple, Sequence, MutableMapping, Generator, Any
+from typing_extensions import Self
 import shapely
 from shapely.ops import transform
 import networkx
 import pyproj
+
+from nmc_mm_lib.path_engine import PathEngine
+
+def hasMoreThan(iterable: Iterable[Any], count: int = 0) -> bool:
+    """
+    Determines if the iterable has more than the specified count of items.
+
+    @param iterable: The iterable to check.
+    @param count: The count to compare against (default: 0).
+    @return: True if the iterable has more than count items.
+    """
+    iterator = iter(iterable)
+    for _ in range(count + 1):
+        try:
+            next(iterator)
+        except StopIteration:
+            return False
+    return True
+
+def hasExactly(iterable: Iterable[Any], count: int = 0) -> bool:
+    """
+    Determines if the iterable has exactly the specified count of items.
+
+    @param iterable: The iterable to check.
+    @param count: The count to compare against (default: 0).
+    @return: True if the iterable has exactly count items.
+    """
+    iterator = iter(iterable)
+    for _ in range(count):
+        try:
+            next(iterator)
+        except StopIteration:
+            return False
+    try:
+        next(iterator)
+        return False
+    except StopIteration:
+        return True
 
 class Map:
     """
     Map is a container for a node-link graph, maintained internally in
     a Shapely SRTree for spatial indexing.
     """
-    class LinkRecord(NamedTuple):
-        """
-        For recording individual links in edge lookups
-        """
-        origNodeID: Hashable
-        destNodeID: Hashable
-        data: MutableMapping[str, Any]
-
     fromCRS: pyproj.CRS
     workingCRS: pyproj.CRS
     transformer: pyproj.Transformer
     graph: networkx.DiGraph
     edgeIndexLookup: tuple[LinkRecord, ...]
-    tree: shapely.strtree.STRtree
+    tree: shapely.strtree.STRtree | None
     eqCutoff: int = 2 # Decimal places for equality checks
 
     def __init__(self,
@@ -69,7 +101,7 @@ class Map:
 
         self.graph = networkx.DiGraph()
         self.edgeIndexLookup = tuple()
-        self.tree = shapely.strtree.STRtree([])
+        self.tree = None
 
     def addNode(self,
                 nodeID: Hashable,
@@ -89,6 +121,17 @@ class Map:
         self.graph.add_node(nodeID, x=x, y=y, score=score,
                             lonHoriz=lonHoriz, latVert=latVert, **metadata)
 
+    class LinkRecord(NamedTuple):
+        """
+        For recording individual links in edge lookups
+        """
+        origNodeID: Hashable
+        destNodeID: Hashable
+        data: MutableMapping[str, Any]
+        # TODO: Add link length float for qucker access and separation from
+        # Shapely dependence (versus data['geometry'].length)
+        # TODO: Also add link ID for quicker access.
+
     def addLink(self,
                 origNodeID: Hashable,
                 destNodeID: Hashable, 
@@ -98,7 +141,7 @@ class Map:
                 metadata: dict = {},
                 hasEndpoints: bool = True,
                 flatScore: float = 0.0,
-                lengthWeight: float = 1.0) -> None:
+                lengthWeight: float = 1.0) -> Hashable | None:
         """
         Adds a directed curved link to the map using control points.
 
@@ -111,6 +154,7 @@ class Map:
         @param flatScore: An optional flat score (penalty) for the link, or 0 use the length as score (default: 0).
         @param lengthWeight: A multiplier to apply to the length when computing the score, or 0 to deactivate (default: 1.0).
         @param controlPoints: A list of (lon, lat) tuples representing control points for the curve.
+        @return: The linkID that was incorporated into the link, or None if IDs weren't used.
         """
         # First, convert controlPoints if None or LineString:
         if isinstance(controlPoints, shapely.geometry.LineString):
@@ -140,10 +184,14 @@ class Map:
         if linkID:
             metadata['id'] = linkID
 
-        # TODO: Need progressive score multiplier for partial scoring!
         self.addLineStringLink(origNodeID, destNodeID, controlPoints, metadata,
                                flatScore=flatScore, lengthWeight=lengthWeight,
                                alreadyXformed=True)
+        # TODO: Consider requiring unique link IDs and using them to look up links,
+        # instead of indices that update at the mercy of the tree structure. That
+        # would allow dynamic updates of the underlying map, and also allow for
+        # independence from the underlying libraries.
+        return linkID
         
     def addLineStringLink(self,
                           origNodeID: Hashable,
@@ -170,16 +218,21 @@ class Map:
                             flatScore=flatScore, lengthWeight=lengthWeight,
                             treeIndex=-1, **metadata)
 
-    def completeMap(self) -> None:
+    def completeMap(self, treeNeeded=True) -> None:
         """
         Completes the map by building the spatial index.
+
+        @param treeNeeded: Whether to build the spatial index tree (default: True).
         """
         self.edgeIndexLookup = tuple(Map.LinkRecord(origNodeID=u, destNodeID=v,
                     data=data) for u, v, data in self.graph.edges(data=True))
         for index, element in enumerate(self.edgeIndexLookup):
             element.data['treeIndex'] = index
-        self.tree = shapely.strtree.STRtree([element.data["geometry"] \
+        if treeNeeded:
+            self.tree = shapely.strtree.STRtree([element.data["geometry"] \
                                         for element in self.edgeIndexLookup])
+        else:
+            self.tree = None
 
     def isReverseLink(self,
                       linkA: LinkRecord | int,
@@ -239,13 +292,13 @@ class Map:
                 return False
         return True
 
-    def outgoingEdges(self,
+    def outgoingLinks(self,
                       nodeID: Hashable) -> Generator[LinkRecord]:
         """
-        Returns a generator of outgoing edges from a given node.
+        Returns a generator of outgoing links from a given node.
 
         @param nodeID: The node ID to look up.
-        @return: A tuple of LinkRecords for outgoing edges.
+        @return: A tuple of LinkRecords for outgoing links.
         """
         return (self.edgeIndexLookup[treeIndex] \
             for u, v, treeIndex in self.graph.edges(nodeID, data="treeIndex"))
@@ -311,6 +364,11 @@ class Map:
         @param limitClosestPoints: Maximum number of closest points to return
         @return: A list of PointOnLink objects found, sorted by increasing reference distance
         """
+        if self.tree is None:
+            raise RuntimeError("Spatial index tree is not built. Call " \
+                    + "completeMap() with treeNeeded=True before using " \
+                    + "findPointsOnLinks().")
+
         foundLinks = []
 
         # Find perpendicular and non-perpendicular PointOnLinks that are within radius.
@@ -356,52 +414,53 @@ class Map:
             foundLinks[:] = foundLinks[:limitClosestPoints]
         return foundLinks
 
-
-
-
-
 class WalkPathProcessor:
     """
-    WalkPathProcessor contains methods used to conduct the walkPath algorithm.  It maintains a cache that
-    persists in-between individual pathfinding operations.
-    
-    @ivar uTurnInterPenalty: Set this to none if U-turns are not allowed in intersections; otherwise, this
-        number of feet are added at intersection U-turns.
-    @type uTurnInterPenalty: float
-    @ivar uTurnDeadEndPenalty: Set this to none to use the penalty value in uTurnInterEnable; otherwise,
-        this number of feet are added at U-turns at dead-ends.
-    @type uTurnDeadEndPenalty: float
-    @ivar pathEngine: A reference to the object that instanciates this class.
-    @type pathEngine: path_engine.PathEngine
-    @ivar backCache: Caches previous walkPath operations to accelerate processing a little bit 
-    @type backCache: dict<int, dict<int, GraphLink>>
-    @ivar winner: Records the winning queue element 
-    @type winner: _WalkPathNext
-    @ivar processingQueue: Processing queue to facilitate the breadth-first search
-    @type processingQueue: []
-    @ivar pointOnLinkOrig: For internal record-keeping    
-    @type pointOnLinkOrig: PointOnLink
-    @ivar pointOnLinkDest: For internal record-keeping
-    @type pointOnLinkDest: PointOnLink
-    @ivar linkList: A list of link objects that are to be used for matching, or None if no list.
-    @type linkList: list<GraphLink>
-    """        
-    def __init__(self, pathEngine, limitRadius, limitDistance, limitRadiusRev, limitSteps, linkList=None):
+    WalkPathProcessor contains methods used to conduct the walkPath algorithm.
+    It maintains a cache that persists in-between individual pathfinding
+    operations.
+    """
+    map: Map
+    uTurnInterPenalty: float | None # Add this penalty to U-turns, or None if
+                                    # U-turns not allowed
+    uTurnDeadEndPenalty: float | None # Add this penalty to U-turns at dead-
+                                      # ends, or None for uTurnInterPenalty
+    pathEngine: PathEngine # The object that instanciates this class.
+    backCache: dict[Hashable, dict[Hashable, Map.LinkRecord]] # Caches previous walkPath
+                                                    # operations to accelerate
+    winner: Next | None # Records the winning queue element 
+    processingQueue: list[PathElement] # Processing queue to facilitate
+                                       # the breadth-first search
+    pointOnLinkOrig: Map.PointOnLink # For internal record-keeping    
+    pointOnLinkDest: Map.PointOnLink # For internal record-keeping
+    linkList: list[Hashable] | None # Constrains matching to this list of links
+                                    # IDs, if provided
+    # TODO: Can the LinkList be more like a tree, or does it need to be?
+    limitDistance: float
+    limitRadiusRev: float
+    limitSteps: int
+    limitRadius: float
+    backtrackScore: float
+    queueCounter: int
+
+    def __init__(self,
+                 pathEngine: PathEngine,
+                 map: Map,
+                 limitRadius: float,
+                 limitDistance: float,
+                 limitRadiusRev: float,
+                 limitSteps: int,
+                 linkList: list[Hashable] | None = None):
         """
-        This sets the parameters that are final for the entire walkPath algorithm execution:
-        @type pathEngine: path_engine.PathEngine
-        @type limitRadius: float
-        @type limitDistance: float
-        @type limitRadiusRev: float
-        @type limitSteps: int
+        This sets the parameters that are final for the entire walkPath
+        algorithm execution:
         """
         self.pathEngine = pathEngine
+        self.map = map
         self.limitDistance = limitDistance
         self.limitRadiusRev = limitRadiusRev
         self.limitSteps = limitSteps
-
         self.limitRadius = limitRadius
-        self.limitRadiusSq = (limitRadius ** 2) if limitRadius < sys.float_info.max else sys.float_info.max
 
         self.uTurnInterPenalty = None # Disable U-turns in intersections
         self.uTurnDeadEndPenalty = 50 # Allow U-turns at dead-ends
@@ -415,124 +474,153 @@ class WalkPathProcessor:
         # Record the winning queue element:
         self.winner = None
         
-        # Other variables that exist throughout pathfinding iterations:
-        self.processingQueue = None
-        self.pointOnLinkOrig = None
-        self.pointOnLinkDest = None
-        
         # For tie-breaking when dealing with the priority queue.
         self.queueCounter = 0
         
         # List of required links for transit purposes.
         self.linkList = linkList
         
-    class _WalkPathNext:
+    class Next(NamedTuple):
         """
-        _WalkPathNext allows path match requests to be queued. Each of these represents a traversal from the
-        start of incomingLink to the starts of the next possible links. The walkPath() method will create new
-        _WalkPathNext instances for each of those possible links and enqueues them in the priority queue that
-        coordinates the pathfinding operations.
-        @ivar prevStruct: The previous _WalkPathNext object that represents the link traversal for the previous
-            link in the path.
-        @type prevStruct: _WalkPathNext
-        @ivar incomingLink: The link that we are to traverse.
-        @type incomingLink: GraphLink
-        @ivar linkListIndex: The count of how many links have been traversed
-        @type linkListIndex: int
-        @ivar distance: The total distance from the origin PointOnLink to the current location.
-        @type distance: float
-        @ivar cost: The total calculated cost from the origin PointOnLink to the current location.
-        @type cost: float
-        @ivar stepCount: The number of steps traversed from the origin PointOnLink to incomingLink.
-        @type stepCount: int
-        @ivar backtrackSet: A set of link unique IDs for all links that had already been traversed.
-        @ivar backtrackSet: set<int>
+        Allows path match requests to be queued. Each of these represents a
+        traversal from the start of incomingLink to the starts of the next
+        possible links. The walkPath() method will create new Next instances
+        for each of those possible links and enqueues them in the priority
+        queue that coordinates the pathfinding operations.
         """
-        def __init__(self, processor, prevStruct, incomingLink, startupCost=0.0, linkListIndex=0):
-            """
-            This initializes the elements that are stored within this object.
-            @type processor: WalkPathProcessor
-            @type prevStruct: _WalkPathNext
-            @type incomingLink: GraphLink
-            @type startupCost: float
-            """
-            self.prevStruct = prevStruct
-            self.incomingLink = incomingLink
-            self.linkListIndex = linkListIndex
-            
-            
-            if prevStruct is None:
-                # First-time initialization:
-                linkDistance = processor.pointOnLinkOrig.link.distance - processor.pointOnLinkOrig.dist
-                self.stepCount = 0
-            else:
-                linkDistance = incomingLink.distance
-                self.stepCount = prevStruct.stepCount + 1
+        prevStruct: Self | None # The previous Next structure that led to this
+                                # one.
+        incomingLink: Map.LinkRecord # The link that we are to traverse.
+        linkListIndex: int # The count of how many links have been traversed
+        distance: float # The total distance from the origin PointOnLink to the
+                        # current location.
+        cost: float # The total calculated cost from the origin PointOnLink to
+                    # the current location.
+        stepCount: int # The number of steps traversed from the origin 
+                       # PointOnLink to incomingLink.
+        backtrackSet: set[Hashable] # A set of link IDs for all links that had
+                                    # already been traversed.
 
-            if incomingLink is processor.pointOnLinkDest.link:
-                # Last-time initialization; we have hit the destination link:
-                # We are stopping midway through this link.  So, subtract off the distance from the
-                # end that we aren't traversing.
-                linkDistance -= processor.pointOnLinkDest.link.distance - processor.pointOnLinkDest.dist
-                self.cost = startupCost + processor.pathEngine.scoreFunction(processor.pointOnLinkOrig, linkDistance, processor.pointOnLinkDest)                
-            else:
-                # Normal operation; we hadn't encountered the destination link yet:
-                self.cost = startupCost + processor.pathEngine.scoreFunction(processor.pointOnLinkOrig, linkDistance, None)
-                
-            self.distance = (prevStruct.distance if prevStruct else 0.0) + linkDistance
+    def createNext(self,
+                   prevStruct: Next | None,
+                   incomingLink: Map.LinkRecord,
+                   startupCost: float = 0.0,
+                   linkListIndex: int = 0) -> Next:
+        """
+        Initializes elements that are stored within a new instance,
+        performing necessary calculations
 
-            # Make a copy of the set only if it is to change, and add in the new incoming link ID:
-            oldBacktrackSet = prevStruct.backtrackSet if prevStruct is not None else set()
-            "@type oldBacktrackSet: set<int>"
-            if incomingLink.id not in oldBacktrackSet: 
-                self.backtrackSet = set(oldBacktrackSet)
-                self.backtrackSet.add(incomingLink.id)
-            else:
-                self.backtrackSet = oldBacktrackSet
-    
-    def walkPath(self, pointOnLinkOrig, pointOnLinkDest, startupCost=0.0, totalLinkCount=0):
+        @param prevStruct: The previous Next structure that led to this one
+        @param incomingLink: The link that we are to traverse
+        @param startupCost: The starting cost to add to this path segment
+        @param linkListIndex: The count of how many links have been traversed
+        @return: The newly created Next object
+        """
+        # linkDistPotential is the distance remaining on the link to be
+        # traversed plus prior journey.
+        linkDistPotential: float
+        stepCount: int
+        if prevStruct is None:
+            # First-time initialization:
+            linkDistPotential = (1.0 - self.pointOnLinkOrig.distPercent) \
+                * self.pointOnLinkOrig.link.data['geometry'].length
+                # TODO: Use incomingLink length for last term?
+            stepCount = 0
+        else:
+            linkDistPotential = prevStruct.distance \
+                + incomingLink.data['geometry'].length
+            stepCount = prevStruct.stepCount + 1
+
+
+        cost: float
+        if incomingLink is self.pointOnLinkDest.link:
+            # Last-time initialization; we have hit the destination link:
+            # We are stopping midway through this link.  So, subtract off the
+            # distance from the end that we aren't traversing.
+            linkDistPotential -= (1.0 - self.pointOnLinkDest.distPercent) \
+                * incomingLink.data['geometry'].length
+            cost = startupCost \
+                + self.pathEngine.scoreFunction(self.pointOnLinkOrig,
+                                linkDistPotential, self.pointOnLinkDest)                
+        else:
+            # Normal operation; we hadn't encountered the destination link yet:
+            cost = startupCost \
+                + self.pathEngine.scoreFunction(self.pointOnLinkOrig,
+                                                linkDistPotential, None)
+            
+        distance: float = (prevStruct.distance if prevStruct else 0.0) \
+            + linkDistPotential
+
+        # Make a copy of the set only if it is to change, and add in the new
+        # incoming link ID:
+        oldBacktrackSet: set[Hashable] = prevStruct.backtrackSet \
+            if prevStruct is not None else set()
+        if incomingLink.data['id'] not in oldBacktrackSet: 
+            self.backtrackSet = oldBacktrackSet \
+                | {incomingLink.data['id']} # This makes a copy
+        else:
+            self.backtrackSet = oldBacktrackSet
+
+        return WalkPathProcessor.Next(prevStruct, incomingLink, linkListIndex,
+                                distance, cost, stepCount, self.backtrackSet)
+
+    class PathElement(NamedTuple):
+        """
+        PathElement is used to maintain the priority queue for walkPath.
+        It contains the cost, a tie-breaker index, and the Next structure
+        that is to be processed.
+        """
+        cost: float
+        queueCounter: int
+        nextStruct: WalkPathProcessor.Next
+
+    # TODO: Create a return type for walkPath.
+
+    def walkPath(self,
+                 pointOnLinkOrig: Map.PointOnLink,
+                 pointOnLinkDest: Map.PointOnLink,
+                 startupCost: float = 0.0,
+                 totalLinkCount: int = 0) -> tuple[list[Map.LinkRecord] | None, float, float, int]:
         """
         walkPath uses a breadth-first search to find the shortest distance from a given PointOnLink to another PointOnLink and
         returns a list of links representing nodes and following links encountered.  Specify a limiting radius for
         evaluating target nodes, and maximum distance traversed.  Also specify a smaller radius for small distances backwards.
         If nothing is found, then None is returned.  An empty list signifies that the destination is on the same link as the
         origin.
-        @type pointOnLinkOrig: PointOnLink
-        @type pointOnLinkDest: PointOnLink
-        @return List of new GraphLinks traversed, distance, and cost 
-        @rtype list<GraphLink>, float, float
         """
         # Initializations:
-        self.pointOnLinkOrig = pointOnLinkOrig
+        self.pointOnLinkOrig = pointOnLinkOrig # TOOD: Rearrange methods to keep these local
         self.pointOnLinkDest = pointOnLinkDest
         self.winner = None
         self.backtrackScore = self.limitDistance
         
         # Are the points too far away to begin with?
-        origDestDistSq = linear.getNormSq(self.pointOnLinkDest.pointX, self.pointOnLinkDest.pointY, self.pointOnLinkOrig.pointX, self.pointOnLinkOrig.pointY)
-        if origDestDistSq > self.limitRadiusSq:
+        origDestDist: float \
+            = pointOnLinkOrig.point.distance(pointOnLinkDest.point)
+        if origDestDist > self.limitRadius:
             return None, 0.0, 0.0, 0
         
         # Set a reasonable bound for the expected distance in this path search:
         self.backtrackScore = self.limitDistance
 
-        # Set up a queue for the search.  Preload the queue with the first starting location:
-        self.processingQueue = []
-        heappush(self.processingQueue, (0.0, 0, self._WalkPathNext(self, None, self.pointOnLinkOrig.link, startupCost, totalLinkCount)))
+        # Set up a queue for the search. Preload the queue with the first
+        # starting location:
+        self.processingQueue = [WalkPathProcessor.PathElement(0.0, 0,
+            self.createNext(None, pointOnLinkOrig.link, startupCost,
+                            totalLinkCount))]
         self.queueCounter = 0
         
         # Do the breadth-first search:
         while self.processingQueue:
-            self._walkPath(heappop(self.processingQueue)[-1])
+            self._walkPath(self.processingQueue.pop().nextStruct)
   
         # Set up the return:
         if self.winner is not None:
-            # Iterate through all of the links we have traversed. (Ignore first item because we
-            # hadn't technically traversed it).
-            retList = []
-            "@type retList: list<GraphLink>"
-            element = self.winner
-            "@type element: _WalkPathNext"
+            # Iterate through all of the links we have traversed. (Ignore
+            # first item because we hadn't technically traversed it).
+            retList: list[Map.LinkRecord] = []
+            element: WalkPathProcessor.Next = self.winner
+
             while element.prevStruct is not None:
                 retList.append(element.incomingLink)
                 element = element.prevStruct
@@ -543,17 +631,17 @@ class WalkPathProcessor:
             return None, 0.0, 0.0, 0
         
     # _walkPath is called internally by walkPath().
-    def _walkPath(self, walkPathElem):
+    def _walkPath(self, walkPathElem: Next) -> None:
         """
         _walkPath is the internal processing element for the pathfinder.
         @type walkPathElem: _WalkPathNext
         """
-        
         # Check maximum number of steps:
         if walkPathElem.stepCount >= self.limitSteps:
             return
         
-        # Check total distance; we are not interested if we exceed our previous best score:
+        # Check total distance; we are not interested if we exceed our previous
+        # best score:
         if walkPathElem.distance >= self.backtrackScore:
             return
         
@@ -568,36 +656,40 @@ class WalkPathProcessor:
             self.backtrackScore = walkPathElem.distance
             
             # Log the winner into the cache by looking at all of the parent elements:
-            if self.pointOnLinkDest.link.id not in self.backCache:
-                self.backCache[self.pointOnLinkDest.link.id] = {}
-            mappings = self.backCache[self.pointOnLinkDest.link.id]
+            if self.pointOnLinkDest.link.data['id'] not in self.backCache:
+                self.backCache[self.pointOnLinkDest.link.data['id']] = {}
+            mappings = self.backCache[self.pointOnLinkDest.link.data['id']]
             "@type mappings: dict<int, GraphLink>"
             if walkPathElem.prevStruct is not None:
                 element = walkPathElem.prevStruct
                 "@type element: _WalkPathNext"
                 while element.prevStruct is not None:
-                    if (element.prevStruct.incomingLink.id in mappings) \
-                            and (mappings[element.prevStruct.incomingLink.id] is element.incomingLink):
+                    if (element.prevStruct.incomingLink.data['id'] in mappings) \
+                            and (mappings[element.prevStruct.incomingLink.data['id']] is element.incomingLink):
                         break
-                    mappings[element.prevStruct.incomingLink.id] = element.incomingLink
+                    mappings[element.prevStruct.incomingLink.data['id']] = element.incomingLink
                     element = element.prevStruct
                 
             # Process the next queue element:
             return
         
-        # Look at each link that comes out from the current node.
-        # First, see if there is a shortcut to our destination already in the cache:
-        if (self.pointOnLinkDest.link.id in self.backCache) and \
-                (walkPathElem.incomingLink.id in self.backCache[self.pointOnLinkDest.link.id]):
-            myList = [self.backCache[self.pointOnLinkDest.link.id][walkPathElem.incomingLink.id]]
+        # Look at each link that comes out from the current node. First, see
+        # if there is a shortcut to our destination already in the cache:
+        myList: Iterable[Map.LinkRecord]
+        if (self.pointOnLinkDest.link.data['id'] in self.backCache) and \
+                (walkPathElem.incomingLink.data['id'] in self.backCache[self.pointOnLinkDest.link.data['id']]):
+            myList = (self.backCache[self.pointOnLinkDest.link.data['id']][walkPathElem.incomingLink.data['id']],)
         else:
-            myList = walkPathElem.incomingLink.destNode.outgoingLinkMap.values()
+            myList = self.map.outgoingLinks(walkPathElem.incomingLink.destNodeID)
+        link: Map.LinkRecord
         for link in myList:
             # Filter out U-turns:
-            penalty = 0.0            
-            if (self.uTurnDeadEndPenalty != 0 or self.uTurnInterPenalty != 0) and walkPathElem.incomingLink.isComplementary(link):
+            penalty: float = 0.0            
+            if (self.uTurnDeadEndPenalty != 0 or self.uTurnInterPenalty != 0) \
+                    and self.map.isReverseLink(walkPathElem.incomingLink,
+                                               link):
                 # Is it a dead-end?
-                if len(walkPathElem.incomingLink.destNode.outgoingLinkMap) == 1:
+                if hasExactly(self.map.outgoingLinks(walkPathElem.incomingLink.destNodeID), 1):
                     if self.uTurnDeadEndPenalty is None:
                         if self.uTurnInterPenalty is None:
                             continue
@@ -613,7 +705,7 @@ class WalkPathProcessor:
                 penalty = self.pathEngine.scoreFunction(None, penalty, None)
                 
             # Is this the next link we need to process according to the link list (transit)?
-            if self.linkList and walkPathElem.linkListIndex + 1 < len(self.linkList) and self.linkList[walkPathElem.linkListIndex + 1].id != link.id:
+            if self.linkList and walkPathElem.linkListIndex + 1 < len(self.linkList) and self.linkList[walkPathElem.linkListIndex + 1] != link.data['id']:
                 continue
                 # TODO: We want to eventually allow the path to be departed and then regained. How to do this? We can create a "path lost" state,
                 # and as long as that state is True, then search forward in self.linkList to see if we regain the path. Or, add the indices into
@@ -621,12 +713,13 @@ class WalkPathProcessor:
                 # will allow the index to be reset to the last known value.  
                                     
             # Had we visited this before?
-            if link.id in walkPathElem.backtrackSet:
+            if link.data["id"] in walkPathElem.backtrackSet:
                 continue
                 # TODO: This won't work with park-and-rides where a path loops around on itself. This can possibly be fixed by adding a penalty
                 # and allowing the path to be traversed. Turn this on with an option. Execution will probably be a bit slower.
             
             # Add to the queue for processing later:
             self.queueCounter += 1
-            heappush(self.processingQueue, (walkPathElem.cost + penalty, self.queueCounter, self._WalkPathNext(self, walkPathElem, link, walkPathElem.cost + penalty,
+            self.processingQueue.append(WalkPathProcessor.PathElement(walkPathElem.cost + penalty, self.queueCounter,
+                self.createNext(walkPathElem, link, walkPathElem.cost + penalty,
                 walkPathElem.linkListIndex + 1)))
