@@ -76,9 +76,11 @@ class Map:
     fromCRS: pyproj.CRS
     workingCRS: pyproj.CRS
     transformer: pyproj.Transformer
-    graph: networkx.DiGraph
-    edgeIndexLookup: tuple[LinkRecord, ...]
-    tree: shapely.strtree.STRtree | None
+    graph: networkx.DiGraph = networkx.DiGraph()
+    edgeIndexLookup: tuple[LinkRecord, ...] = tuple()
+    linkIDLookup: dict[Hashable, LinkRecord] = {}
+    tree: shapely.strtree.STRtree | None = None
+    trackpointCtr: int = 0 # For auto-assigning trackpoint sequence numbers
     eqCutoff: int = 3 # Decimal places for equality checks
 
     def __init__(self,
@@ -96,10 +98,6 @@ class Map:
         self.workingCRS = pyproj.CRS(workingCRS)
         self.transformer = pyproj.Transformer.from_crs(self.fromCRS,
                                     self.workingCRS, always_xy=True)
-
-        self.graph = networkx.DiGraph()
-        self.edgeIndexLookup = tuple()
-        self.tree = None
 
     def addNode(self,
                 nodeID: Hashable,
@@ -126,16 +124,16 @@ class Map:
         origNodeID: Hashable
         destNodeID: Hashable
         data: MutableMapping[str, Any]
+        id: Hashable
         # TODO: Add link length float for qucker access and separation from
         # Shapely dependence (versus data['geometry'].length)
-        # TODO: Also add link ID for quicker access.
 
     def addLink(self,
                 origNodeID: Hashable,
                 destNodeID: Hashable, 
                 controlPoints: Iterable[Sequence[float]] \
                     | shapely.geometry.LineString | None,
-                linkID: Hashable | None = "",
+                linkID: Hashable | None = None,
                 metadata: dict = {},
                 hasEndpoints: bool = True,
                 flatScore: float = 0.0,
@@ -146,7 +144,7 @@ class Map:
         @param origNodeID: The originating node ID.
         @param destNodeID: The destination node ID.
         @param controlPoints: A list of (lon, lat) tuples (or LineString) representing control points for the curve, or None for defaults
-        @param linkID: The unique identifier for the link (optional), "" for default, or None.
+        @param linkID: The unique identifier for the link, or None (default) to auto-generate
         @param metadata: Optional additional metadata to associate with the link.
         @param hasEndpoints: Whether the control points include the endpoints (default: True).
         @param flatScore: An optional flat score (penalty) for the link, or 0 use the length as score (default: 0).
@@ -177,12 +175,9 @@ class Map:
         controlPoints = shapely.geometry.LineString(controlPoints)
 
         # Other attributes to store:
-        if linkID == "":
+        if linkID is None:
             linkID = f"{origNodeID}->{destNodeID}"
-        if linkID:
-            metadata['id'] = linkID
-
-        self.addLineStringLink(origNodeID, destNodeID, controlPoints, metadata,
+        self.addLineStringLink(origNodeID, destNodeID, controlPoints, linkID, metadata,
                                flatScore=flatScore, lengthWeight=lengthWeight,
                                alreadyXformed=True)
         # TODO: Consider requiring unique link IDs and using them to look up links,
@@ -195,6 +190,7 @@ class Map:
                           origNodeID: Hashable,
                           destNodeID: Hashable,
                           geometry: shapely.geometry.LineString,
+                          linkID: Hashable,
                           metadata: dict = {},
                           flatScore: float = 0.0,
                           lengthWeight: float = 1.0,
@@ -205,6 +201,7 @@ class Map:
         @param origNodeID: The originating node ID.
         @param destNodeID: The destination node ID.
         @param geometry: The geometry of the link as a LineString, already projected.
+        @param linkID: The unique identifier for the link.
         @param metadata: Optional additional metadata to associate with the link.
         @param flatScore: An optional flat score (penalty) for the link, or 0 use the length as score (default: 0).
         @param lengthWeight: A multiplier to apply to the length when computing the score, or 0 to deactivate (default: 1.0).
@@ -214,7 +211,7 @@ class Map:
             geometry = transform(self.transformer.transform, geometry)
         self.graph.add_edge(origNodeID, destNodeID, geometry=geometry,
                             flatScore=flatScore, lengthWeight=lengthWeight,
-                            treeIndex=-1, **metadata)
+                            treeIndex=-1, id=linkID, **metadata)
 
     def completeMap(self, treeNeeded=True) -> None:
         """
@@ -223,12 +220,17 @@ class Map:
         @param treeNeeded: Whether to build the spatial index tree (default: True).
         """
         self.edgeIndexLookup = tuple(Map.LinkRecord(origNodeID=u, destNodeID=v,
-                    data=data) for u, v, data in self.graph.edges(data=True))
-        for index, element in enumerate(self.edgeIndexLookup):
-            element.data['treeIndex'] = index
+                    data=data, id=data['id']) for u, v, data in self.graph.edges(data=True))
+        self.linkIDLookup = {}
+
+        index: int
+        link: Map.LinkRecord
+        for index, link in enumerate(self.edgeIndexLookup):
+            link.data['treeIndex'] = index
+            self.linkIDLookup[link.id] = link
         if treeNeeded:
-            self.tree = shapely.strtree.STRtree([element.data["geometry"] \
-                                        for element in self.edgeIndexLookup])
+            self.tree = shapely.strtree.STRtree([link.data["geometry"] \
+                                        for link in self.edgeIndexLookup])
         else:
             self.tree = None
 
@@ -301,6 +303,15 @@ class Map:
         return (self.edgeIndexLookup[treeIndex] \
             for u, v, treeIndex in self.graph.edges(nodeID, data="treeIndex"))
 
+    def getLinkByID(self, linkID: Hashable) -> LinkRecord | None:
+        """
+        Retrieves a link by its unique identifier.
+
+        @param linkID: The unique identifier of the link.
+        @return: The LinkRecord if found, otherwise None.
+        """
+        return self.linkIDLookup[linkID] if linkID in self.linkIDLookup else None
+
     class Trackpoint(NamedTuple):
         """
         Keeps an original track point and transformed coordinates.
@@ -309,24 +320,59 @@ class Map:
         latVert: float
         point: shapely.geometry.Point
         id: Hashable | None = None
+        seq: int | None = None
 
     def makeTrackpoint(self,
                        lonHoriz: float,
                        latVert: float,
-                       ident: Hashable | None = None) -> Trackpoint:
+                       ident: Hashable | None = None,
+                       seq: int | None = None) -> Trackpoint:
         """
         Makes a Trackpoint from horizontal/vertical coordinates.
 
-        @param ident: The unique identifier for the point that is written to the Trackpoint object.
         @param lonHoriz: The longitude or horizontal measure of the point.
         @param latVert: The latitude or vertical measure of the point.
+        @param ident: An optional unique identifier for the point.
+        @param seq: An optional sequence number for the point (or auto-assigned).
         @return: The Trackpoint object.
         """
         x, y = self.transformer.transform(lonHoriz, latVert)
         point = shapely.geometry.Point(x, y)
+        if seq is None:
+            seq = self.trackpointCtr
+            self.trackpointCtr += 1
         return Map.Trackpoint(id=ident, lonHoriz=lonHoriz, latVert=latVert,
-                              point=point)
+                              point=point, seq=seq)
 
+    def resetTrackpointCtr(self, value: int = 0) -> None:
+        """
+        Resets the internal trackpoint counter to a specified value.
+
+        @param value: The value to set the counter to (default: 0).
+        """
+        self.trackpointCtr = value
+
+    def pointDist(self,
+                  trackPoint: Trackpoint, 
+                  link: LinkRecord) -> tuple[float, float, bool, shapely.geometry.Point]:
+        """
+        Determines the distance from a point to a link.
+
+        @param trackPoint: The track point to evaluate.
+        @param link: The link to evaluate.
+        @return: A tuple of (distance from point to link, percent distance
+            along link, whether the point is perpendicular to the link, and
+            the point that sits on the link).
+        """
+        # TODO: Create a nicer return type for this.
+
+        geometry: shapely.geometry.LineString = link.data['geometry']
+        percentAlong: float = geometry.project(trackPoint.point, normalized=True)
+        pointAlong: shapely.geometry.Point = geometry.interpolate(percentAlong, normalized=True)
+        dist: float = trackPoint.point.distance(pointAlong)
+        isPerpendicular: bool = percentAlong > 0.0 and percentAlong < 1.0
+        return dist, percentAlong, isPerpendicular, pointAlong
+    
     class PointOnLink(NamedTuple):
         """
         PointOnLink is a specific point on a link. This is documented in
@@ -373,13 +419,7 @@ class Map:
         indices = self.tree.query(trackPoint.point, predicate="dwithin", distance=radius)
         for index in indices:
             linkRecord: Map.LinkRecord = self.edgeIndexLookup[index]
-            geometry: shapely.geometry.LineString = linkRecord.data["geometry"]
-            percentAlong: float = geometry.project(trackPoint.point, normalized=True)
-            pointAlong: shapely.geometry.Point = geometry.interpolate(percentAlong, normalized=True)
-            refDist: float = trackPoint.point.distance(pointAlong)
-
-            # Determine if perpendicular:
-            isPerpendicular = percentAlong > 0.0 and percentAlong < 1.0
+            refDist, percentAlong, isPerpendicular, pointAlong = self.pointDist(trackPoint, linkRecord)
 
             # Assume that if we are nonperpendicular with respect to the
             # end of the current link, and there are outgoing links, we may
@@ -399,6 +439,7 @@ class Map:
                 # Check to see if the point is close to a previous point. This allows candidate links to be tracked
                 # that can possibly correspond with missing geometry, such as a bus going through a parking lot that
                 # isn't represented in the underlying map.
+                prevPoint: Map.PointOnLink
                 for prevPoint in prevPoints:
                     dist = pointAlong.distance(prevPoint.point)
                     if (dist < secondaryRadius):
@@ -553,9 +594,9 @@ class WalkPathProcessor:
         # incoming link ID:
         oldBacktrackSet: set[Hashable] = prevStruct.backtrackSet \
             if prevStruct is not None else set()
-        if incomingLink.data['id'] not in oldBacktrackSet: 
+        if incomingLink.id not in oldBacktrackSet: 
             self.backtrackSet = oldBacktrackSet \
-                | {incomingLink.data['id']} # This makes a copy
+                | {incomingLink.id} # This makes a copy
         else:
             self.backtrackSet = oldBacktrackSet
 
@@ -654,18 +695,18 @@ class WalkPathProcessor:
             self.backtrackScore = walkPathElem.distance
             
             # Log the winner into the cache by looking at all of the parent elements:
-            if self.pointOnLinkDest.link.data['id'] not in self.backCache:
-                self.backCache[self.pointOnLinkDest.link.data['id']] = {}
-            mappings = self.backCache[self.pointOnLinkDest.link.data['id']]
+            if self.pointOnLinkDest.link.id not in self.backCache:
+                self.backCache[self.pointOnLinkDest.link.id] = {}
+            mappings = self.backCache[self.pointOnLinkDest.link.id]
             "@type mappings: dict<int, GraphLink>"
             if walkPathElem.prevStruct is not None:
                 element = walkPathElem.prevStruct
                 "@type element: _WalkPathNext"
                 while element.prevStruct is not None:
-                    if (element.prevStruct.incomingLink.data['id'] in mappings) \
-                            and (mappings[element.prevStruct.incomingLink.data['id']] is element.incomingLink):
+                    if (element.prevStruct.incomingLink.id in mappings) \
+                            and (mappings[element.prevStruct.incomingLink.id] is element.incomingLink):
                         break
-                    mappings[element.prevStruct.incomingLink.data['id']] = element.incomingLink
+                    mappings[element.prevStruct.incomingLink.id] = element.incomingLink
                     element = element.prevStruct
                 
             # Process the next queue element:
@@ -674,9 +715,9 @@ class WalkPathProcessor:
         # Look at each link that comes out from the current node. First, see
         # if there is a shortcut to our destination already in the cache:
         myList: Iterable[Map.LinkRecord]
-        if (self.pointOnLinkDest.link.data['id'] in self.backCache) and \
-                (walkPathElem.incomingLink.data['id'] in self.backCache[self.pointOnLinkDest.link.data['id']]):
-            myList = (self.backCache[self.pointOnLinkDest.link.data['id']][walkPathElem.incomingLink.data['id']],)
+        if (self.pointOnLinkDest.link.id in self.backCache) and \
+                (walkPathElem.incomingLink.id in self.backCache[self.pointOnLinkDest.link.id]):
+            myList = (self.backCache[self.pointOnLinkDest.link.id][walkPathElem.incomingLink.id],)
         else:
             myList = self.map.outgoingLinks(walkPathElem.incomingLink.destNodeID)
         link: Map.LinkRecord
@@ -703,7 +744,7 @@ class WalkPathProcessor:
                 penalty = self.pathEngine.scoreFunction(None, penalty, None) # TODO: !!! Use stuff in link.data !!!
                 
             # Is this the next link we need to process according to the link list (transit)?
-            if self.linkList and walkPathElem.linkListIndex + 1 < len(self.linkList) and self.linkList[walkPathElem.linkListIndex + 1] != link.data['id']:
+            if self.linkList and walkPathElem.linkListIndex + 1 < len(self.linkList) and self.linkList[walkPathElem.linkListIndex + 1] != link.id:
                 continue
                 # TODO: We want to eventually allow the path to be departed and then regained. How to do this? We can create a "path lost" state,
                 # and as long as that state is True, then search forward in self.linkList to see if we regain the path. Or, add the indices into

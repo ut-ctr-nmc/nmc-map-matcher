@@ -24,10 +24,11 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from collections.abc import Hashable, Iterable
+from collections.abc import Hashable, Iterable, Sequence
 from typing import Final, NamedTuple
 from nmc_mm_lib import graph
 import operator, math, sys, copy
+import logging
 
 # Multiplier for shape-to-shape evaluations that happen while refining on a
 # restart:
@@ -99,7 +100,7 @@ class PathEngine:
     maxHops: int = 12 # Limits number of nodes to be traversed in path-finding
     tossRatio: float = 1.0 # Disable the invalidation of short paths
     shapeScatterCache: list[graph.Map.PointOnLink] | None = None
-    forceLinks: list[Hashable] | None = None
+    forceLinks: Sequence[Iterable[Hashable]] | None | None = None
 
     def __init__(self, params: Params):
         """
@@ -161,7 +162,7 @@ class PathEngine:
         @type shapeEntry: ShapesEntry
         @type gtfsPointsPrev: list<PathEnd> 
         @type gtfsPoints: list<PathEnd>
-        @type baseMap: graph.GraphLib
+        @type baseMap: graph.Map
         @param avoidRestartCode: 0 to allow restarts; 1 to allow restarts but suppress message; 2 to avoid restarts
         @type avoidRestartCode: int
         @rtype list<PathEnd>
@@ -249,60 +250,61 @@ class PathEngine:
             
         return gtfsPoints            
 
-    def constructPath(self, trackpoints: Iterable[graph.Map.Trackpoint], baseMap: graph.Map, linkList: list[Hashable] | None = None):
+    def constructPath(self,
+                      trackpoints: tuple[graph.Map.Trackpoint],
+                      baseMap: graph.Map,
+                      linkList: list[Hashable] | None = None) -> list[PathEnd] | None:
         """
         constructPath goes through a list of trackpoints and finds the shortest path through the given baseMap.
         This roughly corresponds with algorithms "WalkTrack" and "TrackpointArrives" in Figure 2 of Perrine et al. 2015.
-
-        @type trackpoints: list<ShapesEntry>
-        @type baseMap: graph.GraphLib
-        @rtype: list<PathEnd>
         """
-        gtfsPointsPrev = []
-        "@type gtfsPointsPrev: list<PathEnd>"
+        # TODO: Rename gtfsPointsPrev to something independent of GTFS.
+        gtfsPointsPrev: list[PathEnd] = []
 
-        pathProcessor = graph.WalkPathProcessor(self, self.limitDirectDist, self.limitPathDist, self.limitDirectDistRev,
-            self.maxHops, linkList)
-        "@type pathProcessor: graph.WalkPathProcessor"
+        pathProcessor: graph.WalkPathProcessor \
+            = graph.WalkPathProcessor(self, baseMap,
+                self.params.limitDirectDist, self.params.limitPathDist,
+                self.params.limitDirectDistRev, self.maxHops, linkList)
+        shapeCtr: int
+        startInvalidCheckFlag: bool = True
+        startValidIndex: int = 0
+        lastValidIndex: int = -1
+        invalidCtr: int = 0
         
-        shapeCtr = 0
-        startInvalidCheckFlag = True
-        startValidIndex = 0
-        lastValidIndex = -1
-        invalidCtr = 0
-        if self.logFile is not None:
-            print("INFO: Building path...", file=self.logFile)
-            
-        for shapeEntry in trackpoints:
-            "@type shapeEntry: ShapesEntry"
-            shapeCtr = shapeCtr + 1
+        logging.info("Building path...")
+        
+        # TODO: Rename shapeEntry to "trackpoint".
+        shapeEntry: graph.Map.Trackpoint
+        for shapeCtr, shapeEntry in enumerate(trackpoints):
             
             if shapeCtr % 10 == 0:
-                if self.logFile is not None:
-                    print("INFO:   ... %d of %d" % (shapeCtr, len(trackpoints)), file=self.logFile)
-            pointX, pointY = baseMap.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
+                logging.info("   ... %d of %d", shapeCtr, len(trackpoints))
+
             # TODO: move the forceLinks stuff to baseMap.findPointsOnLinks().
+            closestLinks: list[graph.Map.PointOnLink]
             if self.forceLinks and shapeCtr < len(self.forceLinks) \
                     and self.forceLinks[shapeCtr] is not None:
                 # Custom behavior for forcing the use of a limited set of links:
-                closestVISTA = []
-                for link in self.forceLinks[shapeCtr]:
-                    distSq, linkDist, perpendicular = link.pointDistSq(pointX, pointY)
-                    closestVISTA.append(graph.PointOnLink(link, linkDist, not perpendicular, math.sqrt(distSq)))
-                closestVISTA.sort(key = operator.attrgetter('refDist'))
+                # TODO: Why not make a Map out of the subset, and it will be more versatile?
+                closestLinks = []
+                linkID: Hashable
+                link: graph.Map.LinkRecord
+                for linkID in self.forceLinks[shapeCtr]:
+                    link = baseMap.getLinkByID(linkID)
+                    dist, percentAlong, isPerpendicular, pointAlong = baseMap.pointDist(shapeEntry, link)
+                    closestLinks.append(graph.Map.PointOnLink(link, percentAlong, not isPerpendicular, dist, pointAlong))
+                closestLinks.sort(key = operator.attrgetter('refDist'))
             else:
                 # Normal behavior: search among all links:
-                closestVISTA = baseMap.findPointsOnLinks(pointX, pointY, self.searchRadius, self.radiusPrimary,
-                                self.radiusSecondary, [gtfsPointPrev.pointOnLink for gtfsPointPrev in gtfsPointsPrev],
-                                self.limitClosestPoints)
-            "@type closestVISTA: list<graph.PointOnLink>"
+                closestLinks = baseMap.findPointsOnLinks(shapeEntry, self.params.searchRadius, self.params.radiusPrimary,
+                                self.params.radiusSecondary, (gtfsPoint.pointOnLink for gtfsPoint in gtfsPointsPrev),
+                                self.params.limitClosestPoints)
                         
-            if not closestVISTA:
+            if not closestLinks:
                 lastValidIndex = shapeCtr
                 invalidCtr += 1
-                if self.logFile is not None:
-                    print("WARNING: No closest VISTA points were found for GTFS shape %s, sequence %d." \
-                          % (str(shapeEntry.shapeID), shapeEntry.shapeSeq), file=self.logFile)
+                logging.warning("No closest links were found for "
+                                f"trackpoint {shapeEntry.id}, sequence {shapeEntry.seq}.")
                 continue
             else:
                 if startInvalidCheckFlag:
@@ -310,41 +312,36 @@ class PathEngine:
                     startValidIndex = lastValidIndex
                 invalidCtr = 0
             
-            # Initialize blank GTFS tree entries:
-            gtfsPoints = []
-            "@type gtfsPoints: list<PathEnd>"
-            for vistaPoint in closestVISTA:
-                "@type vistaPoint: graph.PointOnLink"
-                gtfsPoints.append(PathEnd(shapeEntry, vistaPoint)) 
+            # Initialize blank endpoint entries:
+            endPoints: list[PathEnd] = [PathEnd(shapeEntry, endPoint) for endPoint in closestLinks]
             
             # Find the shortest paths from gtfsPointsPrev to the handful of closestVISTA points:
             # (We're adding another layer to the tree, and previous tree nodes can be found by accessing
             # PathEnd.prevTreeNode)
-            gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, gtfsPoints, baseMap)
+            gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, endPoints, baseMap)
 
         if startInvalidCheckFlag:
             startValidIndex = len(trackpoints)
 
         # Additional reporting on points found and not found:
-        reportStr = ""
-        missingEnds = 0
+        reportStr: str = ""
+        missingEnds: int = 0
         if startValidIndex > 0:
-            reportStr = "%d are missing from the start" % startValidIndex
+            reportStr = f"{startValidIndex} are missing from the start"
             missingEnds = startValidIndex
         if lastValidIndex == len(trackpoints) and startValidIndex < len(trackpoints):
             if startValidIndex > 0:
                 reportStr += " and "
-            reportStr += "%d are missing from the end" % invalidCtr
+            reportStr += f"{invalidCtr} are missing from the end"
             missingEnds += invalidCtr
         if len(reportStr) > 0:
-            print("WARNING: Out of %d georeference points, %s." % (len(trackpoints), reportStr), file=sys.stderr)
+            logging.warning(f"Out of {len(trackpoints)} georeference points, {reportStr}.")
         if float(missingEnds) / len(trackpoints) > self.tossRatio:
-            print("WARNING: Aborting ID %s." % str(shapeEntry.shapeID), file=sys.stderr)
+            logging.warning(f"Aborting ID {shapeEntry.id}.")
             return None
 
-        # Now, extract the shortest path.  First, find the end that has the cheapest cost:
-        if self.logFile is not None:
-            print("INFO: Finishing path...", file=self.logFile)
+        # Now, extract the shortest path. First, find the end that has the cheapest cost:
+        logging.info("Finalizing path...")
         gtfsPoint = None
         "@type gtfsPoint: PathEnd"
         if len(gtfsPointsPrev) > 0:
@@ -387,7 +384,7 @@ class PathEngine:
         self.termRefactorRadius = termRefactorRadius
         self.termRefactorRadiusSq = termRefactorRadius ** 2
         
-    def setForceLinks(self, forceLinks):
+    def setForceLinks(self, forceLinks: Sequence[Iterable[Hashable]] | None):
         """
         Forces refinePath() to use specific links.
         @param forceLinks: A list of sets of links or None values where each element corresponds with the
