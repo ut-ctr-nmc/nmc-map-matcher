@@ -25,7 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from collections.abc import Hashable, Iterable, Sequence
-from typing import Final, NamedTuple
+from typing import IO, Callable, Final, Mapping, NamedTuple
 from nmc_mm_lib import graph
 import operator, math, sys, copy
 import logging
@@ -57,6 +57,7 @@ class PathEnd:
         """
         Sets up values in this object, many of which need to be mutable
         """
+        # TODO: This used to be shapeEntry. Is this for a single shape or corridor? Fix if so.
         self.refPoint = refPoint
         self.pointOnLink = pointOnLink
         
@@ -157,7 +158,7 @@ class PathEngine:
     def _findShortestPaths(self,
                            pathProcessor: graph.WalkPathProcessor,
                            shapeEntry: graph.Map.Trackpoint,
-                           gtfsPointsPrev: list[PathEnd],
+                           gtfsPointsPrev: list[PathEnd | None],
                            gtfsPoints: list[PathEnd],
                            avoidRestartCode: int = 0) -> list[PathEnd]:
         """
@@ -392,30 +393,30 @@ class PathEngine:
         # TODO: Transition to using another map as the forceLinks source.
         self.forceLinks = forceLinks
 
-    def _tryTreeStack(self, pathProcessor, oldTreeNode, prevTreeNodes, baseMap, evalCode, firstFlag, pathIndex=None):
+    def _tryTreeStack(self,
+                      pathProcessor: graph.WalkPathProcessor,
+                      oldTreeNode: PathEnd,
+                      prevTreeNodes: list[PathEnd | None],
+                      baseMap: graph.Map,
+                      evalCode: int,
+                      firstFlag: bool,
+                      pathIndex: int | None = None) -> tuple[list[PathEnd], int]:
         """
-        _tryTreeStack() is a potentially recursively called internal worker method that reevaluates tree indices and
+        Potentially recursively called internal worker method that reevaluates tree indices and
         generates new tree nodes.
-        @type pathProcessor: graph.WalkPathProcessor
-        @type oldTreeNode: PathEnd
-        @type prevTreeNodes: list<PathEnd>
-        @type baseMap: graph.GraphLib
+
         @param evalCode: Use 0: no evaluation, 1: full evaluation, 2: wrap up loose ends
-        @type evalCode: int
-        @type firstFlag: bool
         @param pathIndex: This must be provided for path refining that uses forced links.
-        @type pathIndex: int
         @return The list of new tree nodes, and then the eval code that was most recently used. 
-        @rtype: list<PathEnd>, int        
         """
-        prevPointsOnLinks = [prevTreeNode.pointOnLink for prevTreeNode in prevTreeNodes]
-        curListAll = []
-        "@type curListALl: list<PathEnd>"
+        prevPointsOnLinks: tuple[graph.Map.PointOnLink, ...] = tuple(prevTreeNode.pointOnLink for prevTreeNode in prevTreeNodes if prevTreeNode is not None)
+        curListAll: list[PathEnd] = []
 
         if firstFlag:        
             self.shapeScatterCache = None
         
         # Are we in an area that requires reevaluation (e.g. restart)?  Deal with shape points here:
+        gtfsPoints: list[PathEnd]
         if evalCode > 0:
             if evalCode == 1:
                 # Check if we had found all of the shape proximity points already:
@@ -423,36 +424,35 @@ class PathEngine:
                     if pathIndex is not None and self.forceLinks is not None and pathIndex < len(self.forceLinks) \
                             and self.forceLinks[pathIndex] is not None:
                         # Specialized operation: force the use of the given link:
+                        # TODO: Consider a scheme where we are walking through two maps simultaneously. It should work!
                         self.shapeScatterCache = []
-                        link = self.forceLinks[pathIndex]
-                        distSq, linkDist, perpendicular = link.pointDistSq(oldTreeNode.shapeEntry.pointX, oldTreeNode.shapeEntry.pointY)
-                        self.shapeScatterCache.append(graph.PointOnLink(link, linkDist, not perpendicular, math.sqrt(distSq)))
+                        linkHashes: Iterable[Hashable] = self.forceLinks[pathIndex] # ** NEED TO FIGURE OUT WHAT TO DO WITH ITERABLE **
+                        link: graph.Map.LinkRecord = baseMap.getLinkByID(next(iter(linkHashes))) # TODO: Hack to get first element
+                        dist, percentAlong, isPerpendicular, point = baseMap.pointDist(oldTreeNode.refPoint, link)
+                        self.shapeScatterCache.append(graph.Map.PointOnLink(link, percentAlong, not isPerpendicular, dist, point))
                     else:
                         # Normal operation: find closest limitClosestPoints points to the shape point among all links: 
-                        self.shapeScatterCache = baseMap.findPointsOnLinks(oldTreeNode.shapeEntry.pointX,
-                            oldTreeNode.shapeEntry.pointY, self.searchRadius, self.radiusPrimary,
-                            self.radiusSecondary, prevPointsOnLinks, self.limitClosestPoints)
+                        self.shapeScatterCache = baseMap.findPointsOnLinks(oldTreeNode.refPoint, self.params.searchRadius, self.params.radiusPrimary,
+                            self.params.radiusSecondary, prevPointsOnLinks, self.params.limitClosestPoints)
                 
                 # Create new PathEnd objects:
-                gtfsPoints = len(self.shapeScatterCache) * []
-                "@type gtfsPoints: list<PathEnd>"
+                gtfsPoints = []
+                vistaPoint: graph.Map.PointOnLink # TODO: Change the name "vistaPoint" to something independent of VISTA.
                 for vistaPoint in self.shapeScatterCache:
-                    "@type vistaPoint: graph.PointOnLink"
-                    gtfsPoint = PathEnd(oldTreeNode.shapeEntry, vistaPoint)
-                    "@type gtfsPoint: PathEnd"
+                    gtfsPoint: PathEnd = PathEnd(oldTreeNode.refPoint, vistaPoint)
                     gtfsPoints.append(gtfsPoint)
             elif evalCode == 2:
                 # We are getting all previous points to converge down on one point, preserving the best one:
                 gtfsPoints = [oldTreeNode.cleanCopy()]
-                "@type gtfsPoints: list<PathEnd>"
     
             if gtfsPoints:
                 # Find the shortest paths from gtfsPointsPrev to the handful of closestVISTA points:
-                curList = self._findShortestPaths(pathProcessor, oldTreeNode.shapeEntry, prevTreeNodes,
-                    gtfsPoints, baseMap, 1 if firstFlag else 2)
+                curList: list[PathEnd] = self._findShortestPaths(pathProcessor, oldTreeNode.refPoint, prevTreeNodes,
+                    gtfsPoints, 1 if firstFlag else 2)
                 # Check for restarts and penalize.  Only keep the first (cheapest) restart.  Meanwhile, append to
                 # the results list:
-                restartFlag = False
+                restartFlag: bool = False
+                gtfsPoint: PathEnd
                 for gtfsPoint in curList:
                     if gtfsPoint.restart:
                         if not restartFlag:
@@ -466,7 +466,7 @@ class PathEngine:
                 for prevTreeNode in prevTreeNodes:
                     curTreeNode = copy.copy(oldTreeNode)
                     curTreeNode.prevTreeNode = prevTreeNode
-                    dist = linear.getNorm(oldTreeNode.shapeEntry.pointX, oldTreeNode.shapeEntry.pointY, curTreeNode.pointOnLink.pointX, curTreeNode.pointOnLink.pointY)
+                    dist = oldTreeNode.refPoint.point.distance(curTreeNode.pointOnLink.point) # TODO: Again, separate from Shapely.
                     curTreeNode.totalDist += dist * RESTART_PENALTY_MULT
                     curTreeNode.totalCost += dist * RESTART_PENALTY_MULT
                     curListAll.append(curTreeNode)
@@ -475,7 +475,7 @@ class PathEngine:
             # This happens if we are not reevaluating the existing paths at all.
             # TODO: The total cost isn't being added up properly here.  Try combining the evalCode 0 and 2 parts to
             # get the system to retrace the steps that had been traversed before.
-            curTreeNode = copy.copy(oldTreeNode)
+            curTreeNode: PathEnd = copy.copy(oldTreeNode)
             "@type curTreeNode: PathEnd"
             if not prevTreeNodes: # This happens on the first element of a path.
                 prevTreeNodes.append(None)
@@ -516,29 +516,21 @@ class PathEngine:
                 nextRestartIndex = self._findNextRestart(oldGTFSPath, nextRestartIndex + 1)
                 
             # Check for restart point. Check if we are in the radius of the last known good point or the restart point.
-            if (nextRestartIndex >= 1 and linear.getNormSq(oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointX,
-                        oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointY, oldGTFSPath[nextRestartIndex - 1].pointOnLink.pointX,
-                        oldGTFSPath[nextRestartIndex - 1].pointOnLink.pointY) < self.termRefactorRadiusSq) \
-                    or (nextRestartIndex >= 0 and linear.getNormSq(oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointX,
-                        oldGTFSPath[oldTreeNodeIndex].pointOnLink.pointY, oldGTFSPath[nextRestartIndex].pointOnLink.pointX,
-                        oldGTFSPath[nextRestartIndex].pointOnLink.pointY) < self.termRefactorRadiusSq):
+            if (nextRestartIndex >= 1 and oldGTFSPath[oldTreeNodeIndex].pointOnLink.point.distance(oldGTFSPath[nextRestartIndex - 1].pointOnLink.point)
+                        < self.termRefactorRadius) \
+                    or (nextRestartIndex >= 0 and oldGTFSPath[oldTreeNodeIndex].pointOnLink.point.distance(oldGTFSPath[nextRestartIndex].pointOnLink.point)
+                        < self.termRefactorRadius):
                 if evalCode == 0:
                     evalCode = 1 # Full reevaluation
-                    if self.logFile is not None:
-                        print("INFO: Enter restart zone at shapeID %s, seq %d..." % (str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID),
-                            oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq), file=self.logFile)
+                    logging.info(f"Enter restart zone at shapeID {oldGTFSPath[oldTreeNodeIndex].refPoint.id}, seq {oldGTFSPath[oldTreeNodeIndex].refPoint.seq}")
             else:
                 # Tie up loose ends if the previous round had new points found.
                 if evalCode == 1:
                     evalCode = 2
-                    shapeTypeStr = "GTFS shape"
-                    if self.logFile is not None:
-                        print("INFO: Exiting zone at %s %s, seq %d..." % (shapeTypeStr, str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID),
-                            oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq), file=self.logFile)
+                    logging.info(f"Exiting zone at GTFS shape {oldGTFSPath[oldTreeNodeIndex].refPoint.id}, seq {oldGTFSPath[oldTreeNodeIndex].refPoint.seq}")
                         
             if evalCode == 1:
-                if self.logFile is not None:
-                    print("INFO:   ... shape seq. %d" % oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq, file=self.logFile)
+                logging.info(f"INFO:   ... shape seq. {oldGTFSPath[oldTreeNodeIndex].refPoint.seq}")
 
             # TODO: Also if a shape point is flagged to be reevaluated.
             
@@ -552,25 +544,21 @@ class PathEngine:
                 evalCode = 0
             
             # Check to see if we have a complete path:
-            flag = False
+            flag: bool = False
+            treeNode: PathEnd
             for treeNode in treeNodes:
-                "@type treeNode: PathEnd"
                 if not treeNode.restart:
                     flag = True
-            if not flag and self.logFile is not None:
-                print("WARNING: No VISTA path found into GTFS shpaeID %s, seq %d; restarting." \
-                    % (str(oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeID), oldGTFSPath[oldTreeNodeIndex].shapeEntry.shapeSeq),
-                    file = self.logFile)
+            if not flag:
+                logging.warning(f"No VISTA path found into GTFS shpaeID {oldGTFSPath[oldTreeNodeIndex].refPoint.id}, seq {oldGTFSPath[oldTreeNodeIndex].refPoint.seq}")
             oldTreeNodeIndex += 1
             
         # Now, extract the shortest path.  First, find the end that has the cheapest cost:
-        if self.logFile is not None:
-            print("INFO: Finishing path...", file = self.logFile)
-        gtfsPoint = None
-        "@type gtfsPoint: PathEnd"
+        logging.info("Finishing path...")
+        gtfsPoint: PathEnd | None = None
         if len(treeNodes) > 0:
+            treeNodeElem: PathEnd
             for treeNodeElem in treeNodes:
-                "@type treeNodeElem: PathEnd"
                 if (gtfsPoint is None) or (treeNodeElem.totalCost < gtfsPoint.totalCost):
                     gtfsPoint = treeNodeElem
                     
@@ -590,17 +578,17 @@ def dumpStandardHeader(outFile=sys.stdout):
     """
     print("shapeID,shapeSeq,shapeType,linkID,linkDist,totalDist,numLinksTrav,linksTrav", file=outFile)
 
-def dumpStandardInfo(treeNodes, outFile=sys.stdout):
+def dumpStandardInfo(treeNodes: list[PathEnd], outFile=sys.stdout):
     """
     Outputs the body of a CSV format of VISTA path information.
-    @type treeNodes: list<PathEnd>
     """
+    gtfsNode: PathEnd
     for gtfsNode in treeNodes:
-        "@type gtfsNode: PathEnd"
         # TODO: Since we don't have hint stuff anymore, we can either remove or repurpose shapeType.
-        shapeType = 0
-        outStr = "%s,%d,%d,%d,%g,%g" % (str(gtfsNode.shapeEntry.shapeID), gtfsNode.shapeEntry.shapeSeq, shapeType,
-                                     gtfsNode.pointOnLink.link.id, gtfsNode.pointOnLink.dist, gtfsNode.totalDist)
+        shapeType = 0 # TODO: Remove?
+        outStr = "%s,%d,%d,%d,%g,%g" % (str(gtfsNode.refPoint.id), gtfsNode.refPoint.seq, shapeType,
+                                     gtfsNode.pointOnLink.link.id, gtfsNode.pointOnLink.getDistanceAlong(), gtfsNode.totalDist)
+        # TODO: Need length in the link object.
         if gtfsNode.restart:
             # A length of -1 shall be a special indication saying that we are restarting and the link list
             # does not exist.
@@ -612,30 +600,28 @@ def dumpStandardInfo(treeNodes, outFile=sys.stdout):
                 outStr = outStr + ",%d" % routeTraverse.id
         print(outStr, file=outFile)
 
-def readStandardDump(baseMap, gtfsShapes, inFile, shapeIDMaker = lambda x: int(x)):
+def readStandardDump(baseMap: graph.Map,
+                     gtfsShapes: Mapping[Hashable, Iterable[graph.Map.Trackpoint]],
+                     inFile: IO,
+                     shapeIDMaker: Callable[[Hashable], int] = lambda x: int(x)) -> dict[int, list[PathEnd]]:
     """
     readStandardDump reconstructs the tree entries that PathEngine had created.
-    @type baseMap: graph.GraphLib
-    @type gtfsShapes: dict<int, list<gtfs.ShapesEntry>>
-    @type inFile: file
-    @type shapeIDMaker: function
+
     @return A dictionary of shapeID to a list of PathEnds
-    @rtype dict<int, list<PathEnd>>
     """
-    ret = {}
-    "@type ret: dict<int, list<PathEnd>>"
+    ret: dict[int, list[PathEnd]] = {}
 
     # Sanity check:
     fileLine = inFile.readline()
     if not fileLine.startswith("shapeID,shapeSeq,shapeType,linkID,linkDist,totalDist,numLinksTrav,linksTrav"):
-        print("ERROR: The path match file doesn't have the expected header.", file=sys.stderr)
-        return None
+        raise ValueError("The path match file doesn't have the expected header.")
         
     # Storage place for sequence numbers:
-    shapeSeqs = {}
-    "@type shapeSeqs: dict<int, int>"
+    shapeSeqs: dict[Hashable, int] = {}
     
     # Go through the lines of the file:
+    linksTrav: list[graph.Map.LinkRecord | None]
+    link: graph.Map.LinkRecord | None
     for fileLine in inFile:
         if len(fileLine) > 0:
             lineElems = fileLine.split(',')
@@ -650,17 +636,18 @@ def readStandardDump(baseMap, gtfsShapes, inFile, shapeIDMaker = lambda x: int(x
             else:
                 # If linksTravCount is -1, then that signifies that we are restarting.  Deal with it later.
                 linksTrav = []
-            "@type linksTrav: list<graph.GraphNode>"
                         
             # Get the variable-length link list that happens at the end:
-            contFlag = False
+            contFlag: bool = False
             for index in range(0, len(linksTrav)):
-                linksTravID = int(lineElems[index + 7])
-                if linksTravID not in baseMap.linkMap:
+                linksTravID = int(lineElems[index + 7]) # TODO: Do we want to enforce ints?
+
+                link = baseMap.getLinkByID(linksTravID)
+                if not link:
                     print("WARNING: The path match file refers to a nonexistent link ID %d." % linksTravID, file=sys.stderr)
                     contFlag = True
                     break
-                linksTrav[index] = baseMap.linkMap[linksTravID]
+                linksTrav[index] = link
             if contFlag:
                 # This is run if the break above is run.
                 continue
@@ -669,25 +656,22 @@ def readStandardDump(baseMap, gtfsShapes, inFile, shapeIDMaker = lambda x: int(x
             if shapeID not in gtfsShapes:
                 print("WARNING: The path match file refers to a nonexistent shape ID %s." % str(shapeID), file=sys.stderr)
                 continue
-            shapeElems = gtfsShapes[shapeID]
-            "@type shapeElems: list<gtfs.ShapesEntry>"
+            shapeElems: list[graph.Map.Trackpoint] = list(gtfsShapes[shapeID])
             
             # Set up the shape index cache to reduce linear searching later on:
             if shapeID not in shapeSeqs:
                 shapeSeqs[shapeID] = -1
                 
             # Resolve the link object:
-            if linkID not in baseMap.linkMap:
+            link = baseMap.getLinkByID(linkID)
+            if not link:
                 print("WARNING: The path match file refers to a nonexistent link ID %d." % linkID, file=sys.stderr)
                 continue
-            link = baseMap.linkMap[linkID]
-            "@type link: graph.GraphLink"
             
             # Resolve the shape entry:
-            shapeEntry = None
-            "@type shapeEntry: gtfs.ShapesEntry"
+            shapeEntry: graph.Map.Trackpoint | None = None
             for index in range(shapeSeqs[shapeID] + 1, len(shapeElems)):
-                if shapeElems[index].shapeSeq == shapeSeq:
+                if shapeElems[index].seq == shapeSeq:
                     shapeEntry = shapeElems[index]
                     shapeSeqs[shapeID] = index
                     break
@@ -697,9 +681,8 @@ def readStandardDump(baseMap, gtfsShapes, inFile, shapeIDMaker = lambda x: int(x
                 continue
             
             # Recalculate parameters needed for the tree node:
-            pointX, pointY = baseMap.gps.gps2feet(shapeEntry.lat, shapeEntry.lng)
-            distRef, distLinear, perpFlag = baseMap.linkMap[linkID].pointDist(pointX, pointY)
-            pointOnLink = graph.PointOnLink(link, distLinear, not perpFlag, distRef)
+            dist, percentAlong, isPerpendicular, pointAlong = baseMap.pointDist(shapeEntry, link)
+            pointOnLink = graph.Map.PointOnLink(link, percentAlong, not isPerpendicular, dist, pointAlong)
             newEntry = PathEnd(shapeEntry, pointOnLink)
             newEntry.totalCost = distTotal # TotalCost won't be available.
             newEntry.totalDist = distTotal
@@ -719,4 +702,3 @@ def readStandardDump(baseMap, gtfsShapes, inFile, shapeIDMaker = lambda x: int(x
 
     # Return the tree nodes:
     return ret
-

@@ -352,6 +352,26 @@ class Map:
         """
         self.trackpointCtr = value
 
+    class PointOnLink(NamedTuple):
+        """
+        PointOnLink is a specific point on a link. This is documented in
+        Figure 1 of Perrine, et al. 2015 as "point_on_link".
+        """
+        link: Map.LinkRecord # The link that corresponds with this PointOnLink
+        percentAlong: float # Percentage of distance along the link
+        nonPerpPenalty: bool # "not r", True if there is to be a non-perpendicular penalty applied
+        refDist: float # "d_r", the reference distance, or the working radius from the original search point
+        point: shapely.geometry.Point # The point as it sits on the link
+
+        def getDistanceAlong(self) -> float:
+            """
+            Calculates the distance along the link from the start to this point.
+
+            @return: The distance along the link.
+            """
+            geometry: shapely.geometry.LineString = self.link.data['geometry']
+            return geometry.length * self.percentAlong
+
     def pointDist(self,
                   trackPoint: Trackpoint, 
                   link: LinkRecord) -> tuple[float, float, bool, shapely.geometry.Point]:
@@ -364,7 +384,7 @@ class Map:
             along link, whether the point is perpendicular to the link, and
             the point that sits on the link).
         """
-        # TODO: Create a nicer return type for this.
+        # TODO: Create a nicer return type for this. Use PointOnLink!
 
         geometry: shapely.geometry.LineString = link.data['geometry']
         percentAlong: float = geometry.project(trackPoint.point, normalized=True)
@@ -373,17 +393,6 @@ class Map:
         isPerpendicular: bool = percentAlong > 0.0 and percentAlong < 1.0
         return dist, percentAlong, isPerpendicular, pointAlong
     
-    class PointOnLink(NamedTuple):
-        """
-        PointOnLink is a specific point on a link. This is documented in
-        Figure 1 of Perrine, et al. 2015 as "point_on_link".
-        """
-        link: Map.LinkRecord # The link that corresponds with this PointOnLink
-        distPercent: float # Percentage of distance along the link
-        nonPerpPenalty: bool # "not r", True if there is to be a non-perpendicular penalty applied
-        refDist: float # "d_r", the reference distance, or the working radius from the original search point
-        point: shapely.geometry.Point # The point as it sits on the link
-
     def findPointsOnLinks(self,
                           trackPoint: Trackpoint,
                           radius: float,
@@ -561,7 +570,7 @@ class WalkPathProcessor:
         stepCount: int
         if prevStruct is None:
             # First-time initialization:
-            linkDistPotential = (1.0 - self.pointOnLinkOrig.distPercent) \
+            linkDistPotential = (1.0 - self.pointOnLinkOrig.percentAlong) \
                 * self.pointOnLinkOrig.link.data['geometry'].length
                 # TODO: Use incomingLink length for last term?
             stepCount = 0
@@ -576,7 +585,7 @@ class WalkPathProcessor:
             # Last-time initialization; we have hit the destination link:
             # We are stopping midway through this link.  So, subtract off the
             # distance from the end that we aren't traversing.
-            linkDistPotential -= (1.0 - self.pointOnLinkDest.distPercent) \
+            linkDistPotential -= (1.0 - self.pointOnLinkDest.percentAlong) \
                 * incomingLink.data['geometry'].length
             cost = startupCost \
                 + self.pathEngine.scoreFunction(self.pointOnLinkOrig,
