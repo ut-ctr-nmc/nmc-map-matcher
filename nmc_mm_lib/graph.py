@@ -77,8 +77,8 @@ class Map:
     workingCRS: pyproj.CRS
     transformer: pyproj.Transformer
     graph: networkx.DiGraph = networkx.DiGraph()
-    edgeIndexLookup: tuple[LinkRecord, ...] = tuple()
-    linkIDLookup: dict[Hashable, LinkRecord] = {}
+    edgeIndexLookup: tuple['LinkRecord', ...] = tuple()
+    linkIDLookup: dict[Hashable, 'LinkRecord'] = {}
     tree: shapely.strtree.STRtree | None = None
     trackpointCtr: int = 0 # For auto-assigning trackpoint sequence numbers
     eqCutoff: int = 3 # Decimal places for equality checks
@@ -357,7 +357,7 @@ class Map:
         PointOnLink is a specific point on a link. This is documented in
         Figure 1 of Perrine, et al. 2015 as "point_on_link".
         """
-        link: Map.LinkRecord # The link that corresponds with this PointOnLink
+        link: 'Map.LinkRecord' # The link that corresponds with this PointOnLink
         percentAlong: float # Percentage of distance along the link
         nonPerpPenalty: bool # "not r", True if there is to be a non-perpendicular penalty applied
         refDist: float # "d_r", the reference distance, or the working radius from the original search point
@@ -476,8 +476,8 @@ class WalkPathProcessor:
     pathEngine: PathEngine # The object that instanciates this class.
     backCache: dict[Hashable, dict[Hashable, Map.LinkRecord]] # Caches previous walkPath
                                                     # operations to accelerate
-    winner: Next | None # Records the winning queue element 
-    processingQueue: list[PathElement] # Processing queue to facilitate
+    winner: 'Next | None' # Records the winning queue element 
+    processingQueue: list['PathElement'] # Processing queue to facilitate
                                        # the breadth-first search
     pointOnLinkOrig: Map.PointOnLink # For internal record-keeping    
     pointOnLinkDest: Map.PointOnLink # For internal record-keeping
@@ -620,7 +620,7 @@ class WalkPathProcessor:
         """
         cost: float
         queueCounter: int
-        nextStruct: WalkPathProcessor.Next
+        nextStruct: 'WalkPathProcessor.Next'
 
     # TODO: Create a return type for walkPath.
 

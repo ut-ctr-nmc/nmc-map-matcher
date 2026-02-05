@@ -23,8 +23,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
-from __future__ import print_function
-from nmc_mm_lib import gtfs, vista_network, path_engine, compat
+from nmc_mm_lib import gtfs, vista_network, path_engine
 import sys
 
 def syntax():

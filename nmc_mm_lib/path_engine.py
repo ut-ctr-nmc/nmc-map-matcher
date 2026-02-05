@@ -43,7 +43,7 @@ class PathEnd:
     refPoint: graph.Map.Trackpoint
     pointOnLink: graph.Map.PointOnLink
     totalCost: float # "s", the total score of the path represented
-    prevTreeNode: PathEnd | None # "p", the previous PathEnd step in this path
+    prevTreeNode: 'PathEnd | None' # "p", the previous PathEnd step in this path
     totalDist: float # Relates to total score of the path represented
     totalLinkCount: int # the number of links that had been traversed
     routeInfo: list[graph.Map.LinkRecord] # "l", a list of map links that have been
@@ -69,7 +69,7 @@ class PathEnd:
         self.routeInfo = []
         self.restart = False
         
-    def cleanCopy(self) -> PathEnd:
+    def cleanCopy(self) -> 'PathEnd':
         """
         cleanCopy initializes a new PathEnd object based on another one.
         """
