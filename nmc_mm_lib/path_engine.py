@@ -27,7 +27,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from collections.abc import Hashable, Iterable, Sequence
 from typing import IO, Callable, Final, Mapping, NamedTuple
 from nmc_mm_lib import graph
-import operator, math, sys, copy
+import operator, sys, copy
 import logging
 
 # Multiplier for shape-to-shape evaluations that happen while refining on a
@@ -40,9 +40,8 @@ class PathEnd:
     roughly equates to the "path_end" data structure outlined in Figure 2 of
     Perrine et al., 2015.
     """
-    refPoint: graph.Map.Trackpoint # The geographic reference point
-                                   # corresponding with this result
-    pointOnLink: graph.Map.PointOnLink # Current point being considered
+    refPoint: graph.Map.Trackpoint
+    pointOnLink: graph.Map.PointOnLink
     totalCost: float # "s", the total score of the path represented
     prevTreeNode: PathEnd | None # "p", the previous PathEnd step in this path
     totalDist: float # Relates to total score of the path represented
@@ -56,8 +55,10 @@ class PathEnd:
                  pointOnLink: graph.Map.PointOnLink):
         """
         Sets up values in this object, many of which need to be mutable
+
+        @param refPoint: The GTFS trackpoint that this PathEnd corresponds with
+        @param pointOnLink: Current point being considered
         """
-        # TODO: This used to be shapeEntry. Is this for a single shape or corridor? Fix if so.
         self.refPoint = refPoint
         self.pointOnLink = pointOnLink
         
@@ -80,34 +81,51 @@ class PathEngine:
     """
     class Params(NamedTuple):
         """
-        Used for configuring the desired behavior of the path engine
+        Used for configuring the desired behavior of the path engine. Remarks
+        for each parameter coincide with constants in Perrine et al., 2015.
+
+        @param searchRadius: "k": Radius (m) to search from trackpoint to perpendicular basemap links (default: 100.0)
+        @param radiusPrimary: "k_p": Radius (m) to search from trackpoint to new basemap links (default: 100.0)
+        @param radiusSecondary: "k_s": Radius (m) to search from basemap perpendicular point to previous point (default: 50.0)
+        @param limitPathDist: Path distance (m) to allow new proposed paths from one point to another (default: 500.0)
+        @param limitDirectDist: Radius (m) to allow new proposed paths from one point to another (default: 500.0)
+        @param limitDirectDistRev: Radius (m) to allow backtracking on a link (e.g. entering an off-map parking lot) (default: 160.0)
+        @param distFactor: "f_d": Cost multiplier for linear path distance (default: 1.0)
+        @param driftFactor: "f_r": Cost multiplier for distance from trackpoint to its basemap link (default: 2.0)
+        @param nonPerpPenalty: "f_p": Penalty multiplier for trackpoints that aren't perpendicular to basemap links (default: 1.5)
+        @param limitClosestPoints: "q_p": Number of close-proximity points that are considered for each trackpoint (default: 12)
+        @param limitSimulPaths: "q_e": Number of proposed paths (hypotheses) to maintain during pathfinding stage (default: 8)
+        @param maxHops: Maximum number of basemap links to pursue in a path-finding operation (default: 12)
+        @param tossRatio: Disable the invalidation of short paths (default: 1.0)
         """
-        searchRadius: float # TODO: Fill these in with the most common defaults.
-        radiusPrimary: float
-        radiusSecondary: float
-        limitPathDist: float
-        limitDirectDist: float
-        limitDirectDistRev: float
-        distFactor: float
-        driftFactor: float
-        nonPerpPenalty: float
-        limitClosestPoints: int
-        limitSimulPaths: int
+        searchRadius: float = 100.0
+        radiusPrimary: float = 100.0
+        radiusSecondary: float = 50.0
+        limitPathDist: float = 500.0
+        limitDirectDist: float = 500.0
+        limitDirectDistRev: float = 160.0
+        distFactor: float = 1.0
+        driftFactor: float = 2.0
+        nonPerpPenalty: float = 1.5
+        limitClosestPoints: int = 12
+        limitSimulPaths: int = 8
+        maxHops: int = 12
+        tossRatio: float = 1.0
 
     params: Params
     prevCosts: list[float] # A list of limitSimulPaths cost values that can be
                            # used to determine if proposed paths are worth
                            # traversing.
-    maxHops: int = 12 # Limits number of nodes to be traversed in path-finding
-    tossRatio: float = 1.0 # Disable the invalidation of short paths
     shapeScatterCache: list[graph.Map.PointOnLink] | None = None
-    forceLinks: Sequence[Iterable[Hashable]] | None | None = None
+    forceLinks: Sequence[Iterable[Hashable]] | None = None
     termRefactorRadius: float
 
-    def __init__(self, params: Params):
+    def __init__(self, params: Params = Params()):
         """
-        Initializes the path engine with the given parameters; others are
-        implicit from the defaults
+        Initializes the path engine with the given parameters; those not
+        specified are left to be default
+
+        @param params: Configuration parameters
         """
         self.params = params
 
@@ -126,7 +144,7 @@ class PathEngine:
         """
         cost: float
         if prevGeoPoint is None:
-            # We are starting anew.  Count the "black line distance" from the VISTA link to the GTFS point:
+            # We are starting anew. Count the "black line distance" from the basemap link to the trackpoint:
             if geoPoint is not None:
                 cost = geoPoint.refDist * self.params.driftFactor
                 if geoPoint.nonPerpPenalty:
@@ -151,6 +169,8 @@ class PathEngine:
         """
         Returns true if the given cost value exceeds the most expensive cost already recorded (if the list is
         limitSimulPaths elements long)
+
+        @param cost: The cost value to check
         """
         return len(self.prevCosts) >= self.params.limitSimulPaths \
             and cost > self.prevCosts[-1]
@@ -266,7 +286,7 @@ class PathEngine:
         pathProcessor: graph.WalkPathProcessor \
             = graph.WalkPathProcessor(self, baseMap,
                 self.params.limitDirectDist, self.params.limitPathDist,
-                self.params.limitDirectDistRev, self.maxHops, linkList)
+                self.params.limitDirectDistRev, self.params.maxHops, linkList)
         shapeCtr: int
         startInvalidCheckFlag: bool = True
         startValidIndex: int = 0
@@ -338,7 +358,7 @@ class PathEngine:
             missingEnds += invalidCtr
         if len(reportStr) > 0:
             logging.warning(f"Out of {len(trackpoints)} georeference points, {reportStr}.")
-        if float(missingEnds) / len(trackpoints) > self.tossRatio:
+        if float(missingEnds) / len(trackpoints) > self.params.tossRatio:
             logging.warning(f"Aborting ID {shapeEntry.id}.")
             return None
 
@@ -505,7 +525,7 @@ class PathEngine:
         treeNodes: list[PathEnd] = []
         
         pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(self, baseMap, self.params.limitDirectDist, self.params.limitPathDist, self.params.limitDirectDistRev,
-            self.maxHops)
+            self.params.maxHops)
 
         oldTreeNodeIndex: int = 0
         nextRestartIndex: int = -1
