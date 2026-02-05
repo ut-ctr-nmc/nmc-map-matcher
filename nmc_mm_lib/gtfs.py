@@ -4,9 +4,9 @@ gtfs.py: Definitions for entities that exist within GTFS datasets
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
     Cockrell School of Engineering, The University of Texas at Austin 
-@version: 1.0
+@version: 2.0
 
-@copyright: (C) 2014, The University of Texas at Austin
+@copyright: (C) 2026, The University of Texas at Austin
 @license: GPL v3
 
 This program is free software: you can redistribute it and/or modify
@@ -22,314 +22,262 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
-from __future__ import print_function
+from collections.abc import Iterable
+import csv
+import logging
 import os, operator, sys
 from datetime import datetime, timedelta
+from typing import Hashable, NamedTuple, Self
 
-class ShapesEntry:
+# TODO: This would be more compact with Pandas.
+
+class ShapesEntry(NamedTuple):
     """
     ShapesEntry is a single GTFS shape file entry.
-    @ivar time: datetime
-    @ivar pointX: float
-    @ivar pointY: float
-    @ivar typeID: int
     """
-    def __init__(self, shapeID, shapeSeq, lat, lng):
-        """
-        @type shapeSeq: int
-        @type lat: float
-        @type lng: float
-        @type time: datetime
-        """
-        self.shapeID = shapeID
-        self.shapeSeq = shapeSeq
-        self.lat = lat
-        self.lng = lng
-        self.time = None
-        
-        self.pointX = 0
-        self.pointY = 0
-        
-        self.typeID = 0
+    shapeID: int
+    shapeSeq: int
+    lat: float
+    lng: float
 
-def fillShapes(filePath, gps):
+    def __hash__(self) -> Hashable:
+        return self.shapeID, self.shapeSeq
+    
+    def __eq__(self, other: Self) -> bool:
+        return self.shapeID == other.shapeID and self.shapeSeq == other.shapeSeq
+
+def fillShapes(filePath: str) -> dict[int, list[ShapesEntry]]:
     """
     fillShapes retrieves the shape information from a shape file and returns a list of shape entries.
-    @type filePath: str
-    @type gps: gps.GPS
+
     @return A map of shape_id to a list of shape entries
-    @rtype dict<int, list<ShapesEntry>>
     """
-    ret = {}
-    "@type ret: dict<int, list<ShapesEntry>>"
-    filename = os.path.join(filePath, "shapes.txt") 
-    with open(filename, 'r') as inFile:
-        # Sanity check:
-        fileLine = inFile.readline()
-        if not fileLine.startswith("shape_id,shape_pt_lat,shape_pt_lon"):
-            print("ERROR: The shapes.txt file doesn't have the expected header.", file = sys.stderr)
-            return None
-        
-        # Go through the lines of the file:
-        for fileLine in inFile:
-            if len(fileLine) > 0:
-                lineElems = fileLine.split(',')
-                newEntry = ShapesEntry(int(lineElems[0]), int(lineElems[3]), float(lineElems[1]),
-                                        float(lineElems[2]))
-                (newEntry.pointX, newEntry.pointY) = gps.gps2feet(newEntry.lat, newEntry.lng)
-                if newEntry.shapeID not in ret:
-                    ret[newEntry.shapeID] = []
-                ret[newEntry.shapeID].append(newEntry)
+    ret: dict[int, list[ShapesEntry]] = {}
+    filename: str = os.path.join(filePath, "shapes.txt") 
+    with open(filename, mode='r', newline='') as inFile:
+        csvReader = csv.DictReader(inFile)
+        for fileLine in csvReader:
+            newEntry = ShapesEntry(shapeID=int(fileLine['shape_id']),
+                                   shapeSeq=int(fileLine['shape_pt_sequence']),
+                                   lat=float(fileLine['shape_pt_lat']),
+                                   lng=float(fileLine['shape_pt_lon']))
+            if newEntry.shapeID not in ret:
+                ret[newEntry.shapeID] = []
+            ret[newEntry.shapeID].append(newEntry)
 
     # Ensure that the lists are sorted:
+    shapesEntries: list[ShapesEntry]
     for shapesEntries in ret.values():
-        "@type shapesEntries: list<ShapesEntry>"
         shapesEntries.sort(key = operator.attrgetter('shapeSeq'))
                     
     # Return the shapes file contents:
     return ret
 
-class RoutesEntry:
+class RoutesEntry(NamedTuple):
     """
     RoutesEntry is a single GTFS route with name.
     """
-    def __init__(self, routeID, shortName, name):
-        """
-        @type routeID: int
-        @type shortName: str
-        @type name: str
-        """
-        self.routeID = routeID
-        self.shortName = shortName
-        self.name = name
+    routeID: int
+    shortName: str
+    name: str
+
+    def __hash__(self) -> Hashable:
+        return self.routeID
+    
+    def __eq__(self, other: Self) -> bool:
+        return self.routeID == other.routeID
         
-def fillRoutes(filePath):
+def fillRoutes(filePath: str) -> dict[int, RoutesEntry]:
     """
     fillRoutes retrieves route name information from a GTFS repository.
-    @type filepath: str
+
     @return A map from routeID to a RoutesEntry object.
-    @rtype dict<int, RoutesEntry>
     """
-    ret = {}
-    "@type ret: dict<int, RoutesEntry>"
+    ret: dict[int, RoutesEntry] = {}
     filename = os.path.join(filePath, "routes.txt") 
-    with open(filename, 'r') as inFile:
-        # Sanity check:
-        fileLine = inFile.readline()
-        if not fileLine.startswith("route_id,agency_id,route_short_name,route_long_name"):
-            print("ERROR: The routes.txt file doesn't have the expected header.", file = sys.stderr)
-            return None
+    with open(filename, mode='r', newline='') as inFile:
+        csvReader = csv.DictReader(inFile)
         
         # Go through the lines of the file:
-        for fileLine in inFile:
-            if len(fileLine) > 0:
-                lineElems = fileLine.split(',')
-                newEntry = RoutesEntry(int(lineElems[0]), lineElems[2], lineElems[3])
-                ret[newEntry.routeID] = newEntry
+        for fileLine in csvReader:
+            newEntry = RoutesEntry(routeID=int(fileLine['route_id']),
+                                   shortName=fileLine['route_short_name'],
+                                   name=fileLine['route_long_name'])
+            ret[newEntry.routeID] = newEntry
                     
-    # Return the stops file contents:
+    # Return the routes file contents:
     return ret    
 
-class TripsEntry:
+class TripsEntry(NamedTuple):
     """
     TripsEntry is a single GTFS trip file entry.  Its key is tripID.
     """
-    def __init__(self, tripID, route, tripHeadsign, shapeEntries):
-        """
-        @type tripID: int
-        @type route: RoutesEntry
-        @type tripHeadsign: str
-        @type shapeEntries: list<ShapesEntry>
-        """
-        self.tripID = tripID
-        self.route = route
-        self.tripHeadsign = tripHeadsign
-        self.shapeEntries = shapeEntries
+    tripID: int
+    route: RoutesEntry
+    tripHeadsign: str
+    shapeEntries: list[ShapesEntry]
         
-    def __hash__(self):
+    def __hash__(self) -> Hashable:
         return self.tripID
     
-    def __eq__(self, other):
+    def __eq__(self, other: Self) -> bool:
         return self.tripID == other.tripID
 
-def fillTrips(filePath, shapes, routes, unusedShapeIDs = set(), restrictService = set()):
+def fillTrips(filePath: str,
+              shapes: dict[int, list[ShapesEntry]],
+              routes: dict[int, RoutesEntry],
+              unusedShapeIDs: Iterable[int] | set[int] = {},
+              restrictService: Iterable[str] | set[str] = {}) -> tuple[dict[int, TripsEntry], set[int]]:
     """
     fillTrips retrieves the trip information from a GTFS repository.
-    @type filePath: str
-    @type shapes: dict<int, list<ShapesEntry>>
-    @type routes: dict<int, RoutesEntry>
-    @type unusedShapeIDs: set<int>
-    @type restrictService: set<string>
+
     @return A map of trip_id to TripsEntry records, as well as a list of unused trip IDs
-    @rtype (dict<int, TripsEntry>, set<int>)
     """
-    ret = {}
-    "@type ret: dict<int, TripsEntry>"
-    unusedTripIDs = set()
-    shapeErrorIDs = set()
-    "@type unusedTripIDs: set<int>"
+    ret: dict[int, TripsEntry] = {}
+    unusedTripIDs: set[int] = set()
+    shapeErrorIDs: set[int] = set()
+    unusedShapeIDs = set(unusedShapeIDs)
+    restrictService = set(restrictService)
+
     filename = os.path.join(filePath, "trips.txt") 
-    with open(filename, 'r') as inFile:
-        # Sanity check:
-        fileLine = inFile.readline()
-        if not fileLine.startswith("route_id,service_id,trip_id,trip_headsign,trip_short_name,direction_id,block_id,shape_id"):
-            print("ERROR: The trips.txt file doesn't have the expected header.", file = sys.stderr)
-            return None
-        
+    with open(filename, mode='r', newline='') as inFile:
+        csvReader = csv.DictReader(inFile)
+
         # Go through the lines of the file:
-        for fileLine in inFile:
-            if len(fileLine) > 0:
-                lineElems = fileLine.split(',')
-                shapeID = int(lineElems[7])
-                routeID = int(lineElems[0])
-                serviceID = lineElems[1]
-                tripID = int(lineElems[2])
-                if (shapeID in unusedShapeIDs) or ((len(restrictService) > 0) and (serviceID not in restrictService)):
+        for fileLine in csvReader:
+            shapeID = int(fileLine['shape_id'])
+            routeID = int(fileLine['route_id'])
+            serviceID = fileLine['service_id']
+            tripID = int(fileLine['trip_id'])
+            if shapeID in unusedShapeIDs or len(restrictService) > 0 and serviceID not in restrictService:
+                unusedTripIDs.add(tripID)
+            else:
+                if shapeID not in shapes:
+                    if shapeID not in shapeErrorIDs:
+                        logging.warning(f"GTFS Trip {tripID} expects undefined shape ID {shapeID}; skipping")
+                        shapeErrorIDs.add(shapeID)                        
                     unusedTripIDs.add(tripID)
                 else:
-                    if shapeID not in shapes:
-                        if shapeID not in shapeErrorIDs:
-                            print("WARNING: GTFS Trip %d expects undefined shape ID %d; skipping" % (tripID, shapeID), file=sys.stderr)
-                            shapeErrorIDs.add(shapeID)                        
-                        unusedTripIDs.add(tripID)
+                    if routeID not in routes:
+                        logging.warning(f"GTFS Trip {tripID} expects undefined route ID {routeID}; skipping")
+                        unusedTripIDs.add(tripID)                        
                     else:
-                        if routeID not in routes:
-                            print("WARNING: GTFS Trip %d expects undefined route ID %d; skipping" % (tripID, routeID), file=sys.stderr)
-                            unusedTripIDs.add(tripID)                        
-                        else:
-                            newEntry = TripsEntry(tripID, routes[routeID], lineElems[3], shapes[shapeID])
-                            ret[newEntry.tripID] = newEntry
+                        newEntry = TripsEntry(tripID=tripID,
+                                              route=routes[routeID],
+                                              tripHeadsign=fileLine['trip_headsign'],
+                                              shapeEntries=shapes[shapeID])
+                        ret[newEntry.tripID] = newEntry
                             
     # Return the trips file contents:
-    return (ret, unusedTripIDs)
+    return ret, unusedTripIDs
 
-class StopsEntry:
+class StopsEntry(NamedTuple):
     """
     StopsEntry is a single GTFS stops file entry.
     """
-    def __init__(self, stopID, stopName, gpsLat, gpsLng):
-        """
-        @type stopID: int
-        @type stopName: str
-        @type gpsLat: float
-        @type gpsLng: float
-        """
-        self.stopID = stopID
-        self.stopName = stopName
-        self.gpsLat = gpsLat
-        self.gpsLng = gpsLng
-        
-        self.pointX = 0
-        self.pointY = 0
+    stopID: int
+    stopName: str
+    gpsLat: float
+    gpsLng: float
 
-def fillStops(filePath, gps):
+    def __hash__(self) -> int:
+        return self.stopID
+    
+    def __eq__(self, other: Self) -> bool:
+        return self.stopID == other.stopID
+
+def fillStops(filePath: str) -> dict[int, StopsEntry]:
     """
     fillStops retrieves the stop information from a GTFS repository.
-    @type filePath: str
-    @type GPS: gps.GPS
+
     @return A map of stop_id to a StopsEntry.
-    @rtype dict<int, StopsEntry>
     """
-    ret = {}
-    "@type ret: dict<int, StopsEntry>"
+    ret: dict[int, StopsEntry] = {}
     filename = os.path.join(filePath, "stops.txt") 
-    with open(filename, 'r') as inFile:
-        # Sanity check:
-        fileLine = inFile.readline()
-        if not fileLine.startswith("stop_id,stop_code,stop_name,stop_desc,stop_lat,stop_lon"):
-            print("ERROR: The stops.txt file doesn't have the expected header.", file = sys.stderr)
-            return None
-        
+    with open(filename, mode='r', newline='') as inFile:
+        csvReader = csv.DictReader(inFile)
+
         # Go through the lines of the file:
-        for fileLine in inFile:
-            if len(fileLine) > 0:
-                lineElems = fileLine.split(',')
-                newEntry = StopsEntry(int(lineElems[0]), lineElems[2], float(lineElems[4]), float(lineElems[5]))
-                (newEntry.pointX, newEntry.pointY) = gps.gps2feet(newEntry.gpsLat, newEntry.gpsLng)
-                ret[newEntry.stopID] = newEntry
-                    
+        for fileLine in csvReader:
+            newEntry = StopsEntry(stopID=int(fileLine['stop_id']),
+                                  stopName=fileLine['stop_name'],
+                                  gpsLat=float(fileLine['stop_lat']),
+                                  gpsLng=float(fileLine['stop_lon']))
+            ret[newEntry.stopID] = newEntry
+    
     # Return the stops file contents:
     return ret
 
-class StopTimesEntry:
+class StopTimesEntry(NamedTuple):
     """
     StopTimesEntry is a single GTFS stoptimes file entry.
     """
-    def __init__(self, trip, stop, stopSeq):
-        """
-        @type trip: TripsEntry
-        @type stop: StopsEntry
-        @type stopSeq: int
-        @type arrivalTime: datetime
-        @type departureTime: datetime
-        """
-        self.trip = trip
-        self.stop = stop
-        self.stopSeq = stopSeq
-        
-        self.arrivalTime = None
-        self.departureTime = None
+    trip: TripsEntry
+    stop: StopsEntry
+    stopSeq: int
+    arrivalTime: datetime
+    departureTime: datetime
 
-def fillStopTimes(filePath, trips, stops, unusedTripIDs):
+    def __hash__(self) -> Hashable:
+        return self.trip, self.stopSeq
+    
+    def __eq__(self, other: Self) -> bool:
+        return self.trip == other.trip and self.stopSeq == other.stopSeq
+
+def parseGTFSTime(timeStr: str) -> datetime:
+    """
+    parseGTFSTime parses a GTFS time string into a datetime object.
+
+    @return A datetime object representing the given time string, with respect to 1/1/1900
+    """
+    # Split apart time string this way and count from epoch because GTFS stops may express times for
+    # early morning service with hours being greater than 23.
+    timeElems = timeStr.split(':')
+    timeHour = int(timeElems[0])
+    timeDays = timeHour // 24
+    timeHour = timeHour % 24
+    timeObj = datetime(1900, 1, 1, timeHour, int(timeElems[1]), int(timeElems[2]))
+    timeObj += timedelta(days = timeDays)
+    return timeObj
+
+def fillStopTimes(filePath: str,
+                  trips: dict[int, TripsEntry],
+                  stops: dict[int, StopsEntry],
+                  unusedTripIDs: Iterable[int]) -> dict[TripsEntry, list[StopTimesEntry]]:
     """
     fillStopTimes retrieves the stoptime information from a GTFS repository.
-    @type filePath: str
-    @type trips: dict<int, TripsEntry>
-    @type stops: dict<int, StopsEntry>
-    @type unusedTripIDs: set<int>
+
     @return A map of TripsEntry to a list of stop entries plus the start and end times
-    @rtype dict<TripsEntry, list<StopTimesEntry>>
     """
-    stopTimes = {}
-    "@type stopTimes: dict<TripsEntry, list<StopTimesEntry>>"
+    stopTimes: dict[TripsEntry, list[StopTimesEntry]] = {}
+    unusedTripIDs = set(unusedTripIDs)
     
     filename = os.path.join(filePath, "stop_times.txt")
-    with open(filename, 'r') as inFile:
-        # Sanity check:
-        fileLine = inFile.readline()
-        if not fileLine.startswith("trip_id,arrival_time,departure_time,stop_id"):
-            print("ERROR: The stop_times.txt file doesn't have the expected header.", file=sys.stderr)
-            return None
+    with open(filename, mode='r', newline='') as inFile:
+        csvReader = csv.DictReader(inFile)
         
         # Go through the lines of the file:
-        badTrips = set()
-        for fileLine in inFile:
-            if len(fileLine) > 0:
-                lineElems = fileLine.split(',')
-                tripID = int(lineElems[0])
-                if tripID not in unusedTripIDs:
-                    if not tripID in trips:
-                        badTrips.add(tripID)
-                        continue
-                    
-                    # Split apart time string this way and count from epoch because GTFS stops may express times for
-                    # early morning service with hours being greater than 23.
-                    timeElems = lineElems[1].split(':')
-                    timeHour = int(timeElems[0])
-                    timeDays = timeHour / 24
-                    timeHour = timeHour % 24
-                    arrivalTime = datetime(1900, 1, 1, timeHour, int(timeElems[1]), int(timeElems[2]))
-                    arrivalTime += timedelta(days = timeDays)
-
-                    timeElems = lineElems[2].split(':')
-                    timeHour = int(timeElems[0])
-                    timeDays = timeHour / 24
-                    timeHour = timeHour % 24
-                    departureTime = datetime(1900, 1, 1, timeHour, int(timeElems[1]), int(timeElems[2]))
-                    departureTime += timedelta(days = timeDays)
-                    
-                    stopID = int(lineElems[3])
-                    if not stopID in stops:
-                        print("WARNING: GTFS Stop Times file expects undefined stop ID %d" % stopID, file = sys.stderr)
-                        continue
-                    newEntry = StopTimesEntry(trips[tripID], stops[stopID], int(lineElems[4]))
-                    newEntry.arrivalTime = arrivalTime
-                    newEntry.departureTime = departureTime
-                    if newEntry.trip not in stopTimes:
-                        stopTimes[newEntry.trip] = []
-                    stopTimes[newEntry.trip].append(newEntry)
-                    del newEntry
-                del tripID
+        badTrips: set[int] = set()
+        for fileLine in csvReader:
+            tripID = int(fileLine['trip_id'])
+            if tripID not in unusedTripIDs:
+                if not tripID in trips:
+                    badTrips.add(tripID)
+                    continue                
+                arrivalTime = parseGTFSTime(fileLine['arrival_time'])
+                departureTime = parseGTFSTime(fileLine['departure_time'])
+                stopID = int(fileLine['stop_id'])
+                if not stopID in stops:
+                    logging.warning(f"GTFS Stop Times file expects undefined stop ID {stopID}")
+                    continue
+                newEntry = StopTimesEntry(trip=trips[tripID],
+                                          stop=stops[stopID],
+                                          stopSeq=int(fileLine['stop_sequence']),
+                                          arrivalTime=arrivalTime,
+                                          departureTime=departureTime)
+                if newEntry.trip not in stopTimes:
+                    stopTimes[newEntry.trip] = []
+                stopTimes[newEntry.trip].append(newEntry)
 
         # Output error message:
         if badTrips:
@@ -338,7 +286,7 @@ def fillStopTimes(filePath, trips, stops, unusedTripIDs):
                 if strOut:
                     strOut += ", "
                 strOut += str(tripID)
-            print("WARNING: GTFS Stop Times file expects undefined trip ID(s) %s" % strOut, file=sys.stderr)
+            logging.warning(f"GTFS Stop Times file expects undefined trip ID(s) {strOut}")
 
     # Return the stop times file contents:
     return stopTimes
