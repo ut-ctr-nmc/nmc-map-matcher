@@ -25,7 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from collections.abc import Iterable
 import csv
 import logging
-import os, operator, sys
+import os, operator
 from datetime import datetime, timedelta
 from typing import Hashable, NamedTuple, Self
 
@@ -40,10 +40,12 @@ class ShapesEntry(NamedTuple):
     lat: float
     lng: float
 
-    def __hash__(self) -> Hashable:
-        return self.shapeID, self.shapeSeq
+    def __hash__(self) -> int:
+        return hash((self.shapeID, self.shapeSeq))
     
-    def __eq__(self, other: Self) -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ShapesEntry):
+            return NotImplemented
         return self.shapeID == other.shapeID and self.shapeSeq == other.shapeSeq
 
 def fillShapes(filePath: str) -> dict[int, list[ShapesEntry]]:
@@ -81,10 +83,12 @@ class RoutesEntry(NamedTuple):
     shortName: str
     name: str
 
-    def __hash__(self) -> Hashable:
+    def __hash__(self) -> int:
         return self.routeID
     
-    def __eq__(self, other: Self) -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, RoutesEntry):
+            return NotImplemented
         return self.routeID == other.routeID
         
 def fillRoutes(filePath: str) -> dict[int, RoutesEntry]:
@@ -117,10 +121,12 @@ class TripsEntry(NamedTuple):
     tripHeadsign: str
     shapeEntries: list[ShapesEntry]
         
-    def __hash__(self) -> Hashable:
+    def __hash__(self) -> int:
         return self.tripID
     
-    def __eq__(self, other: Self) -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TripsEntry):
+            return NotImplemented
         return self.tripID == other.tripID
 
 def fillTrips(filePath: str,
@@ -183,7 +189,9 @@ class StopsEntry(NamedTuple):
     def __hash__(self) -> int:
         return self.stopID
     
-    def __eq__(self, other: Self) -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, StopsEntry):
+            return NotImplemented
         return self.stopID == other.stopID
 
 def fillStops(filePath: str) -> dict[int, StopsEntry]:
@@ -218,10 +226,12 @@ class StopTimesEntry(NamedTuple):
     arrivalTime: datetime
     departureTime: datetime
 
-    def __hash__(self) -> Hashable:
-        return self.trip, self.stopSeq
+    def __hash__(self) -> int:
+        return hash((self.trip, self.stopSeq))
     
-    def __eq__(self, other: Self) -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, StopTimesEntry):
+            return NotImplemented
         return self.trip == other.trip and self.stopSeq == other.stopSeq
 
 def parseGTFSTime(timeStr: str) -> datetime:
