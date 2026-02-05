@@ -1,13 +1,14 @@
 """
-path_match.py resolves a GTFS shapefile to a VISTA network series of links and
-    outputs a CSV format of data
+gtfs_sample.py resolves a GTFS shapefile to an MPO downtown grid network
+    series of links and outputs a CSV format of data showing the GTFS
+    tracks with respect to the grid network.
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
     Cockrell School of Engineering, The University of Texas at Austin 
-@version: 1.0
+@version: 2.0
 
-@copyright: (C) 2014, The University of Texas at Austin
+@copyright: (C) 2026, The University of Texas at Austin
 @license: GPL v3
 
 This program is free software: you can redistribute it and/or modify
@@ -30,7 +31,7 @@ def syntax():
     """
     Print usage information
     """
-    print("path_match.py resolves a GTFS shapefile to a VISTA network series of links and")
+    print("gtfs_sample.py resolves a GTFS shapefile to a VISTA network series of links and")
     print("outputs a CSV format of data.")
     print("Usage:")
     print("  python path_match.py dbServer network user password shapePath")
