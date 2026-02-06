@@ -70,14 +70,14 @@ map.completeMap()
 gtfsSet = gtfs.GTFSSet(GTFS_PATH)
 
 # Express trackpoints derived from GTFS shapes in terms of map:
-gtfsShapesTracks: dict[int, tuple[graph.Map.Trackpoint, ...]] = {}
+gtfsShapesTracks: dict[Hashable, tuple[graph.Map.Trackpoint, ...]] = {}
 for shapeID, shapeEntries in gtfsSet.shapes.items():
     gtfsShapesTracks[shapeID] = tuple(map.makeTrackpoint(shapeEntry.lng,
         shapeEntry.lat, shapeID, shapeEntry.shapeSeq)
             for shapeEntry in shapeEntries)
 
 # Run path match for each GTFS route:
-matchedPaths: dict[int, list[path_engine.PathEnd]] = {}
+matchedPaths: dict[Hashable, list[path_engine.PathEnd]] = {}
 pathEngine = path_engine.PathEngine() # Use default match parameters
 for shapeID, gtfsTrack in gtfsShapesTracks.items():
     logging.info(f"GTFS Shape ID {shapeID}:")
