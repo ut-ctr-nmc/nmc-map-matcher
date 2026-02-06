@@ -132,7 +132,7 @@ class Map:
                 origNodeID: Hashable,
                 destNodeID: Hashable, 
                 controlPoints: Iterable[Sequence[float]] \
-                    | shapely.geometry.LineString | None,
+                    | shapely.geometry.LineString | None = None,
                 linkID: Hashable | None = None,
                 metadata: dict = {},
                 hasEndpoints: bool = True,
@@ -643,8 +643,7 @@ class WalkPathProcessor:
         self.backtrackScore = self.limitDistance
         
         # Are the points too far away to begin with?
-        origDestDist: float \
-            = pointOnLinkOrig.point.distance(pointOnLinkDest.point)
+        origDestDist = pointOnLinkOrig.point.distance(pointOnLinkDest.point)
         if origDestDist > self.limitRadius:
             return None, 0.0, 0.0, 0
         
@@ -732,7 +731,7 @@ class WalkPathProcessor:
         link: Map.LinkRecord
         for link in myList:
             # Filter out U-turns:
-            penalty: float = 0.0            
+            penalty = 0.0            
             if (self.uTurnDeadEndPenalty != 0 or self.uTurnInterPenalty != 0) \
                     and self.map.isReverseLink(walkPathElem.incomingLink,
                                                link):

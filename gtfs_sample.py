@@ -24,25 +24,27 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
-from typing import Final, Any
-from nmc_mm_lib import graph, gtfs, vista_network, path_engine
+import logging
+from typing import Final, Any, Hashable
+from nmc_mm_lib import graph, gtfs, path_engine
 import csv, os, sys
 
 MPO_PATH: Final[str] = os.path.join("samples", "mpo")
+GTFS_PATH: Final[str] = os.path.join("samples", "gtfs")
 
 # Grab MPO model: we'll derive the topography from node locations (nodes.csv)
 # and connectivity (cnx.csv). The links.csv file is there to help with
-# visualization in a GIS program.
+# visualization in a GIS program, but it isn't necessary here.
 # TODO: This is much more compact with Pandas!
-nodes: dict[int, dict[str, Any]] = {}
-filename: str = os.path.join(MPO_PATH, "small_atx_nodes.csv")
+nodes: dict[Hashable, dict[str, Any]] = {}
+filename = os.path.join(MPO_PATH, "small_atx_nodes.csv")
 with open(filename, mode='r', newline='') as nodesFile:
     csvReader = csv.DictReader(nodesFile)
     for fileLine in csvReader:
         nodes[fileLine["id"]] = {"id": fileLine["id"],
-                                 "lon": fileLine["lat"],
-                                 "lat": fileLine["lon"]}
-cnxs: dict[int, dict[str, Any]] = {}
+                                 "lon": float(fileLine["lon"]),
+                                 "lat": float(fileLine["lat"])}
+cnxs: dict[Hashable, dict[str, Any]] = {}
 filename = os.path.join(MPO_PATH, "small_atx_cnx.csv")
 with open(filename, mode='r', newline='') as cnxsFile:
     csvReader = csv.DictReader(cnxsFile)
@@ -52,145 +54,39 @@ with open(filename, mode='r', newline='') as cnxsFile:
                                 "dest": nodes[fileLine["dest"]]}
 
 # Create map of it:
-map: graph.Map = graph.Map() # Use default GPS to Web Mercator scheme
+map = graph.Map() # Use default GPS to Web Mercator scheme
 for nodeID, node in nodes.items():
     # Define each node from lon/lat, ID, w/o optional metadata dict
     map.addNode(nodeID, node["lon"], node["lat"])
 for linkID, cnx in cnxs.items():
     # Define each link by using node IDs. By saying that we hadn't specified
     # endpoints, GPS endpoints for each link are grabbed from the nodes:
-    map.addLink(cnx["source"]["id"], cnx["dest"]["id"],
-                linkID=linkID, hasEndpoints=False)
+    map.addLink(cnx["source"]["id"], cnx["dest"]["id"], linkID=linkID,
+                hasEndpoints=False)
 # Commit our geometry:
 map.completeMap()
 
 # Grab GTFS:
+gtfsSet = gtfs.GTFSSet(GTFS_PATH)
 
-
-# Express trackpoints in terms of map:
-
+# Express trackpoints derived from GTFS shapes in terms of map:
+gtfsShapesTracks: dict[int, tuple[graph.Map.Trackpoint, ...]] = {}
+for shapeID, shapeEntries in gtfsSet.shapes.items():
+    gtfsShapesTracks[shapeID] = tuple(map.makeTrackpoint(shapeEntry.lng,
+        shapeEntry.lat, shapeID, shapeEntry.shapeSeq)
+            for shapeEntry in shapeEntries)
 
 # Run path match for each GTFS route:
-
+matchedPaths: dict[int, list[path_engine.PathEnd]] = {}
+pathEngine = path_engine.PathEngine() # Use default match parameters
+for shapeID, gtfsTrack in gtfsShapesTracks.items():
+    logging.info(f"GTFS Shape ID {shapeID}:")
+    path: list[path_engine.PathEnd] | None \
+        = pathEngine.constructPath(gtfsTrack, map)
+    if path is not None:
+        matchedPaths[shapeID] = path
 
 # Output matched results:
-
-
-
-
-
-
-def syntax():
-    """
-    Print usage information
-    """
-    print("gtfs_sample.py resolves a GTFS shapefile to a VISTA network series of links and")
-    print("outputs a CSV format of data.")
-    print("Usage:")
-    print("  python path_match.py dbServer network user password shapePath")
-    sys.exit(0)
-
-def pathMatch(dbServer, networkName, userName, password, shapePath, limitMap=None, pickleOutTopo=None):
-    # Default parameters, with explanations and cross-references to Perrine et al., 2015:
-    pointSearchRadius = 1000    # "k": Radius (ft) to search from GTFS point to perpendicular VISTA links
-    pointSearchPrimary = 350    # "k_p": Radius (ft) to search from GTFS point to new VISTA links    
-    pointSearchSecondary = 200  # "k_s": Radius (ft) to search from VISTA perpendicular point to previous point
-    limitLinearDist = 3800      # Path distance (ft) to allow new proposed paths from one point to another
-    limitDirectDist = 3500      # Radius (ft) to allow new proposed paths from one point to another
-    limitDirectDistRev = 500    # Radius (ft) to allow backtracking on an existing link (e.g. parking lot)
-    distanceFactor = 1.0        # "f_d": Cost multiplier for Linear path distance
-    driftFactor = 2.0           # "f_r": Cost multiplier for distance from GTFS point to its VISTA link
-    nonPerpPenalty = 1.5        # "f_p": Penalty multiplier for GTFS points that aren't perpendicular to VISTA links
-    limitClosestPoints = 12     # "q_p": Number of close-proximity points that are considered for each GTFS point 
-    limitSimultaneousPaths = 8  # "q_e": Number of proposed paths to maintain during pathfinding stage
-    
-    maxHops = 12                # Maximum number of VISTA links to pursue in a path-finding operation
-    
-    # Get the database connected:
-    print("INFO: Connect to database...", file = sys.stderr)
-    database = vista_network.connect(dbServer, userName, password, networkName)
-    
-    # Read in the topology from the VISTA database:
-    print("INFO: Read topology from database...", file = sys.stderr)
-    vistaGraph = vista_network.fillGraph(database)
-    
-    if pickleOutTopo:
-        print("INFO: Writing out underlying topology to %s" % pickleOutTopo, file=sys.stderr)
-        #sys.setrecursionlimit(3800)
-        with open(pickleOutTopo, "wb") as pickleFile:
-            vistaGraph.serialize(pickleFile)
-        pickleFile.close()
-        del pickleFile
-    
-    # Read in the shapefile information:
-    print("INFO: Read GTFS shapefile...", file = sys.stderr)
-    gtfsShapes = gtfs.fillShapes(shapePath, vistaGraph.gps)
-    
-    # Initialize the path-finder:
-    pathFinder = path_engine.PathEngine(pointSearchRadius, pointSearchPrimary, pointSearchSecondary, limitLinearDist,
-                            limitDirectDist, limitDirectDistRev, distanceFactor, driftFactor, nonPerpPenalty, limitClosestPoints,
-                            limitSimultaneousPaths)
-    pathFinder.maxHops = maxHops
-    
-    # Begin iteration through each shape:
-    shapeIDs = compat.listkeys(gtfsShapes)
-    "@type shapeIDs: list<int>"
-    shapeIDs.sort()
-    gtfsNodesResults = {}
-    "@type gtfsNodesResults: dict<int, list<path_engine.PathEnd>>"
-    
-    if limitMap is not None:
-        for shapeID in limitMap:
-            if shapeID not in shapeIDs:
-                print("WARNING: Limit shape ID %d is not found in the shape file." % shapeID, file = sys.stderr)
-    
-    for shapeID in shapeIDs:
-        "@type shapeID: int"
-        
-        if limitMap is not None and shapeID not in limitMap:
-            continue
-        
-        print("INFO: -- Shape ID %d --" % shapeID, file = sys.stderr)
-        
-        # Find the path for the given shape:
-        gtfsNodes = pathFinder.constructPath(gtfsShapes[shapeID], vistaGraph)
-    
-        # File this away as a result for later output:
-        gtfsNodesResults[shapeID] = gtfsNodes
-    return gtfsNodesResults
-
-def main(argv):
-    # Initialize from command-line parameters:
-    if len(argv) < 6:
-        syntax()
-    dbServer = argv[1]
-    networkName = argv[2]
-    userName = argv[3]
-    password = argv[4]
-    shapePath = argv[5]
-    pickleOutTopo = None
-    
-    i = 6
-    while i < len(argv):
-        if argv[i] == "--ptout" and i < len(argv) - 1:
-            pickleOutTopo = argv[i + 1]
-            i += 1
-        i += 1
-    
-    gtfsNodesResults = pathMatch(dbServer, networkName, userName, password, shapePath, pickleOutTopo=pickleOutTopo)
-    
-    # Extract useful information:
-    print("INFO: -- Final --", file = sys.stderr)
-    print("INFO: Print output...", file = sys.stderr)
-    path_engine.dumpStandardHeader()
-
-    shapeIDs = compat.listkeys(gtfsNodesResults)
-    "@type shapeIDs: list<int>"
-    shapeIDs.sort()
-    for shapeID in shapeIDs:
-        "@type shapeID: int"
-        path_engine.dumpStandardInfo(gtfsNodesResults[shapeID])
-        
-# Boostrap:
-if __name__ == '__main__':
-    main(sys.argv)
+for shapeID, matchedPath in matchedPaths.items():
+    with open(f"gtfs_matched_{shapeID}.csv", mode='wt') as outputFile:
+        path_engine.dumpStandardInfo(matchedPath, outputFile)

@@ -25,7 +25,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from collections.abc import Hashable, Iterable, Sequence
-from typing import IO, Callable, Final, Mapping, NamedTuple
+import csv
+from typing import IO, Callable, Final, Mapping, NamedTuple, TypedDict
 from nmc_mm_lib import graph
 import operator, sys, copy
 import logging
@@ -272,7 +273,7 @@ class PathEngine:
         return gtfsPoints            
 
     def constructPath(self,
-                      trackpoints: tuple[graph.Map.Trackpoint],
+                      trackpoints: Sequence[graph.Map.Trackpoint],
                       baseMap: graph.Map,
                       linkList: list[Hashable] | None = None) -> list[PathEnd] | None:
         """
@@ -346,8 +347,8 @@ class PathEngine:
             startValidIndex = len(trackpoints)
 
         # Additional reporting on points found and not found:
-        reportStr: str = ""
-        missingEnds: int = 0
+        reportStr = ""
+        missingEnds = 0
         if startValidIndex > 0:
             reportStr = f"{startValidIndex} are missing from the start"
             missingEnds = startValidIndex
@@ -362,7 +363,11 @@ class PathEngine:
             logging.warning(f"Aborting ID {shapeEntry.id}.")
             return None
 
-        # Now, extract the shortest path. First, find the end that has the cheapest cost:
+        # Now, extract the shortest path. First, find the end that has the
+        # cheapest cost. Note that there could be cases where multiple ends
+        # have a samilar cost (especially if processing incoming points from a
+        # live stream), and it could be appropriate to report multiple
+        # candidate paths.
         logging.info("Finalizing path...")
         gtfsPoint = None
         "@type gtfsPoint: PathEnd"
@@ -471,7 +476,7 @@ class PathEngine:
                     gtfsPoints, 1 if firstFlag else 2)
                 # Check for restarts and penalize.  Only keep the first (cheapest) restart.  Meanwhile, append to
                 # the results list:
-                restartFlag: bool = False
+                restartFlag = False
                 gtfsPoint: PathEnd
                 for gtfsPoint in curList:
                     if gtfsPoint.restart:
@@ -527,9 +532,9 @@ class PathEngine:
         pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(self, baseMap, self.params.limitDirectDist, self.params.limitPathDist, self.params.limitDirectDistRev,
             self.params.maxHops)
 
-        oldTreeNodeIndex: int = 0
-        nextRestartIndex: int = -1
-        evalCode: int = 0 # 0 = not in restart zone; 1 = in restart zone; 2 = tidying up after restart zone.
+        oldTreeNodeIndex = 0
+        nextRestartIndex = -1
+        evalCode = 0 # 0 = not in restart zone; 1 = in restart zone; 2 = tidying up after restart zone.
         while oldTreeNodeIndex < len(oldGTFSPath):
             # Check to see if we need to find the next restart:
             if (oldTreeNodeIndex == 0) or ((evalCode != 1) and (nextRestartIndex != -1) and (nextRestartIndex < oldTreeNodeIndex)):
@@ -564,7 +569,7 @@ class PathEngine:
                 evalCode = 0
             
             # Check to see if we have a complete path:
-            flag: bool = False
+            flag = False
             treeNode: PathEnd
             for treeNode in treeNodes:
                 if not treeNode.restart:
@@ -591,34 +596,47 @@ class PathEngine:
             
         # Reverse the order of the list to go from start to end.
         return ret[::-1]
-            
-def dumpStandardHeader(outFile=sys.stdout):
-    """
-    Outputs the CSV header that precedes the info from dumpStandardInfo().
-    """
-    print("shapeID,shapeSeq,shapeType,linkID,linkDist,totalDist,numLinksTrav,linksTrav", file=outFile)
 
-def dumpStandardInfo(treeNodes: list[PathEnd], outFile=sys.stdout):
+class STD_FIELD_NAMES(TypedDict):
+    trackID: Hashable
+    trackSeq: int
+    linkID: Hashable
+    linkDist: float
+    totalDist: float
+    lon: float
+    lat: float
+    numLinksTrav: int
+    linksTrav: str
+
+def dumpStandardInfo(treeNodes: Iterable[PathEnd],
+                     outFile: IO = sys.stdout,
+                     includeHeader: bool = True) -> None:
     """
     Outputs the body of a CSV format of VISTA path information.
     """
     gtfsNode: PathEnd
+    writer = csv.DictWriter(outFile,
+                            fieldnames=STD_FIELD_NAMES.__annotations__.keys())
+    if includeHeader:
+        writer.writeheader()
     for gtfsNode in treeNodes:
-        # TODO: Since we don't have hint stuff anymore, we can either remove or repurpose shapeType.
-        shapeType = 0 # TODO: Remove?
-        outStr = "%s,%d,%d,%d,%g,%g" % (str(gtfsNode.refPoint.id), gtfsNode.refPoint.seq, shapeType,
-                                     gtfsNode.pointOnLink.link.id, gtfsNode.pointOnLink.getDistanceAlong(), gtfsNode.totalDist)
-        # TODO: Need length in the link object.
-        if gtfsNode.restart:
-            # A length of -1 shall be a special indication saying that we are restarting and the link list
-            # does not exist.
-            outStr = outStr + ",-1"
-        else:
-            outStr = outStr + ",%d" % len(gtfsNode.routeInfo)
-            for routeTraverse in gtfsNode.routeInfo:
-                "@type routeTraverse: graph.GraphLink"
-                outStr = outStr + ",%d" % routeTraverse.id
-        print(outStr, file=outFile)
+        outData: STD_FIELD_NAMES
+        outData = {"trackID": gtfsNode.refPoint.id,
+                   "trackSeq": gtfsNode.refPoint.seq \
+                               if gtfsNode.refPoint.seq is not None else -1,
+                   "linkID": gtfsNode.pointOnLink.link.id,
+                   "linkDist": gtfsNode.pointOnLink.getDistanceAlong(),
+                   "totalDist": gtfsNode.totalDist,
+                   "lon": gtfsNode.pointOnLink.point.x,
+                   "lat": gtfsNode.pointOnLink.point.y,
+                   "numLinksTrav": len(gtfsNode.routeInfo) \
+                                   if not gtfsNode.restart else -1,
+                   "linksTrav": str([routeTraverse.id for routeTraverse \
+                                        in gtfsNode.routeInfo] \
+                                     if not gtfsNode.restart else [])}
+        # A links traversed length of -1 shall be a special indication saying
+        # that we are restarting, and the link list does not exist.
+        writer.writerow(outData)
 
 def readStandardDump(baseMap: graph.Map,
                      gtfsShapes: Mapping[Hashable, Iterable[graph.Map.Trackpoint]],
@@ -658,7 +676,7 @@ def readStandardDump(baseMap: graph.Map,
                 linksTrav = []
                         
             # Get the variable-length link list that happens at the end:
-            contFlag: bool = False
+            contFlag = False
             for index in range(0, len(linksTrav)):
                 linksTravID = int(lineElems[index + 7]) # TODO: Do we want to enforce ints?
 

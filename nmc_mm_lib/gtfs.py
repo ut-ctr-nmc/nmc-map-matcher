@@ -55,7 +55,7 @@ def fillShapes(filePath: str) -> dict[int, list[ShapesEntry]]:
     @return A map of shape_id to a list of shape entries
     """
     ret: dict[int, list[ShapesEntry]] = {}
-    filename: str = os.path.join(filePath, "shapes.txt") 
+    filename = os.path.join(filePath, "shapes.txt") 
     with open(filename, mode='r', newline='') as inFile:
         csvReader = csv.DictReader(inFile)
         for fileLine in csvReader:
@@ -70,8 +70,8 @@ def fillShapes(filePath: str) -> dict[int, list[ShapesEntry]]:
     # Ensure that the lists are sorted:
     shapesEntries: list[ShapesEntry]
     for shapesEntries in ret.values():
-        shapesEntries.sort(key = operator.attrgetter('shapeSeq'))
-                    
+        shapesEntries.sort(key=operator.attrgetter('shapeSeq'))
+
     # Return the shapes file contents:
     return ret
 
@@ -298,6 +298,11 @@ def fillStopTimes(filePath: str,
                 strOut += str(tripID)
             logging.warning(f"GTFS Stop Times file expects undefined trip ID(s) {strOut}")
 
+    # Sort the stop times by stop sequence:
+    stopTimesList: list[StopTimesEntry]
+    for stopTimesList in stopTimes.values():
+        stopTimesList.sort(key=operator.attrgetter('stopSeq'))
+
     # Return the stop times file contents:
     return stopTimes
 
@@ -317,4 +322,8 @@ class GTFSSet:
         
         @param filepath: Diretory in which GTFS set sits
         """
-        
+        self.shapes = fillShapes(filepath)
+        self.routes = fillRoutes(filepath)
+        self.trips, unusedTripIDs = fillTrips(filepath, self.shapes, self.routes)
+        self.stops = fillStops(filepath)
+        self.stopTimes = fillStopTimes(filepath, self.trips, self.stops, unusedTripIDs)
