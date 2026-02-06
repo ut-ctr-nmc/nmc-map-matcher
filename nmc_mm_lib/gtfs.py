@@ -305,4 +305,16 @@ class GTFSSet:
     """
     Represents the entire contents of a GTFS set of files
     """
-    pass
+    shapes: dict[int, list[ShapesEntry]]
+    routes: dict[int, RoutesEntry]
+    trips: dict[int, TripsEntry]
+    stops: dict[int, StopsEntry]
+    stopTimes: dict[TripsEntry, list[StopTimesEntry]]
+
+    def __init__(self, filepath: str):
+        """
+        Loads in the contents of a GTFS set
+        
+        @param filepath: Diretory in which GTFS set sits
+        """
+        

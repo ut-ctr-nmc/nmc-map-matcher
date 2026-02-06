@@ -52,17 +52,17 @@ with open(filename, mode='r', newline='') as cnxsFile:
                                 "dest": nodes[fileLine["dest"]]}
 
 # Create map of it:
-map: graph.Map = graph.Map()
+map: graph.Map = graph.Map() # Use default GPS to Web Mercator scheme
 for nodeID, node in nodes.items():
-    # Define each node from lon/lat, ID, and optional metadata dict
-    map.addNode(nodeID, node["lon"], node["lat"], metadata=node)
+    # Define each node from lon/lat, ID, w/o optional metadata dict
+    map.addNode(nodeID, node["lon"], node["lat"])
 for linkID, cnx in cnxs.items():
     # Define each link by using node IDs. By saying that we hadn't specified
     # endpoints, GPS endpoints for each link are grabbed from the nodes:
     map.addLink(cnx["source"]["id"], cnx["dest"]["id"],
-                linkID=linkID, hasEndpoints=False, metadata=cnx)
-    # Commit our geometry:
-    map.completeMap()
+                linkID=linkID, hasEndpoints=False)
+# Commit our geometry:
+map.completeMap()
 
 # Grab GTFS:
 
