@@ -27,7 +27,7 @@ import csv
 import logging
 import os, operator
 from datetime import datetime, timedelta
-from typing import Hashable, NamedTuple, Self
+from typing import Hashable, NamedTuple
 
 # TODO: This would be more compact with Pandas.
 
@@ -35,7 +35,7 @@ class ShapesEntry(NamedTuple):
     """
     ShapesEntry is a single GTFS shape file entry.
     """
-    shapeID: int
+    shapeID: Hashable
     shapeSeq: int
     lat: float
     lng: float
@@ -48,18 +48,18 @@ class ShapesEntry(NamedTuple):
             return NotImplemented
         return self.shapeID == other.shapeID and self.shapeSeq == other.shapeSeq
 
-def fillShapes(filePath: str) -> dict[int, list[ShapesEntry]]:
+def fillShapes(filePath: str) -> dict[Hashable, list[ShapesEntry]]:
     """
     fillShapes retrieves the shape information from a shape file and returns a list of shape entries.
 
     @return A map of shape_id to a list of shape entries
     """
-    ret: dict[int, list[ShapesEntry]] = {}
+    ret: dict[Hashable, list[ShapesEntry]] = {}
     filename = os.path.join(filePath, "shapes.txt") 
     with open(filename, mode='r', newline='') as inFile:
         csvReader = csv.DictReader(inFile)
         for fileLine in csvReader:
-            newEntry = ShapesEntry(shapeID=int(fileLine['shape_id']),
+            newEntry = ShapesEntry(shapeID=fileLine['shape_id'],
                                    shapeSeq=int(fileLine['shape_pt_sequence']),
                                    lat=float(fileLine['shape_pt_lat']),
                                    lng=float(fileLine['shape_pt_lon']))
@@ -79,32 +79,32 @@ class RoutesEntry(NamedTuple):
     """
     RoutesEntry is a single GTFS route with name.
     """
-    routeID: int
+    routeID: Hashable
     shortName: str
     name: str
 
     def __hash__(self) -> int:
-        return self.routeID
+        return hash(self.routeID)
     
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, RoutesEntry):
             return NotImplemented
         return self.routeID == other.routeID
         
-def fillRoutes(filePath: str) -> dict[int, RoutesEntry]:
+def fillRoutes(filePath: str) -> dict[Hashable, RoutesEntry]:
     """
     fillRoutes retrieves route name information from a GTFS repository.
 
     @return A map from routeID to a RoutesEntry object.
     """
-    ret: dict[int, RoutesEntry] = {}
+    ret: dict[Hashable, RoutesEntry] = {}
     filename = os.path.join(filePath, "routes.txt") 
     with open(filename, mode='r', newline='') as inFile:
         csvReader = csv.DictReader(inFile)
         
         # Go through the lines of the file:
         for fileLine in csvReader:
-            newEntry = RoutesEntry(routeID=int(fileLine['route_id']),
+            newEntry = RoutesEntry(routeID=fileLine['route_id'],
                                    shortName=fileLine['route_short_name'],
                                    name=fileLine['route_long_name'])
             ret[newEntry.routeID] = newEntry
@@ -116,13 +116,13 @@ class TripsEntry(NamedTuple):
     """
     TripsEntry is a single GTFS trip file entry.  Its key is tripID.
     """
-    tripID: int
+    tripID: Hashable
     route: RoutesEntry
     tripHeadsign: str
     shapeEntries: list[ShapesEntry]
         
     def __hash__(self) -> int:
-        return self.tripID
+        return hash(self.tripID)
     
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, TripsEntry):
@@ -130,18 +130,18 @@ class TripsEntry(NamedTuple):
         return self.tripID == other.tripID
 
 def fillTrips(filePath: str,
-              shapes: dict[int, list[ShapesEntry]],
-              routes: dict[int, RoutesEntry],
-              unusedShapeIDs: Iterable[int] | set[int] = {},
-              restrictService: Iterable[str] | set[str] = {}) -> tuple[dict[int, TripsEntry], set[int]]:
+              shapes: dict[Hashable, list[ShapesEntry]],
+              routes: dict[Hashable, RoutesEntry],
+              unusedShapeIDs: Iterable[Hashable] | set[Hashable] = {},
+              restrictService: Iterable[str] | set[str] = {}) -> tuple[dict[Hashable, TripsEntry], set[Hashable]]:
     """
     fillTrips retrieves the trip information from a GTFS repository.
 
     @return A map of trip_id to TripsEntry records, as well as a list of unused trip IDs
     """
-    ret: dict[int, TripsEntry] = {}
-    unusedTripIDs: set[int] = set()
-    shapeErrorIDs: set[int] = set()
+    ret: dict[Hashable, TripsEntry] = {}
+    unusedTripIDs: set[Hashable] = set()
+    shapeErrorIDs: set[Hashable] = set()
     unusedShapeIDs = set(unusedShapeIDs)
     restrictService = set(restrictService)
 
@@ -151,10 +151,10 @@ def fillTrips(filePath: str,
 
         # Go through the lines of the file:
         for fileLine in csvReader:
-            shapeID = int(fileLine['shape_id'])
-            routeID = int(fileLine['route_id'])
+            shapeID = fileLine['shape_id']
+            routeID = fileLine['route_id']
             serviceID = fileLine['service_id']
-            tripID = int(fileLine['trip_id'])
+            tripID = fileLine['trip_id']
             if shapeID in unusedShapeIDs or len(restrictService) > 0 and serviceID not in restrictService:
                 unusedTripIDs.add(tripID)
             else:
@@ -181,33 +181,33 @@ class StopsEntry(NamedTuple):
     """
     StopsEntry is a single GTFS stops file entry.
     """
-    stopID: int
+    stopID: Hashable
     stopName: str
     gpsLat: float
     gpsLng: float
 
     def __hash__(self) -> int:
-        return self.stopID
+        return hash(self.stopID)
     
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, StopsEntry):
             return NotImplemented
         return self.stopID == other.stopID
 
-def fillStops(filePath: str) -> dict[int, StopsEntry]:
+def fillStops(filePath: str) -> dict[Hashable, StopsEntry]:
     """
     fillStops retrieves the stop information from a GTFS repository.
 
     @return A map of stop_id to a StopsEntry.
     """
-    ret: dict[int, StopsEntry] = {}
+    ret: dict[Hashable, StopsEntry] = {}
     filename = os.path.join(filePath, "stops.txt") 
     with open(filename, mode='r', newline='') as inFile:
         csvReader = csv.DictReader(inFile)
 
         # Go through the lines of the file:
         for fileLine in csvReader:
-            newEntry = StopsEntry(stopID=int(fileLine['stop_id']),
+            newEntry = StopsEntry(stopID=fileLine['stop_id'],
                                   stopName=fileLine['stop_name'],
                                   gpsLat=float(fileLine['stop_lat']),
                                   gpsLng=float(fileLine['stop_lon']))
@@ -251,9 +251,9 @@ def parseGTFSTime(timeStr: str) -> datetime:
     return timeObj
 
 def fillStopTimes(filePath: str,
-                  trips: dict[int, TripsEntry],
-                  stops: dict[int, StopsEntry],
-                  unusedTripIDs: Iterable[int]) -> dict[TripsEntry, list[StopTimesEntry]]:
+                  trips: dict[Hashable, TripsEntry],
+                  stops: dict[Hashable, StopsEntry],
+                  unusedTripIDs: Iterable[Hashable]) -> dict[TripsEntry, list[StopTimesEntry]]:
     """
     fillStopTimes retrieves the stoptime information from a GTFS repository.
 
@@ -267,16 +267,16 @@ def fillStopTimes(filePath: str,
         csvReader = csv.DictReader(inFile)
         
         # Go through the lines of the file:
-        badTrips: set[int] = set()
+        badTrips: set[TripsEntry] = set()
         for fileLine in csvReader:
-            tripID = int(fileLine['trip_id'])
+            tripID = fileLine['trip_id']
             if tripID not in unusedTripIDs:
                 if not tripID in trips:
-                    badTrips.add(tripID)
+                    badTrips.add(trips[tripID])
                     continue                
                 arrivalTime = parseGTFSTime(fileLine['arrival_time'])
                 departureTime = parseGTFSTime(fileLine['departure_time'])
-                stopID = int(fileLine['stop_id'])
+                stopID = fileLine['stop_id']
                 if not stopID in stops:
                     logging.warning(f"GTFS Stop Times file expects undefined stop ID {stopID}")
                     continue
@@ -310,10 +310,10 @@ class GTFSSet:
     """
     Represents the entire contents of a GTFS set of files
     """
-    shapes: dict[int, list[ShapesEntry]]
-    routes: dict[int, RoutesEntry]
-    trips: dict[int, TripsEntry]
-    stops: dict[int, StopsEntry]
+    shapes: dict[Hashable, list[ShapesEntry]]
+    routes: dict[Hashable, RoutesEntry]
+    trips: dict[Hashable, TripsEntry]
+    stops: dict[Hashable, StopsEntry]
     stopTimes: dict[TripsEntry, list[StopTimesEntry]]
 
     def __init__(self, filepath: str):

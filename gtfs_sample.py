@@ -27,7 +27,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import logging
 from typing import Final, Any, Hashable
 from nmc_mm_lib import graph, gtfs, path_engine
-import csv, os, sys
+import csv, os
 
 MPO_PATH: Final[str] = os.path.join("samples", "mpo")
 GTFS_PATH: Final[str] = os.path.join("samples", "gtfs")
