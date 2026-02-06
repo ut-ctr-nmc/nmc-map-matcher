@@ -34,25 +34,35 @@ MPO_PATH: Final[str] = os.path.join("samples", "mpo")
 # and connectivity (cnx.csv). The links.csv file is there to help with
 # visualization in a GIS program.
 # TODO: This is much more compact with Pandas!
-nodes: dict[int, dict[str, Any]]
-nodesFilename: str = os.path.join(MPO_PATH, "small_atx_nodes.csv")
-with open(nodesFilename, mode='r', newline='') as nodesFile:
+nodes: dict[int, dict[str, Any]] = {}
+filename: str = os.path.join(MPO_PATH, "small_atx_nodes.csv")
+with open(filename, mode='r', newline='') as nodesFile:
     csvReader = csv.DictReader(nodesFile)
     for fileLine in csvReader:
         nodes[fileLine["id"]] = {"id": fileLine["id"],
                                  "lon": fileLine["lat"],
                                  "lat": fileLine["lon"]}
-links: dict[int, dict[str, Any]]
-linksFilename: str = os.path.join(MPO_PATH, "small_atx_cnx.csv")
-with open(linksFilename, mode='r', newline='') as linksFile:
-    csvReader = csv.DictReader(linksFile)
+cnxs: dict[int, dict[str, Any]] = {}
+filename = os.path.join(MPO_PATH, "small_atx_cnx.csv")
+with open(filename, mode='r', newline='') as cnxsFile:
+    csvReader = csv.DictReader(cnxsFile)
     for fileLine in csvReader:
-        links[fileLine["id"]] = {"id": fileLine["id"],
-                                 "source": nodes[fileLine["source"]],
-                                 "dest": nodes[fileLine["dest"]]}
+        cnxs[fileLine["id"]] = {"id": fileLine["id"],
+                                "source": nodes[fileLine["source"]],
+                                "dest": nodes[fileLine["dest"]]}
 
 # Create map of it:
-map: graph.Map
+map: graph.Map = graph.Map()
+for nodeID, node in nodes.items():
+    # Define each node from lon/lat, ID, and optional metadata dict
+    map.addNode(nodeID, node["lon"], node["lat"], metadata=node)
+for linkID, cnx in cnxs.items():
+    # Define each link by using node IDs. By saying that we hadn't specified
+    # endpoints, GPS endpoints for each link are grabbed from the nodes:
+    map.addLink(cnx["source"]["id"], cnx["dest"]["id"],
+                linkID=linkID, hasEndpoints=False, metadata=cnx)
+    # Commit our geometry:
+    map.completeMap()
 
 # Grab GTFS:
 

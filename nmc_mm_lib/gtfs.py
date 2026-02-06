@@ -300,3 +300,9 @@ def fillStopTimes(filePath: str,
 
     # Return the stop times file contents:
     return stopTimes
+
+class GTFSSet:
+    """
+    Represents the entire contents of a GTFS set of files
+    """
+    pass
