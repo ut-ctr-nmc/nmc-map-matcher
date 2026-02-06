@@ -87,6 +87,5 @@ for shapeID, gtfsTrack in gtfsShapesTracks.items():
         matchedPaths[shapeID] = path
 
 # Output matched results:
-for shapeID, matchedPath in matchedPaths.items():
-    with open(f"gtfs_matched_{shapeID}.csv", mode='wt') as outputFile:
-        path_engine.dumpStandardInfo(matchedPath, outputFile)
+with open("gtfs_matched.csv", mode='wt') as outputFile:
+    path_engine.dumpStandardInfo(matchedPaths, outputFile)
