@@ -24,8 +24,51 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
-from nmc_mm_lib import gtfs, vista_network, path_engine
-import sys
+from typing import Final, Any
+from nmc_mm_lib import graph, gtfs, vista_network, path_engine
+import csv, os, sys
+
+MPO_PATH: Final[str] = os.path.join("samples", "mpo")
+
+# Grab MPO model: we'll derive the topography from node locations (nodes.csv)
+# and connectivity (cnx.csv). The links.csv file is there to help with
+# visualization in a GIS program.
+# TODO: This is much more compact with Pandas!
+nodes: dict[int, dict[str, Any]]
+nodesFilename: str = os.path.join(MPO_PATH, "small_atx_nodes.csv")
+with open(nodesFilename, mode='r', newline='') as nodesFile:
+    csvReader = csv.DictReader(nodesFile)
+    for fileLine in csvReader:
+        nodes[fileLine["id"]] = {"id": fileLine["id"],
+                                 "lon": fileLine["lat"],
+                                 "lat": fileLine["lon"]}
+links: dict[int, dict[str, Any]]
+linksFilename: str = os.path.join(MPO_PATH, "small_atx_cnx.csv")
+with open(linksFilename, mode='r', newline='') as linksFile:
+    csvReader = csv.DictReader(linksFile)
+    for fileLine in csvReader:
+        links[fileLine["id"]] = {"id": fileLine["id"],
+                                 "source": nodes[fileLine["source"]],
+                                 "dest": nodes[fileLine["dest"]]}
+
+# Create map of it:
+map: graph.Map
+
+# Grab GTFS:
+
+
+# Express trackpoints in terms of map:
+
+
+# Run path match for each GTFS route:
+
+
+# Output matched results:
+
+
+
+
+
 
 def syntax():
     """
