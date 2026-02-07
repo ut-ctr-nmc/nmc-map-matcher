@@ -25,33 +25,42 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 import logging
-from typing import Final, Any, Hashable
+from typing import Final, Any, Hashable, Generator
 from nmc_mm_lib import graph, gtfs, path_engine
 import csv, os
 
 MPO_PATH: Final[str] = os.path.join("samples", "mpo")
-GTFS_PATH: Final[str] = os.path.join("samples", "gtfs")
+GTFS_PATH: Final[str] = os.path.join("samples", "gtfs", "small_atx")
+
+def mpoRead(filename: str) -> Generator[dict[str, Any]]:
+    """
+    Reads MPO CSV file and yields line by line
+    """
+    filename = os.path.join(MPO_PATH, filename)
+    with open(filename, mode='r', newline='') as fileHandle:
+        csvReader = csv.DictReader(fileHandle)
+        for fileLine in csvReader:
+            yield fileLine
+
+MPOCollection = dict[Hashable, dict[str, Any]]
 
 # Grab MPO model: we'll derive the topography from node locations (nodes.csv)
-# and connectivity (cnx.csv). The links.csv file is there to help with
-# visualization in a GIS program, but it isn't necessary here.
+# and connectivity (cnx.csv). The links.csv file has extra information about
+# streets that we'll put in the map as metadata.
 # TODO: This is much more compact with Pandas!
-nodes: dict[Hashable, dict[str, Any]] = {}
-filename = os.path.join(MPO_PATH, "small_atx_nodes.csv")
-with open(filename, mode='r', newline='') as nodesFile:
-    csvReader = csv.DictReader(nodesFile)
-    for fileLine in csvReader:
-        nodes[fileLine["id"]] = {"id": fileLine["id"],
-                                 "lon": float(fileLine["lon"]),
-                                 "lat": float(fileLine["lat"])}
-cnxs: dict[Hashable, dict[str, Any]] = {}
-filename = os.path.join(MPO_PATH, "small_atx_cnx.csv")
-with open(filename, mode='r', newline='') as cnxsFile:
-    csvReader = csv.DictReader(cnxsFile)
-    for fileLine in csvReader:
-        cnxs[fileLine["id"]] = {"id": fileLine["id"],
-                                "source": nodes[fileLine["source"]],
-                                "dest": nodes[fileLine["dest"]]}
+nodes: MPOCollection = {}
+for fileLine in mpoRead("small_atx_nodes.csv"):
+    nodes[fileLine["id"]] = {"id": fileLine["id"],
+                             "lon": float(fileLine["lon"]),
+                             "lat": float(fileLine["lat"])}
+links: MPOCollection = {}
+for fileLine in mpoRead("small_atx_links.csv"):
+    links[fileLine["id"]] = {"name": fileLine["name"],
+                             "dir": float(fileLine["dir"])}
+cnxs: MPOCollection = {}
+for fileLine in mpoRead("small_atx_cnx.csv"):
+    cnxs[fileLine["id"]] = {"source": nodes[fileLine["source"]],
+                            "dest": nodes[fileLine["dest"]]}
 
 # Create map of it:
 map = graph.Map() # Use default GPS to Web Mercator scheme
@@ -60,9 +69,10 @@ for nodeID, node in nodes.items():
     map.addNode(nodeID, node["lon"], node["lat"])
 for linkID, cnx in cnxs.items():
     # Define each link by using node IDs. By saying that we hadn't specified
-    # endpoints, GPS endpoints for each link are grabbed from the nodes:
+    # endpoints, GPS endpoints for each link are grabbed from the nodes. Also
+    # add in the street name metadata:
     map.addLink(cnx["source"]["id"], cnx["dest"]["id"], linkID=linkID,
-                hasEndpoints=False)
+                hasEndpoints=False, metadata=links[linkID])
 # Commit our geometry:
 map.completeMap()
 
@@ -89,3 +99,14 @@ for shapeID, gtfsTrack in gtfsShapesTracks.items():
 # Output matched results:
 with open("gtfs_matched.csv", mode='wt') as outputFile:
     path_engine.dumpStandardInfo(matchedPaths, outputFile)
+
+# Explain series of streets for each Shape ID:
+for shapeID in matchedPaths.keys():
+    logging.info(f"GTFS Shape ID: {shapeID}")
+    streetName = ("", "")
+    for pathPoint in matchedPaths[shapeID]:
+        for link in pathPoint.routeInfo:
+            newStreetName = (link.data["name"], link.data["dir"])
+            if newStreetName != streetName:
+                logging.info(f'  {link.data["name"]} going {link.data["dir"]}')
+                streetName = newStreetName
