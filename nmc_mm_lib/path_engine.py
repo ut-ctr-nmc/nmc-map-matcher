@@ -4,7 +4,7 @@ path_engine.py contains logic for matching up trackpoints to base map paths
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
-    Cockrell School of Engineering, The University of Texas at Austin 
+    Cockrell School of Engineering, The University of Texas at Austin
 @version: 1.0
 
 @copyright: (C) 2026, The University of Texas at Austin
@@ -37,25 +37,26 @@ import logging
 # restart:
 RESTART_PENALTY_MULT: Final[float] = 2.0
 
+
 class PathEnd:
     """
     PathEnd is a single node used within the overall tree structure. This
     roughly equates to the "path_end" data structure outlined in Figure 2 of
     Perrine et al., 2015.
     """
+
     refPoint: graph.Map.Trackpoint
     pointOnLink: graph.Map.PointOnLink
-    totalCost: float # "s", the total score of the path represented
-    prevTreeNode: 'PathEnd | None' # "p", the previous PathEnd step in this path
-    totalDist: float # Relates to total score of the path represented
-    totalLinkCount: int # the number of links that had been traversed
-    routeInfo: list[graph.Map.LinkRecord] # "l", a list of map links that have been
-                              # traversed on the shortest path
-    restart: bool # "r", a Boolean signifying a discontinuity
+    totalCost: float  # "s", the total score of the path represented
+    prevTreeNode: "PathEnd | None"  # "p", the previous PathEnd step in this path
+    totalDist: float  # Relates to total score of the path represented
+    totalLinkCount: int  # the number of links that had been traversed
+    routeInfo: list[graph.Map.LinkRecord]  # "l", a list of map links that have been traversed on the shortest path
+    restart: bool  # "r", a Boolean signifying a discontinuity
 
-    def __init__(self,
-                 refPoint: graph.Map.Trackpoint,
-                 pointOnLink: graph.Map.PointOnLink):
+    def __init__(
+        self, refPoint: graph.Map.Trackpoint, pointOnLink: graph.Map.PointOnLink
+    ):
         """
         Sets up values in this object, many of which need to be mutable
 
@@ -64,24 +65,26 @@ class PathEnd:
         """
         self.refPoint = refPoint
         self.pointOnLink = pointOnLink
-        
+
         self.totalCost = 0.0
         self.prevTreeNode = None
         self.totalDist = 0.0
         self.totalLinkCount = 0
         self.routeInfo = []
         self.restart = False
-        
-    def cleanCopy(self) -> 'PathEnd':
+
+    def cleanCopy(self) -> "PathEnd":
         """
         cleanCopy initializes a new PathEnd object based on another one.
         """
         return PathEnd(self.refPoint, self.pointOnLink)
 
+
 class PathEngine:
     """
     PathEngine contains constraints that guide the creation of a path.
     """
+
     class Params(NamedTuple):
         """
         Used for configuring the desired behavior of the path engine. Remarks
@@ -101,6 +104,7 @@ class PathEngine:
         @param maxHops: Maximum number of basemap links to pursue in a path-finding operation (default: 12)
         @param tossRatio: Disable the invalidation of short paths (default: 1.0)
         """
+
         searchRadius: float = 100.0
         radiusPrimary: float = 100.0
         radiusSecondary: float = 50.0
@@ -116,9 +120,9 @@ class PathEngine:
         tossRatio: float = 1.0
 
     params: Params
-    prevCosts: list[float] # A list of limitSimulPaths cost values that can be
-                           # used to determine if proposed paths are worth
-                           # traversing.
+    prevCosts: list[float]  # A list of limitSimulPaths cost values that can be
+    # used to determine if proposed paths are worth
+    # traversing.
     shapeScatterCache: list[graph.Map.PointOnLink] | None = None
     forceLinks: Sequence[Iterable[Hashable]] | None = None
     termRefactorRadius: float
@@ -132,10 +136,12 @@ class PathEngine:
         """
         self.params = params
 
-    def scoreFunction(self,
-                      prevGeoPoint: graph.Map.PointOnLink | None,
-                      distance: float,
-                      geoPoint: graph.Map.PointOnLink | None) -> float:
+    def scoreFunction(
+        self,
+        prevGeoPoint: graph.Map.PointOnLink | None,
+        distance: float,
+        geoPoint: graph.Map.PointOnLink | None,
+    ) -> float:
         """
         scoreFunction calculates a cost value given prior path distance, and deviation from the basemap link.
         This corresponds with algorithm "ScoreFunction" in Perrine et al., 2015.
@@ -162,12 +168,12 @@ class PathEngine:
                 if geoPoint.nonPerpPenalty:
                     cost = cost * self.params.nonPerpPenalty
             else:
-                cost = 0.0            
+                cost = 0.0
             return cost + abs(distance) * self.params.distFactor
             # Change from Perrine et al., 2015: Use absolute value of distance here because all movement
             # should be incrementing even in cases where a proposed path is moving back and forth on a link
             # because of shape point noise or tiny U-turns.
-        
+
     def exceedsPreviousCosts(self, cost: float) -> bool:
         """
         Returns true if the given cost value exceeds the most expensive cost already recorded (if the list is
@@ -175,15 +181,19 @@ class PathEngine:
 
         @param cost: The cost value to check
         """
-        return len(self.prevCosts) >= self.params.limitSimulPaths \
+        return (
+            len(self.prevCosts) >= self.params.limitSimulPaths
             and cost > self.prevCosts[-1]
+        )
 
-    def _findShortestPaths(self,
-                           pathProcessor: graph.WalkPathProcessor,
-                           shapeEntry: graph.Map.Trackpoint,
-                           gtfsPointsPrev: list[PathEnd | None],
-                           gtfsPoints: list[PathEnd],
-                           avoidRestartCode: int = 0) -> list[PathEnd]:
+    def _findShortestPaths(
+        self,
+        pathProcessor: graph.WalkPathProcessor,
+        shapeEntry: graph.Map.Trackpoint,
+        gtfsPointsPrev: list[PathEnd | None],
+        gtfsPoints: list[PathEnd],
+        avoidRestartCode: int = 0,
+    ) -> list[PathEnd]:
         """
         _findShortestPaths coordinates the creation of a list of new tree nodes for each of the reachable new points.
         This is mostly an implementation of "FindShortestPath" in Figure 2 of Perrine et al., 2015.
@@ -192,7 +202,7 @@ class PathEngine:
         """
         # Initialize the list of costs that will be used to reduce the number of path-finding iterations:
         self.prevCosts: list[float] = []
-        
+
         # Then, for each previous GTFS tree entry, find the shortest path to each current GTFS tree entry:
         # (On the first time through, this loop will be skipped).
         # TODO: Change gtfsPoints to a name independent of GTFS.
@@ -206,13 +216,23 @@ class PathEngine:
                 distance: float
                 cost: float
                 totalLinkCount: int
-                traversed, distance, cost, totalLinkCount = ([], 0.0, self.scoreFunction(None, 0.0, gtfsPoint.pointOnLink), 0) if not gtfsPointPrev \
-                    else pathProcessor.walkPath(gtfsPointPrev.pointOnLink, gtfsPoint.pointOnLink, gtfsPointPrev.totalCost, gtfsPointPrev.totalLinkCount)
-                    
+                traversed, distance, cost, totalLinkCount = (
+                    ([], 0.0, self.scoreFunction(None, 0.0, gtfsPoint.pointOnLink), 0)
+                    if not gtfsPointPrev
+                    else pathProcessor.walkPath(
+                        gtfsPointPrev.pointOnLink,
+                        gtfsPoint.pointOnLink,
+                        gtfsPointPrev.totalCost,
+                        gtfsPointPrev.totalLinkCount,
+                    )
+                )
+
                 if traversed is not None:
                     # A valid path was found:
-                    if (gtfsPoint.prevTreeNode is None) or ((gtfsPoint.prevTreeNode is not None) \
-                                    and (gtfsPointPrev.totalCost + cost < gtfsPoint.totalCost)):
+                    if (gtfsPoint.prevTreeNode is None) or (
+                        (gtfsPoint.prevTreeNode is not None)
+                        and (gtfsPointPrev.totalCost + cost < gtfsPoint.totalCost)
+                    ):
                         # This is the first proposed parent, or the proposed parent is cheaper than what
                         # is there. Set it:
                         gtfsPoint.prevTreeNode = gtfsPointPrev
@@ -229,7 +249,7 @@ class PathEngine:
                         else:
                             self.prevCosts[-1] = gtfsPoint.totalCost
                         self.prevCosts[:] = sorted(self.prevCosts[:])
-                                                
+
         # Clean up tree entries that didn't get assigned to a parent:
         if len(gtfsPointsPrev) > 0:
             gtfsPointsWork: list[PathEnd] = []
@@ -238,46 +258,60 @@ class PathEngine:
                     gtfsPointsWork.append(gtfsPoint)
         else:
             gtfsPointsWork = gtfsPoints
-                                        
+
         # Warn if we ended up with nothing and move on to the next GTFS point:
         if (len(gtfsPointsWork) == 0) and (avoidRestartCode < 2):
             if (avoidRestartCode < 1) and (len(gtfsPointsPrev) > 0):
                 # Warn if we are not at the start and we didn't find valid map points.
-                logging.warning(f"No map paths were found for path {shapeEntry.id}, sequence {shapeEntry.seq}.")
-            
+                logging.warning(
+                    f"No map paths were found for path {shapeEntry.id}, sequence {shapeEntry.seq}."
+                )
+
             # Figure out which if the previous paths is the cheapest.
             gtfsPointRestart: PathEnd | None = None
             if len(gtfsPointsPrev) > 0:
                 gtfsPointPrev: PathEnd | None
                 for gtfsPointPrev in gtfsPointsPrev:
-                    if (gtfsPointRestart is None) or (gtfsPointPrev.totalCost < gtfsPointRestart.totalCost):
+                    if (gtfsPointRestart is None) or (
+                        gtfsPointPrev.totalCost < gtfsPointRestart.totalCost
+                    ):
                         gtfsPointRestart = gtfsPointPrev
-            
+
             # Mark a "break" in the continuity and link up with the newer candidates.  Keep a limited set.
-            gtfsPoints = gtfsPoints[0:self.params.limitSimulPaths]
+            gtfsPoints = gtfsPoints[0 : self.params.limitSimulPaths]
             if gtfsPointRestart is not None:
                 gtfsPoint: PathEnd
                 for gtfsPoint in gtfsPoints:
                     gtfsPoint.restart = True
                     gtfsPoint.prevTreeNode = gtfsPointRestart
-                    
+
                     # Fake a distance and cost from the linear distance so that we something to report later.
                     # TODO: To separate from Shapely, consider adding a distance method to PointOnLink or Map.
-                    distance = gtfsPointRestart.pointOnLink.point.distance(gtfsPointRestart.pointOnLink.point)
-                    gtfsPoint.totalCost = gtfsPointRestart.totalCost + self.scoreFunction(gtfsPointRestart.pointOnLink,
-                        distance, gtfsPoint.pointOnLink)
+                    distance = gtfsPointRestart.pointOnLink.point.distance(
+                        gtfsPointRestart.pointOnLink.point
+                    )
+                    gtfsPoint.totalCost = (
+                        gtfsPointRestart.totalCost
+                        + self.scoreFunction(
+                            gtfsPointRestart.pointOnLink,
+                            distance,
+                            gtfsPoint.pointOnLink,
+                        )
+                    )
                     gtfsPoint.totalDist = gtfsPointRestart.totalDist + distance
         else:
             # Trim off lowest-scoring paths:
-            gtfsPointsWork.sort(key = operator.attrgetter('totalCost'))
-            gtfsPoints = gtfsPointsWork[0:self.params.limitSimulPaths]
-            
-        return gtfsPoints            
+            gtfsPointsWork.sort(key=operator.attrgetter("totalCost"))
+            gtfsPoints = gtfsPointsWork[0 : self.params.limitSimulPaths]
 
-    def constructPath(self,
-                      trackpoints: Sequence[graph.Map.Trackpoint],
-                      baseMap: graph.Map,
-                      linkList: list[Hashable] | None = None) -> list[PathEnd] | None:
+        return gtfsPoints
+
+    def constructPath(
+        self,
+        trackpoints: Sequence[graph.Map.Trackpoint],
+        baseMap: graph.Map,
+        linkList: list[Hashable] | None = None,
+    ) -> list[PathEnd] | None:
         """
         constructPath goes through a list of trackpoints and finds the shortest path through the given baseMap.
         This roughly corresponds with algorithms "WalkTrack" and "TrackpointArrives" in Figure 2 of Perrine et al. 2015.
@@ -286,29 +320,37 @@ class PathEngine:
         # TODO: Rename gtfsPointsPrev to something independent of GTFS.
         gtfsPointsPrev: list[PathEnd] = []
 
-        pathProcessor: graph.WalkPathProcessor \
-            = graph.WalkPathProcessor(self, baseMap,
-                self.params.limitDirectDist, self.params.limitPathDist,
-                self.params.limitDirectDistRev, self.params.maxHops, linkList)
+        pathProcessor = graph.WalkPathProcessor(
+            self,
+            baseMap,
+            self.params.limitDirectDist,
+            self.params.limitPathDist,
+            self.params.limitDirectDistRev,
+            self.params.maxHops,
+            linkList,
+        )
         shapeCtr: int
         startInvalidCheckFlag: bool = True
         startValidIndex: int = 0
         lastValidIndex: int = -1
         invalidCtr: int = 0
-        
+
         logging.info("Building path...")
-        
+
         # TODO: Rename shapeEntry to "trackpoint".
         shapeEntry: graph.Map.Trackpoint
         for shapeCtr, shapeEntry in enumerate(trackpoints):
-            
+
             if shapeCtr % 10 == 0:
                 logging.info("   ... %d of %d", shapeCtr, len(trackpoints))
 
             # TODO: move the forceLinks stuff to baseMap.findPointsOnLinks().
             closestLinks: list[graph.Map.PointOnLink]
-            if self.forceLinks and shapeCtr < len(self.forceLinks) \
-                    and self.forceLinks[shapeCtr] is not None:
+            if (
+                self.forceLinks
+                and shapeCtr < len(self.forceLinks)
+                and self.forceLinks[shapeCtr] is not None
+            ):
                 # Custom behavior for forcing the use of a limited set of links:
                 # TODO: Why not make a Map out of the subset, and it will be more versatile?
                 closestLinks = []
@@ -316,34 +358,50 @@ class PathEngine:
                 link: graph.Map.LinkRecord
                 for linkID in self.forceLinks[shapeCtr]:
                     link = baseMap.getLinkByID(linkID)
-                    dist, percentAlong, isPerpendicular, pointAlong = baseMap.pointDist(shapeEntry, link)
-                    closestLinks.append(graph.Map.PointOnLink(link, percentAlong, not isPerpendicular, dist, pointAlong))
-                closestLinks.sort(key = operator.attrgetter('refDist'))
+                    dist, percentAlong, isPerpendicular, pointAlong = baseMap.pointDist(
+                        shapeEntry, link
+                    )
+                    closestLinks.append(
+                        graph.Map.PointOnLink(
+                            link, percentAlong, not isPerpendicular, dist, pointAlong
+                        )
+                    )
+                closestLinks.sort(key=operator.attrgetter("refDist"))
             else:
                 # Normal behavior: search among all links:
-                closestLinks = baseMap.findPointsOnLinks(shapeEntry, self.params.searchRadius, self.params.radiusPrimary,
-                                self.params.radiusSecondary, (gtfsPoint.pointOnLink for gtfsPoint in gtfsPointsPrev),
-                                self.params.limitClosestPoints)
-                        
+                closestLinks = baseMap.findPointsOnLinks(
+                    shapeEntry,
+                    self.params.searchRadius,
+                    self.params.radiusPrimary,
+                    self.params.radiusSecondary,
+                    (gtfsPoint.pointOnLink for gtfsPoint in gtfsPointsPrev),
+                    self.params.limitClosestPoints,
+                )
+
             if not closestLinks:
                 lastValidIndex = shapeCtr
                 invalidCtr += 1
-                logging.warning("No closest links were found for "
-                                f"trackpoint {shapeEntry.id}, sequence {shapeEntry.seq}.")
+                logging.warning(
+                    f"No closest links were found for trackpoint {shapeEntry.id}, sequence {shapeEntry.seq}."
+                )
                 continue
             else:
                 if startInvalidCheckFlag:
                     startInvalidCheckFlag = False
                     startValidIndex = lastValidIndex
                 invalidCtr = 0
-            
+
             # Initialize blank endpoint entries:
-            endPoints: list[PathEnd] = [PathEnd(shapeEntry, endPoint) for endPoint in closestLinks]
-            
+            endPoints: list[PathEnd] = [
+                PathEnd(shapeEntry, endPoint) for endPoint in closestLinks
+            ]
+
             # Find the shortest paths from gtfsPointsPrev to the handful of closest base map points:
             # (We're adding another layer to the tree, and previous tree nodes can be found by accessing
             # PathEnd.prevTreeNode)
-            gtfsPointsPrev = self._findShortestPaths(pathProcessor, shapeEntry, gtfsPointsPrev, endPoints)
+            gtfsPointsPrev = self._findShortestPaths(
+                pathProcessor, shapeEntry, gtfsPointsPrev, endPoints
+            )
 
         if startInvalidCheckFlag:
             startValidIndex = len(trackpoints)
@@ -360,7 +418,9 @@ class PathEngine:
             reportStr += f"{invalidCtr} are missing from the end"
             missingEnds += invalidCtr
         if len(reportStr) > 0:
-            logging.warning(f"Out of {len(trackpoints)} georeference points, {reportStr}.")
+            logging.warning(
+                f"Out of {len(trackpoints)} georeference points, {reportStr}."
+            )
         if float(missingEnds) / len(trackpoints) > self.params.tossRatio:
             logging.warning(f"Aborting ID {shapeEntry.id}.")
             return None
@@ -376,16 +436,18 @@ class PathEngine:
         if len(gtfsPointsPrev) > 0:
             for gtfsPointPrev in gtfsPointsPrev:
                 "@type gtfsPointPrev: PathEnd"
-                if (gtfsPoint is None) or (gtfsPointPrev.totalCost < gtfsPoint.totalCost):
+                if (gtfsPoint is None) or (
+                    gtfsPointPrev.totalCost < gtfsPoint.totalCost
+                ):
                     gtfsPoint = gtfsPointPrev
-                    
+
         # Then, follow that end to the beginning:
         ret = []
         "@type ret: list<PathEnd>"
         while gtfsPoint is not None:
             ret.append(gtfsPoint)
             gtfsPoint = gtfsPoint.prevTreeNode
-            
+
         # Reverse the order of the list to go from start to end.
         return ret[::-1]
 
@@ -400,7 +462,7 @@ class PathEngine:
             startIndex += 1
         if startIndex >= len(gtfsPath):
             return -1
-        return startIndex 
+        return startIndex
 
     def setRefineParams(self, termRefactorRadius: float) -> None:
         """
@@ -409,7 +471,7 @@ class PathEngine:
         @param termRefactorRadius: The radius around restart points that cause tree points to be reevaluated.
         """
         self.termRefactorRadius = termRefactorRadius
-        
+
     def setForceLinks(self, forceLinks: Sequence[Iterable[Hashable]] | None):
         """
         Forces refinePath() to use specific links.
@@ -420,48 +482,74 @@ class PathEngine:
         # TODO: Transition to using another map as the forceLinks source.
         self.forceLinks = forceLinks
 
-    def _tryTreeStack(self,
-                      pathProcessor: graph.WalkPathProcessor,
-                      oldTreeNode: PathEnd,
-                      prevTreeNodes: list[PathEnd | None],
-                      baseMap: graph.Map,
-                      evalCode: int,
-                      firstFlag: bool,
-                      pathIndex: int | None = None) -> tuple[list[PathEnd], int]:
+    def _tryTreeStack(
+        self,
+        pathProcessor: graph.WalkPathProcessor,
+        oldTreeNode: PathEnd,
+        prevTreeNodes: list[PathEnd | None],
+        baseMap: graph.Map,
+        evalCode: int,
+        firstFlag: bool,
+        pathIndex: int | None = None,
+    ) -> tuple[list[PathEnd], int]:
         """
         Potentially recursively called internal worker method that reevaluates tree indices and
         generates new tree nodes.
 
         @param evalCode: Use 0: no evaluation, 1: full evaluation, 2: wrap up loose ends
         @param pathIndex: This must be provided for path refining that uses forced links.
-        @return The list of new tree nodes, and then the eval code that was most recently used. 
+        @return The list of new tree nodes, and then the eval code that was most recently used.
         """
-        prevPointsOnLinks: tuple[graph.Map.PointOnLink, ...] = tuple(prevTreeNode.pointOnLink for prevTreeNode in prevTreeNodes if prevTreeNode is not None)
+        prevPointsOnLinks: tuple[graph.Map.PointOnLink, ...] = tuple(
+            prevTreeNode.pointOnLink
+            for prevTreeNode in prevTreeNodes
+            if prevTreeNode is not None
+        )
         curListAll: list[PathEnd] = []
 
-        if firstFlag:        
+        if firstFlag:
             self.shapeScatterCache = None
-        
+
         # Are we in an area that requires reevaluation (e.g. restart)?  Deal with shape points here:
         gtfsPoints: list[PathEnd]
         if evalCode > 0:
             if evalCode == 1:
                 # Check if we had found all of the shape proximity points already:
                 if self.shapeScatterCache is None:
-                    if pathIndex is not None and self.forceLinks is not None and pathIndex < len(self.forceLinks) \
-                            and self.forceLinks[pathIndex] is not None:
+                    if (
+                        pathIndex is not None
+                        and self.forceLinks is not None
+                        and pathIndex < len(self.forceLinks)
+                        and self.forceLinks[pathIndex] is not None
+                    ):
                         # Specialized operation: force the use of the given link:
                         # TODO: Consider a scheme where we are walking through two maps simultaneously. It should work!
                         self.shapeScatterCache = []
-                        linkHashes: Iterable[Hashable] = self.forceLinks[pathIndex] # ** NEED TO FIGURE OUT WHAT TO DO WITH ITERABLE **
-                        link: graph.Map.LinkRecord = baseMap.getLinkByID(next(iter(linkHashes))) # TODO: Hack to get first element
-                        dist, percentAlong, isPerpendicular, point = baseMap.pointDist(oldTreeNode.refPoint, link)
-                        self.shapeScatterCache.append(graph.Map.PointOnLink(link, percentAlong, not isPerpendicular, dist, point))
+                        linkHashes: Iterable[Hashable] = self.forceLinks[
+                            pathIndex
+                        ]  # ** NEED TO FIGURE OUT WHAT TO DO WITH ITERABLE **
+                        link: graph.Map.LinkRecord = baseMap.getLinkByID(
+                            next(iter(linkHashes))
+                        )  # TODO: Hack to get first element
+                        dist, percentAlong, isPerpendicular, point = baseMap.pointDist(
+                            oldTreeNode.refPoint, link
+                        )
+                        self.shapeScatterCache.append(
+                            graph.Map.PointOnLink(
+                                link, percentAlong, not isPerpendicular, dist, point
+                            )
+                        )
                     else:
-                        # Normal operation: find closest limitClosestPoints points to the shape point among all links: 
-                        self.shapeScatterCache = baseMap.findPointsOnLinks(oldTreeNode.refPoint, self.params.searchRadius, self.params.radiusPrimary,
-                            self.params.radiusSecondary, prevPointsOnLinks, self.params.limitClosestPoints)
-                
+                        # Normal operation: find closest limitClosestPoints points to the shape point among all links:
+                        self.shapeScatterCache = baseMap.findPointsOnLinks(
+                            oldTreeNode.refPoint,
+                            self.params.searchRadius,
+                            self.params.radiusPrimary,
+                            self.params.radiusSecondary,
+                            prevPointsOnLinks,
+                            self.params.limitClosestPoints,
+                        )
+
                 # Create new PathEnd objects:
                 gtfsPoints = []
                 matchPoint: graph.Map.PointOnLink
@@ -471,11 +559,16 @@ class PathEngine:
             elif evalCode == 2:
                 # We are getting all previous points to converge down on one point, preserving the best one:
                 gtfsPoints = [oldTreeNode.cleanCopy()]
-    
+
             if gtfsPoints:
                 # Find the shortest paths from gtfsPointsPrev to the handful of closest basemap points:
-                curList: list[PathEnd] = self._findShortestPaths(pathProcessor, oldTreeNode.refPoint, prevTreeNodes,
-                    gtfsPoints, 1 if firstFlag else 2)
+                curList: list[PathEnd] = self._findShortestPaths(
+                    pathProcessor,
+                    oldTreeNode.refPoint,
+                    prevTreeNodes,
+                    gtfsPoints,
+                    1 if firstFlag else 2,
+                )
                 # Check for restarts and penalize.  Only keep the first (cheapest) restart.  Meanwhile, append to
                 # the results list:
                 restartFlag = False
@@ -493,83 +586,121 @@ class PathEngine:
                 for prevTreeNode in prevTreeNodes:
                     curTreeNode = copy.copy(oldTreeNode)
                     curTreeNode.prevTreeNode = prevTreeNode
-                    dist = oldTreeNode.refPoint.point.distance(curTreeNode.pointOnLink.point) # TODO: Again, separate from Shapely.
+                    dist = oldTreeNode.refPoint.point.distance(
+                        curTreeNode.pointOnLink.point
+                    )  # TODO: Again, separate from Shapely.
                     curTreeNode.totalDist += dist * RESTART_PENALTY_MULT
                     curTreeNode.totalCost += dist * RESTART_PENALTY_MULT
                     curListAll.append(curTreeNode)
-                        
+
         elif firstFlag:
             # This happens if we are not reevaluating the existing paths at all.
             # TODO: The total cost isn't being added up properly here.  Try combining the evalCode 0 and 2 parts to
             # get the system to retrace the steps that had been traversed before.
             curTreeNode: PathEnd = copy.copy(oldTreeNode)
             "@type curTreeNode: PathEnd"
-            if not prevTreeNodes: # This happens on the first element of a path.
+            if not prevTreeNodes:  # This happens on the first element of a path.
                 prevTreeNodes.append(None)
-            assert len(prevTreeNodes) == 1 # There should just be one of these because we're drawing from a final tree.
-            curTreeNode.prevTreeNode = prevTreeNodes[0] 
+            assert (
+                len(prevTreeNodes) == 1
+            )  # There should just be one of these because we're drawing from a final tree.
+            curTreeNode.prevTreeNode = prevTreeNodes[0]
             curListAll.append(curTreeNode)
-                
+
         if firstFlag:
             if evalCode == 2:
                 # Only keep the best result when we converge down to one point:
-                curListAll.sort(key = operator.attrgetter('totalCost'))
+                curListAll.sort(key=operator.attrgetter("totalCost"))
                 curListAll = [curListAll[0]]
-        
+
         # Limit the number of results:
         # TODO: Re-enable if needed?
-        #curListAll = curListAll[0:self.limitSimulPaths]
-        
-        #curListAll.sort(key = operator.attrgetter('totalCost'))
-        
+        # curListAll = curListAll[0:self.limitSimulPaths]
+
+        # curListAll.sort(key = operator.attrgetter('totalCost'))
+
         return curListAll, evalCode
 
-    def refinePath(self, oldGTFSPath: list[PathEnd], baseMap: graph.Map) -> list[PathEnd]:
+    def refinePath(
+        self, oldGTFSPath: list[PathEnd], baseMap: graph.Map
+    ) -> list[PathEnd]:
         """
         refinePath goes through existing GTFS points and tries to route from a restart. Uses termRefactorRadius.
         """
         logging.info("Refining path...")
         treeNodes: list[PathEnd] = []
-        
-        pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(self, baseMap, self.params.limitDirectDist, self.params.limitPathDist, self.params.limitDirectDistRev,
-            self.params.maxHops)
+
+        pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(
+            self,
+            baseMap,
+            self.params.limitDirectDist,
+            self.params.limitPathDist,
+            self.params.limitDirectDistRev,
+            self.params.maxHops,
+        )
 
         oldPathIndex = 0
         restartIndex = -1
-        evalCode = 0 # 0 = not in restart zone; 1 = in restart zone; 2 = tidying up after restart zone.
+        evalCode = 0  # 0 = not in restart zone; 1 = in restart zone; 2 = tidying up after restart zone.
         while oldPathIndex < len(oldGTFSPath):
             # Check to see if we need to find the next restart:
-            if (oldPathIndex == 0) or ((evalCode != 1) and (restartIndex != -1) and (restartIndex < oldPathIndex)):
+            if (oldPathIndex == 0) or (
+                (evalCode != 1)
+                and (restartIndex != -1)
+                and (restartIndex < oldPathIndex)
+            ):
                 restartIndex = self._findNextRestart(oldGTFSPath, restartIndex + 1)
-                
+
             # Check for restart point. Check if we are in the radius of the last known good point or the restart point.
-            if (restartIndex >= 1 and oldGTFSPath[oldPathIndex].pointOnLink.point.distance(oldGTFSPath[restartIndex - 1].pointOnLink.point)
-                        < self.termRefactorRadius) \
-                    or (restartIndex >= 0 and oldGTFSPath[oldPathIndex].pointOnLink.point.distance(oldGTFSPath[restartIndex].pointOnLink.point)
-                        < self.termRefactorRadius):
+            if (
+                restartIndex >= 1
+                and oldGTFSPath[oldPathIndex].pointOnLink.point.distance(
+                    oldGTFSPath[restartIndex - 1].pointOnLink.point
+                )
+                < self.termRefactorRadius
+            ) or (
+                restartIndex >= 0
+                and oldGTFSPath[oldPathIndex].pointOnLink.point.distance(
+                    oldGTFSPath[restartIndex].pointOnLink.point
+                )
+                < self.termRefactorRadius
+            ):
                 if evalCode == 0:
-                    evalCode = 1 # Full reevaluation
-                    logging.info(f"Enter restart zone at track ID {oldGTFSPath[oldPathIndex].refPoint.id}, seq {oldGTFSPath[oldPathIndex].refPoint.seq}")
+                    evalCode = 1  # Full reevaluation
+                    logging.info(
+                        f"Enter restart zone at track ID {oldGTFSPath[oldPathIndex].refPoint.id}, seq {oldGTFSPath[oldPathIndex].refPoint.seq}"
+                    )
             else:
                 # Tie up loose ends if the previous round had new points found.
                 if evalCode == 1:
                     evalCode = 2
-                    logging.info(f"Exiting zone at track ID {oldGTFSPath[oldPathIndex].refPoint.id}, seq {oldGTFSPath[oldPathIndex].refPoint.seq}")
-                        
+                    logging.info(
+                        f"Exiting zone at track ID {oldGTFSPath[oldPathIndex].refPoint.id}, seq {oldGTFSPath[oldPathIndex].refPoint.seq}"
+                    )
+
             if evalCode == 1:
-                logging.info(f"INFO:   ... track seq. {oldGTFSPath[oldPathIndex].refPoint.seq}")
+                logging.info(
+                    f"INFO:   ... track seq. {oldGTFSPath[oldPathIndex].refPoint.seq}"
+                )
 
             # TODO: Also if a shape point is flagged to be reevaluated.
-            
+
             # Visit this shape point further and figure out how to reevaluate it.
-            treeNodes, evalCode = self._tryTreeStack(pathProcessor, oldGTFSPath[oldPathIndex], treeNodes, baseMap,
-                evalCode, True, oldPathIndex)
-            
+            treeNodes, evalCode = self._tryTreeStack(
+                pathProcessor,
+                oldGTFSPath[oldPathIndex],
+                treeNodes,
+                baseMap,
+                evalCode,
+                True,
+                oldPathIndex,
+            )
+
             if evalCode == 2:
                 # We have tied up loose ends; now reset.
                 # TODO: To always trace current paths for sanity-check, don't set evalCode to 0.
                 evalCode = 0
-            
+
             # Check to see if we have a complete path:
             flag = False
             treeNode: PathEnd
@@ -577,26 +708,31 @@ class PathEngine:
                 if not treeNode.restart:
                     flag = True
             if not flag:
-                logging.warning(f"No basemap path found into track ID {oldGTFSPath[oldPathIndex].refPoint.id}, seq {oldGTFSPath[oldPathIndex].refPoint.seq}")
+                logging.warning(
+                    f"No basemap path found into track ID {oldGTFSPath[oldPathIndex].refPoint.id}, seq {oldGTFSPath[oldPathIndex].refPoint.seq}"
+                )
             oldPathIndex += 1
-            
+
         # Now, extract the shortest path.  First, find the end that has the cheapest cost:
         logging.info("Finishing path...")
         gtfsPoint: PathEnd | None = None
         if len(treeNodes) > 0:
             treeNodeElem: PathEnd
             for treeNodeElem in treeNodes:
-                if (gtfsPoint is None) or (treeNodeElem.totalCost < gtfsPoint.totalCost):
+                if (gtfsPoint is None) or (
+                    treeNodeElem.totalCost < gtfsPoint.totalCost
+                ):
                     gtfsPoint = treeNodeElem
-                    
+
         # Then, follow that end to the beginning:
         ret: list[PathEnd] = []
         while gtfsPoint is not None:
             ret.append(gtfsPoint)
             gtfsPoint = gtfsPoint.prevTreeNode
-            
+
         # Reverse the order of the list to go from start to end.
         return ret[::-1]
+
 
 class StdFieldNames(TypedDict):
     trackID: Hashable
@@ -609,14 +745,16 @@ class StdFieldNames(TypedDict):
     numLinksTrav: int
     linksTrav: str
 
-def dumpStandardInfo(treeNodesLists: Mapping[Hashable, Iterable[PathEnd]],
-                     outFile: IO = sys.stdout,
-                     includeHeader: bool = True) -> None:
+
+def dumpStandardInfo(
+    treeNodesLists: Mapping[Hashable, Iterable[PathEnd]],
+    outFile: IO = sys.stdout,
+    includeHeader: bool = True,
+) -> None:
     """
     Outputs the body of a CSV format of track path information.
     """
-    writer = csv.DictWriter(outFile,
-                            fieldnames=StdFieldNames.__annotations__.keys())
+    writer = csv.DictWriter(outFile, fieldnames=StdFieldNames.__annotations__.keys())
     if includeHeader:
         writer.writeheader()
     treeNodes: Iterable[PathEnd]
@@ -624,22 +762,27 @@ def dumpStandardInfo(treeNodesLists: Mapping[Hashable, Iterable[PathEnd]],
         treeNode: PathEnd
         for treeNode in treeNodes:
             outData: StdFieldNames
-            outData = {"trackID": treeNode.refPoint.id,
-                    "trackSeq": treeNode.refPoint.seq \
-                                if treeNode.refPoint.seq is not None else -1,
-                    "linkID": treeNode.pointOnLink.link.id,
-                    "linkDist": treeNode.pointOnLink.getDistanceAlong(),
-                    "totalDist": treeNode.totalDist,
-                    "lon": treeNode.pointOnLink.point.x,
-                    "lat": treeNode.pointOnLink.point.y,
-                    "numLinksTrav": len(treeNode.routeInfo) \
-                                    if not treeNode.restart else -1,
-                    "linksTrav": str([routeTraverse.id for routeTraverse \
-                                            in treeNode.routeInfo] \
-                                        if not treeNode.restart else [])}
+            outData = {
+                "trackID": treeNode.refPoint.id,
+                "trackSeq": (
+                    treeNode.refPoint.seq if treeNode.refPoint.seq is not None else -1
+                ),
+                "linkID": treeNode.pointOnLink.link.id,
+                "linkDist": treeNode.pointOnLink.getDistanceAlong(),
+                "totalDist": treeNode.totalDist,
+                "lon": treeNode.pointOnLink.point.x,
+                "lat": treeNode.pointOnLink.point.y,
+                "numLinksTrav": len(treeNode.routeInfo) if not treeNode.restart else -1,
+                "linksTrav": str(
+                    [routeTraverse.id for routeTraverse in treeNode.routeInfo]
+                    if not treeNode.restart
+                    else []
+                ),
+            }
             # A links traversed length of -1 shall be a special indication
             # saying that we are restarting, and the link list doesn't exist.
             writer.writerow(outData)
+
 
 def stringToList(string: str) -> list[Number]:
     """
@@ -650,13 +793,14 @@ def stringToList(string: str) -> list[Number]:
         myList = json.loads(string)
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid list format: {e}")
-    if not isinstance(myList, list) \
-                            or not all(isinstance(x, Number) for x in myList):
+    if not isinstance(myList, list) or not all(isinstance(x, Number) for x in myList):
         raise ValueError("Input string must be a list of numbers.")
     return myList
 
-def readStandardDump(baseMap: graph.Map, inFile: IO,
-        includeHeader: bool = True) -> dict[Hashable, list[PathEnd]]:
+
+def readStandardDump(
+    baseMap: graph.Map, inFile: IO, includeHeader: bool = True
+) -> dict[Hashable, list[PathEnd]]:
     """
     readStandardDump reconstructs the tree entries that PathEngine had created.
 
@@ -669,23 +813,32 @@ def readStandardDump(baseMap: graph.Map, inFile: IO,
     reader = csv.DictReader(inFile, **params)
 
     for inData in reader:
-        trackPoint = baseMap.makeTrackpoint(float(inData["lon"]),
-                        float(inData["lat"]), ident=inData["trackID"],
-                        seq=int(inData["trackSeq"]))
+        trackPoint = baseMap.makeTrackpoint(
+            float(inData["lon"]),
+            float(inData["lat"]),
+            ident=inData["trackID"],
+            seq=int(inData["trackSeq"]),
+        )
         link = baseMap.getLinkByID(inData["linkID"])
         if not link:
-            logging.warning("The path match file refers to a nonexistent link"
-                            + f" ID {inData['linkID']}.")
+            logging.warning(
+                "The path match file refers to a nonexistent link"
+                + f" ID {inData['linkID']}."
+            )
             continue
-        refDist, percentAlong, isPerpendicular, pointAlong \
-                                        = baseMap.pointDist(trackPoint, link)
-        matchPoint = graph.Map.PointOnLink(link, percentAlong,
-                                    not isPerpendicular, refDist, pointAlong)
+        refDist, percentAlong, isPerpendicular, pointAlong = baseMap.pointDist(
+            trackPoint, link
+        )
+        matchPoint = graph.Map.PointOnLink(
+            link, percentAlong, not isPerpendicular, refDist, pointAlong
+        )
         newEntry = PathEnd(trackPoint, matchPoint)
         newEntry.totalDist = float(inData["totalDist"])
         if int(inData["numLinksTrav"]) >= 0:
-            newEntry.routeInfo = [baseMap.getLinkByID(linkID)
-                            for linkID in stringToList(inData["linksTrav"])]
+            newEntry.routeInfo = [
+                baseMap.getLinkByID(linkID)
+                for linkID in stringToList(inData["linksTrav"])
+            ]
         newEntry.restart = int(inData["numLinksTrav"]) == -1
         # TODO: totalCost and totalLinkCount aren't being stored in the dump,
         # so they're not set.
@@ -696,6 +849,7 @@ def readStandardDump(baseMap: graph.Map, inFile: IO,
 
     # Now we need to make sure sequences are sorted:
     for treeNodes in ret.values():
-        treeNodes.sort(key = lambda node: node.refPoint.seq
-                                    if node.refPoint.seq is not None else -1)
+        treeNodes.sort(
+            key=lambda node: node.refPoint.seq if node.refPoint.seq is not None else -1
+        )
     return ret
