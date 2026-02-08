@@ -1,4 +1,5 @@
 NMC MAP MATCHER
+Version 2.0
 Network Modeling Center
 Center for Transportation Research
 Cockrell School of Engineering
@@ -9,7 +10,7 @@ Repository: https://github.com/ut-ctr-nmc/nmc-map-matcher
 Kenneth Perrine
 kperrine@utexas.edu
 
-Copyright (C) 2014-2016, The University of Texas at Austin
+Copyright (C) 2014-2026, The University of Texas at Austin
 -----
 
 The NMC Map Matcher is designed to take a set of georeference points,
@@ -17,15 +18,6 @@ such as GTFS, GPS tracks, etc., and project them to an underlying node-
 link representation of a transportation network. The algorithm 
 maintains multiple candidate paths, which turns out to be very effective
 in dealing with a variety of ambiguities in the mapping.
-
-This is currently a first cut, however! The code has been very useful
-for research activities at the Network Modeling Center, but a number of
-efficiencies and features are needed that are described in the wiki.
-I welcome opportunities to collaborate in making this code better. I
-also appreciate hearing where this code comes in handy. (Keep in mind
-that transportation research need not be the only domain for this map
-matcher code. This may be applied to a variety of problems that deal
-with error minimizations, etc.)
 
 This code accompanies this paper:
    Perrine, Kenneth A., Alireza Khani, and Natalia Ruiz-Juri. A
@@ -42,18 +34,11 @@ For documentation, please access the wiki on the GitHub site:
 This project appears in the TRB Annual Meeting 2015 program as a
 "practice-ready" paper. While this project contains functioning code,
 be advised that it isn't quite finished and until some further
-improvements are made, it may require some programming or database
-work to interface for your particular application.  The quickest way to
-get the code running on your computer is to do the following:
-1. Download and install Python 2 (the latest version as of Jan. 2015 is
-   Python 2.7.9)
-2. You may need to install the Psycopg library if you want to use the
-   current database importer. Otherwise you will need to provide your
-   own data importer for your underlying network topology, or wait
-   until this is completed and included in this project.
-3. If you don't want to deal with Git, you can download this project as
-   a ZIP file (available from the GitHub main project page).
-4. Follow the examples in the wiki pages on "Theory of Operation" and
+adaptations are made for your use case. The quickest way to get the
+code running on your computer is to do the following:
+1. Download and install Python 3.11 or newer
+2. Install the dependencies shapely, pyproj, and networkx
+3. Follow the examples in the wiki pages on "Theory of Operation" and
    so forth.
 
 -----

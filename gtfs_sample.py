@@ -25,10 +25,11 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import logging
+from nmc_mm_lib import graph, path_engine
+from support import gtfs
 from typing import Final, Any, Hashable, Generator
-from nmc_mm_lib import graph, gtfs, path_engine
 import csv, os
+import logging
 
 MPO_PATH: Final[str] = os.path.join("samples", "mpo")
 GTFS_PATH: Final[str] = os.path.join("samples", "gtfs", "small_atx")

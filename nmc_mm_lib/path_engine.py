@@ -1,11 +1,10 @@
 """
 path_engine.py contains logic for matching up trackpoints to base map paths
-    and the writing and reading of them.
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
     Cockrell School of Engineering, The University of Texas at Austin
-@version: 1.0
+@version: 2.0
 
 @copyright: (C) 2026, The University of Texas at Austin
 @license: GPL v3
@@ -25,12 +24,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from collections.abc import Hashable, Iterable, Sequence
-import csv
-import json
-from typing import IO, Final, Mapping, NamedTuple, TypedDict
-from numbers import Number
+from typing import Final, NamedTuple
 from nmc_mm_lib import graph
-import operator, sys, copy
+import operator, copy
 import logging
 
 # Multiplier for shape-to-shape evaluations that happen while refining on a
@@ -732,124 +728,3 @@ class PathEngine:
 
         # Reverse the order of the list to go from start to end.
         return ret[::-1]
-
-
-class StdFieldNames(TypedDict):
-    trackID: Hashable
-    trackSeq: int
-    linkID: Hashable
-    linkDist: float
-    totalDist: float
-    lon: float
-    lat: float
-    numLinksTrav: int
-    linksTrav: str
-
-
-def dumpStandardInfo(
-    treeNodesLists: Mapping[Hashable, Iterable[PathEnd]],
-    outFile: IO = sys.stdout,
-    includeHeader: bool = True,
-) -> None:
-    """
-    Outputs the body of a CSV format of track path information.
-    """
-    writer = csv.DictWriter(outFile, fieldnames=StdFieldNames.__annotations__.keys())
-    if includeHeader:
-        writer.writeheader()
-    treeNodes: Iterable[PathEnd]
-    for treeNodes in treeNodesLists.values():
-        treeNode: PathEnd
-        for treeNode in treeNodes:
-            outData: StdFieldNames
-            outData = {
-                "trackID": treeNode.refPoint.id,
-                "trackSeq": (
-                    treeNode.refPoint.seq if treeNode.refPoint.seq is not None else -1
-                ),
-                "linkID": treeNode.pointOnLink.link.id,
-                "linkDist": treeNode.pointOnLink.getDistanceAlong(),
-                "totalDist": treeNode.totalDist,
-                "lon": treeNode.pointOnLink.point.x,
-                "lat": treeNode.pointOnLink.point.y,
-                "numLinksTrav": len(treeNode.routeInfo) if not treeNode.restart else -1,
-                "linksTrav": str(
-                    [routeTraverse.id for routeTraverse in treeNode.routeInfo]
-                    if not treeNode.restart
-                    else []
-                ),
-            }
-            # A links traversed length of -1 shall be a special indication
-            # saying that we are restarting, and the link list doesn't exist.
-            writer.writerow(outData)
-
-
-def stringToList(string: str) -> list[Number]:
-    """
-    stringToList is a helper function to safely convert a string representation
-    of a list of numbers back into a list.
-    """
-    try:
-        myList = json.loads(string)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid list format: {e}")
-    if not isinstance(myList, list) or not all(isinstance(x, Number) for x in myList):
-        raise ValueError("Input string must be a list of numbers.")
-    return myList
-
-
-def readStandardDump(
-    baseMap: graph.Map, inFile: IO, includeHeader: bool = True
-) -> dict[Hashable, list[PathEnd]]:
-    """
-    readStandardDump reconstructs the tree entries that PathEngine had created.
-
-    @return A dictionary of trackID to a list of PathEnds
-    """
-    ret: dict[Hashable, list[PathEnd]] = {}
-    params = {}
-    if not includeHeader:
-        params["fieldnames"] = list(StdFieldNames.__annotations__.keys())
-    reader = csv.DictReader(inFile, **params)
-
-    for inData in reader:
-        trackPoint = baseMap.makeTrackpoint(
-            float(inData["lon"]),
-            float(inData["lat"]),
-            ident=inData["trackID"],
-            seq=int(inData["trackSeq"]),
-        )
-        link = baseMap.getLinkByID(inData["linkID"])
-        if not link:
-            logging.warning(
-                "The path match file refers to a nonexistent link"
-                + f" ID {inData['linkID']}."
-            )
-            continue
-        refDist, percentAlong, isPerpendicular, pointAlong = baseMap.pointDist(
-            trackPoint, link
-        )
-        matchPoint = graph.Map.PointOnLink(
-            link, percentAlong, not isPerpendicular, refDist, pointAlong
-        )
-        newEntry = PathEnd(trackPoint, matchPoint)
-        newEntry.totalDist = float(inData["totalDist"])
-        if int(inData["numLinksTrav"]) >= 0:
-            newEntry.routeInfo = [
-                baseMap.getLinkByID(linkID)
-                for linkID in stringToList(inData["linksTrav"])
-            ]
-        newEntry.restart = int(inData["numLinksTrav"]) == -1
-        # TODO: totalCost and totalLinkCount aren't being stored in the dump,
-        # so they're not set.
-
-        if inData["trackID"] not in ret:
-            ret[inData["trackID"]] = []
-        ret[inData["trackID"]].append(newEntry)
-
-    # Now we need to make sure sequences are sorted:
-    for treeNodes in ret.values():
-        treeNodes.sort(
-            key=lambda node: node.refPoint.seq if node.refPoint.seq is not None else -1
-        )
-    return ret

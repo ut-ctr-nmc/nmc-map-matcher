@@ -23,15 +23,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from typing import (
-    Hashable,
-    Iterable,
-    NamedTuple,
-    Sequence,
-    MutableMapping,
-    Generator,
-    Any,
-)
+from collections.abc import Hashable, Iterable, Sequence, Generator
+from typing import NamedTuple, MutableMapping, Any
 from typing_extensions import Self
 import shapely
 from shapely.ops import transform
