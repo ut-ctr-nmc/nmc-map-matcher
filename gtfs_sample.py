@@ -115,7 +115,9 @@ with open("gtfs_matched.csv", mode="wt") as outputFile:
 for shapeID in matchedPaths.keys():
     logging.info(f"GTFS Shape ID: {shapeID}")
     streetName = ("", "")
+    pathPoint: path_engine.PathEnd
     for pathPoint in matchedPaths[shapeID]:
+        link: graph.Map.LinkRecord
         for link in pathPoint.routeInfo:
             newStreetName = (link.data["name"], link.data["dir"])
             if newStreetName != streetName:
