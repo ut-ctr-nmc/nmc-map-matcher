@@ -25,7 +25,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from nmc_mm_lib import graph, path_engine
+from nmc_mm_lib import graph, path_engine, dump_io
 from support import gtfs
 from typing import Final, Any, Hashable, Generator
 import csv, os
@@ -110,7 +110,7 @@ for shapeID, gtfsTrack in gtfsShapesTracks.items():
 
 # Output matched results:
 with open("gtfs_matched.csv", mode="wt") as outputFile:
-    path_engine.dumpStandardInfo(matchedPaths, outputFile)
+    dump_io.dumpStandardInfo(map, matchedPaths, outputFile)
 
 # Explain series of streets for each Shape ID:
 for shapeID in matchedPaths.keys():

@@ -45,6 +45,7 @@ class StdFieldNames(TypedDict):
 
 
 def dumpStandardInfo(
+    map: graph.Map,
     treeNodesLists: Mapping[Hashable, Iterable[path_engine.PathEnd]],
     outFile: IO = sys.stdout,
     includeHeader: bool = True,
@@ -59,6 +60,7 @@ def dumpStandardInfo(
     for treeNodes in treeNodesLists.values():
         treeNode: path_engine.PathEnd
         for treeNode in treeNodes:
+            lon, lat = map.revertPointOnLink(treeNode.pointOnLink)
             outData: StdFieldNames
             outData = {
                 "trackID": treeNode.refPoint.id,
@@ -68,8 +70,8 @@ def dumpStandardInfo(
                 "linkID": treeNode.pointOnLink.link.id,
                 "linkDist": treeNode.pointOnLink.getDistanceAlong(),
                 "totalDist": treeNode.totalDist,
-                "lon": treeNode.pointOnLink.point.x,
-                "lat": treeNode.pointOnLink.point.y,
+                "lon": lon,
+                "lat": lat,
                 "numLinksTrav": len(treeNode.routeInfo) if not treeNode.restart else -1,
                 "linksTrav": str(
                     [routeTraverse.id for routeTraverse in treeNode.routeInfo]

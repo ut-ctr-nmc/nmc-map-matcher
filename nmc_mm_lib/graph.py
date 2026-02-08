@@ -30,7 +30,7 @@ import shapely
 from shapely.ops import transform
 import networkx
 import pyproj
-
+from pyproj.enums import TransformDirection
 from nmc_mm_lib.path_engine import PathEngine
 
 
@@ -440,6 +440,19 @@ class Map:
         isPerpendicular: bool = percentAlong > 0.0 and percentAlong < 1.0
         return dist, percentAlong, isPerpendicular, pointAlong
 
+    def revertPointOnLink(self, pointOnLink: PointOnLink) -> tuple[float, float]:
+        """
+        Reverts a PointOnLink back to longitude and latitude coordinates.
+
+        @param pointOnLink: The PointOnLink to revert.
+        @return: A tuple of (x or longitude, y or latitude) coordinates.
+        """
+        x, y = pointOnLink.point.x, pointOnLink.point.y
+        lon, lat = self.transformer.transform(
+            x, y, direction=TransformDirection.INVERSE
+        )
+        return lon, lat
+
     def findPointsOnLinks(
         self,
         trackPoint: Trackpoint,
@@ -528,17 +541,25 @@ class WalkPathProcessor:
     """
 
     map: Map
-    uTurnInterPenalty: float | None  # Add this penalty to U-turns, or None if U-turns not allowed
-    uTurnDeadEndPenalty: float | None  # Add this penalty to U-turns at dead-ends, or None for uTurnInterPenalty
+    uTurnInterPenalty: (
+        float | None
+    )  # Add this penalty to U-turns, or None if U-turns not allowed
+    uTurnDeadEndPenalty: (
+        float | None
+    )  # Add this penalty to U-turns at dead-ends, or None for uTurnInterPenalty
     pathEngine: PathEngine  # The object that instanciates this class.
     backCache: dict[
         Hashable, dict[Hashable, Map.LinkRecord]
     ]  # Caches previous walkPathoperations to accelerate
     winner: "Next | None"  # Records the winning queue element
-    processingQueue: list["PathElement"]  # Processing queue to facilitate the breadth-first search
+    processingQueue: list[
+        "PathElement"
+    ]  # Processing queue to facilitate the breadth-first search
     pointOnLinkOrig: Map.PointOnLink  # For internal record-keeping
     pointOnLinkDest: Map.PointOnLink  # For internal record-keeping
-    linkList: list[Hashable] | None  # Constrains matching to this list of links IDs, if provided
+    linkList: (
+        list[Hashable] | None
+    )  # Constrains matching to this list of links IDs, if provided
     # TODO: Can the LinkList be more like a tree, or does it need to be?
     limitDistance: float
     limitRadiusRev: float
@@ -601,7 +622,9 @@ class WalkPathProcessor:
         distance: float  # The total distance from the origin PointOnLink to the current location.
         cost: float  # The total calculated cost from the origin PointOnLink to the current location.
         stepCount: int  # The number of steps traversed from the origin PointOnLink to incomingLink.
-        backtrackSet: set[Hashable]  # A set of link IDs for all links that had already been traversed.
+        backtrackSet: set[
+            Hashable
+        ]  # A set of link IDs for all links that had already been traversed.
 
     def createNext(
         self,
