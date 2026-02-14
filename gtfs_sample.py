@@ -61,7 +61,7 @@ for fileLine in mpoRead("small_atx_nodes.csv"):
     }
 links: MPOCollection = {}
 for fileLine in mpoRead("small_atx_links.csv"):
-    links[fileLine["id"]] = {"name": fileLine["name"], "dir": float(fileLine["dir"])}
+    links[fileLine["id"]] = {"name": fileLine["name"], "dir": fileLine["dir"]}
 cnxs: MPOCollection = {}
 for fileLine in mpoRead("small_atx_cnx.csv"):
     cnxs[fileLine["id"]] = {
