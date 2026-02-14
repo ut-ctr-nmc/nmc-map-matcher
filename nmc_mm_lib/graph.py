@@ -24,14 +24,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from collections.abc import Hashable, Iterable, Sequence, Generator
-from typing import NamedTuple, MutableMapping, Any
-from typing_extensions import Self
+from typing import NamedTuple, MutableMapping, Any, Self
 import shapely
 from shapely.ops import transform
 import networkx
 import pyproj
 from pyproj.enums import TransformDirection
-from nmc_mm_lib.path_engine import PathEngine
+# from nmc_mm_lib.path_engine import PathEngine
+# TODO: Avoid circular reference; bring in score functions through other means
 
 
 def hasMoreThan(iterable: Iterable[Any], count: int = 0) -> bool:
@@ -547,7 +547,7 @@ class WalkPathProcessor:
     uTurnDeadEndPenalty: (
         float | None
     )  # Add this penalty to U-turns at dead-ends, or None for uTurnInterPenalty
-    pathEngine: PathEngine  # The object that instanciates this class.
+    pathEngine: 'PathEngine'  # The object that instanciates this class.
     backCache: dict[
         Hashable, dict[Hashable, Map.LinkRecord]
     ]  # Caches previous walkPathoperations to accelerate
@@ -570,7 +570,7 @@ class WalkPathProcessor:
 
     def __init__(
         self,
-        pathEngine: PathEngine,
+        pathEngine: 'PathEngine',
         map: Map,
         limitRadius: float,
         limitDistance: float,
