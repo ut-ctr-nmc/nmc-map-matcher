@@ -34,24 +34,27 @@ import logging
 
 class StdFieldNames(TypedDict):
     trackID: Hashable
-    trackSeq: int
+    trackSeq: int | float
     linkID: Hashable
     linkDist: float
     totalDist: float
     lon: float
     lat: float
-    numLinksTrav: int
-    linksTrav: str
+    numLinksTrav: int | None
+    linksTrav: str | None
 
 
 def dumpStandardInfo(
     map: graph.Map,
     treeNodesLists: Mapping[Hashable, Iterable[path_engine.PathEnd]],
     outFile: IO = sys.stdout,
+    intermediary: bool = False,
     includeHeader: bool = True,
 ) -> None:
     """
     Outputs the body of a CSV format of track path information.
+
+    @param intermediary: Also outputs lon/lat of link starts; uses sub-sequences
     """
     writer = csv.DictWriter(outFile, fieldnames=StdFieldNames.__annotations__.keys())
     if includeHeader:
@@ -60,9 +63,28 @@ def dumpStandardInfo(
     for treeNodes in treeNodesLists.values():
         treeNode: path_engine.PathEnd
         for treeNode in treeNodes:
+            if intermediary and not treeNode.restart and len(treeNode.routeInfo) > 0 and treeNode.refPoint.seq is not None:
+                # Here we are going to look at each link start approaching the next
+                # matched point, and make a record for each.
+                dist = treeNode.totalDist + treeNode.routeInfo[-1].length - treeNode.pointOnLink.getDistanceAlong() - sum(routeTraverse.length for routeTraverse in treeNode.routeInfo)
+                for index, routeTraverse in enumerate(treeNode.routeInfo):
+                    lon, lat = map.revertPointOnLink(graph.Map.PointOnLink(routeTraverse, 0)) # **************
+                    outData: StdFieldNames = {
+                        "trackID": treeNode.refPoint.id,
+                        "trackSeq": treeNode.refPoint.seq - 0.5 + 0.5 * index / len(treeNode.routeInfo),
+                        "linkID": routeTraverse.id,
+                        "linkDist": 0.0,
+                        "totalDist": dist,
+                        "lon": lon,
+                        "lat": lat,
+                        "numLinksTrav": None,
+                        "linksTrav": None
+                    }
+                    writer.writerow(outData)
+                    dist += routeTraverse.length
+
             lon, lat = map.revertPointOnLink(treeNode.pointOnLink)
-            outData: StdFieldNames
-            outData = {
+            outData: StdFieldNames = {
                 "trackID": treeNode.refPoint.id,
                 "trackSeq": (
                     treeNode.refPoint.seq if treeNode.refPoint.seq is not None else -1
@@ -106,6 +128,7 @@ def readStandardDump(
 
     @return A dictionary of trackID to a list of PathEnds
     """
+    # TODO: Will currently not read dumps that have intermediary points
     ret: dict[Hashable, list[path_engine.PathEnd]] = {}
     params = {}
     if not includeHeader:
