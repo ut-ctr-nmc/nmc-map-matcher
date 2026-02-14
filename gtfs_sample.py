@@ -28,8 +28,15 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from nmc_mm_lib import graph, path_engine, dump_io
 from support import gtfs
 from typing import Final, Any, Hashable, Generator
-import csv, os
+import csv, os, sys
 import logging
+
+# Configure logging to use stdout
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
+)
 
 MPO_PATH: Final[str] = os.path.join("samples", "mpo")
 GTFS_PATH: Final[str] = os.path.join("samples", "gtfs", "small_atx")
@@ -61,7 +68,7 @@ for fileLine in mpoRead("small_atx_nodes.csv"):
     }
 links: MPOCollection = {}
 for fileLine in mpoRead("small_atx_links.csv"):
-    links[fileLine["id"]] = {"name": fileLine["name"], "dir": float(fileLine["dir"])}
+    links[fileLine["id"]] = {"name": fileLine["name"], "dir": fileLine["dir"]}
 cnxs: MPOCollection = {}
 for fileLine in mpoRead("small_atx_cnx.csv"):
     cnxs[fileLine["id"]] = {
@@ -119,7 +126,7 @@ for shapeID in matchedPaths.keys():
     pathPoint: path_engine.PathEnd
     for pathPoint in matchedPaths[shapeID]:
         link: graph.Map.LinkRecord
-        for link in pathPoint.routeInfo:
+        for link in [pathPoint.pointOnLink.link] + pathPoint.routeInfo:
             newStreetName = (link.data["name"], link.data["dir"])
             if newStreetName != streetName:
                 logging.info(f'  {link.data["name"]} going {link.data["dir"]}')

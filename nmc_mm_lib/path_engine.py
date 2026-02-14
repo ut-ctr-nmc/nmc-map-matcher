@@ -337,8 +337,8 @@ class PathEngine:
         shapeEntry: graph.Map.Trackpoint
         for shapeCtr, shapeEntry in enumerate(trackpoints):
 
-            if shapeCtr % 10 == 0:
-                logging.info("   ... %d of %d", shapeCtr, len(trackpoints))
+            if (shapeCtr + 1) == len(trackpoints) or (shapeCtr + 1) % 10 == 0:
+                logging.info(f"   ... {shapeCtr + 1} of {len(trackpoints)}")
 
             # TODO: move the forceLinks stuff to baseMap.findPointsOnLinks().
             closestLinks: list[graph.Map.PointOnLink]
