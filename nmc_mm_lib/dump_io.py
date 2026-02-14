@@ -28,7 +28,9 @@ from nmc_mm_lib import graph, path_engine
 from collections.abc import Hashable, Iterable
 from typing import IO, Mapping, TypedDict
 from numbers import Number
-import csv, json, sys
+import csv
+import json
+import sys
 import logging
 
 
@@ -56,19 +58,22 @@ def dumpStandardInfo(
 
     @param intermediary: Also outputs lon/lat of link starts; uses sub-sequences
     """
-    writer = csv.DictWriter(outFile, fieldnames=StdFieldNames.__annotations__.keys())
+    writer = csv.DictWriter(
+        outFile, fieldnames=StdFieldNames.__annotations__.keys())
     if includeHeader:
         writer.writeheader()
     treeNodes: Iterable[path_engine.PathEnd]
     for treeNodes in treeNodesLists.values():
         treeNode: path_engine.PathEnd
         for treeNode in treeNodes:
-            if intermediary and not treeNode.restart and len(treeNode.routeInfo) > 0 and treeNode.refPoint.seq is not None:
+            if (intermediary and not treeNode.restart and len(treeNode.routeInfo) > 0 and treeNode.refPoint.seq is not None):
                 # Here we are going to look at each link start approaching the next
                 # matched point, and make a record for each.
-                dist = treeNode.totalDist + treeNode.routeInfo[-1].length - treeNode.pointOnLink.getDistanceAlong() - sum(routeTraverse.length for routeTraverse in treeNode.routeInfo)
+                dist = (treeNode.totalDist + treeNode.routeInfo[-1].getLength()
+                        - treeNode.pointOnLink.getDistanceAlong()
+                        - sum(routeTraverse.getLength() for routeTraverse in treeNode.routeInfo))
                 for index, routeTraverse in enumerate(treeNode.routeInfo):
-                    lon, lat = map.revertPointOnLink(graph.Map.PointOnLink(routeTraverse, 0)) # **************
+                    lon, lat = map.revertPoint(routeTraverse.getFirstCoords())
                     outData: StdFieldNames = {
                         "trackID": treeNode.refPoint.id,
                         "trackSeq": treeNode.refPoint.seq - 0.5 + 0.5 * index / len(treeNode.routeInfo),
@@ -81,7 +86,7 @@ def dumpStandardInfo(
                         "linksTrav": None
                     }
                     writer.writerow(outData)
-                    dist += routeTraverse.length
+                    dist += routeTraverse.getLength()
 
             lon, lat = map.revertPointOnLink(treeNode.pointOnLink)
             outData: StdFieldNames = {

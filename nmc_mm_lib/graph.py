@@ -142,8 +142,12 @@ class Map:
         destNodeID: Hashable
         data: MutableMapping[str, Any]
         id: Hashable
-        # TODO: Add link length float for qucker access and separation from
-        # Shapely dependence (versus data['geometry'].length)
+
+        def getLength(self) -> float:
+            return self.data["geometry"].length
+
+        def getFirstCoords(self) -> tuple[float, float]:
+            return self.data["geometry"].coords[0]
 
     def addLink(
         self,
@@ -260,7 +264,8 @@ class Map:
         @param treeNeeded: Whether to build the spatial index tree (default: True).
         """
         self.edgeIndexLookup = tuple(
-            Map.LinkRecord(origNodeID=u, destNodeID=v, data=data, id=data["id"])
+            Map.LinkRecord(origNodeID=u, destNodeID=v,
+                           data=data, id=data["id"])
             for u, v, data in self.graph.edges(data=True)
         )
         self.linkIDLookup = {}
@@ -432,7 +437,8 @@ class Map:
         # TODO: Create a nicer return type for this. Use PointOnLink!
 
         geometry: shapely.geometry.LineString = link.data["geometry"]
-        percentAlong: float = geometry.project(trackPoint.point, normalized=True)
+        percentAlong: float = geometry.project(
+            trackPoint.point, normalized=True)
         pointAlong: shapely.geometry.Point = geometry.interpolate(
             percentAlong, normalized=True
         )
@@ -447,9 +453,16 @@ class Map:
         @param pointOnLink: The PointOnLink to revert.
         @return: A tuple of (x or longitude, y or latitude) coordinates.
         """
-        x, y = pointOnLink.point.x, pointOnLink.point.y
+        return self.revertPoint(pointOnLink.point.x, pointOnLink.point.y)
+
+    def revertPoint(self, coordHoriz: float, coordVert: float) -> tuple[float, float]:
+        """
+        Reverts a projected working space point to the input space (e.g. lon/lat)
+
+        @return: A tuple of (x or longitude, y or latitude) coordinates.
+        """
         lon, lat = self.transformer.transform(
-            x, y, direction=TransformDirection.INVERSE
+            coordHoriz, coordVert, direction=TransformDirection.INVERSE
         )
         return lon, lat
 
@@ -616,12 +629,16 @@ class WalkPathProcessor:
         queue that coordinates the pathfinding operations.
         """
 
-        prevStruct: Self | None  # The previous Next structure that led to this one.
+        # The previous Next structure that led to this one.
+        prevStruct: Self | None
         incomingLink: Map.LinkRecord  # The link that we are to traverse.
         linkListIndex: int  # The count of how many links have been traversed
-        distance: float  # The total distance from the origin PointOnLink to the current location.
-        cost: float  # The total calculated cost from the origin PointOnLink to the current location.
-        stepCount: int  # The number of steps traversed from the origin PointOnLink to incomingLink.
+        # The total distance from the origin PointOnLink to the current location.
+        distance: float
+        # The total calculated cost from the origin PointOnLink to the current location.
+        cost: float
+        # The number of steps traversed from the origin PointOnLink to incomingLink.
+        stepCount: int
         backtrackSet: set[
             Hashable
         ]  # A set of link IDs for all links that had already been traversed.
@@ -685,7 +702,8 @@ class WalkPathProcessor:
             prevStruct.backtrackSet if prevStruct is not None else set()
         )
         if incomingLink.id not in oldBacktrackSet:
-            self.backtrackSet = oldBacktrackSet | {incomingLink.id}  # This makes a copy
+            self.backtrackSet = oldBacktrackSet | {
+                incomingLink.id}  # This makes a copy
         else:
             self.backtrackSet = oldBacktrackSet
 
@@ -835,7 +853,8 @@ class WalkPathProcessor:
                 ],
             )
         else:
-            myList = self.map.outgoingLinks(walkPathElem.incomingLink.destNodeID)
+            myList = self.map.outgoingLinks(
+                walkPathElem.incomingLink.destNodeID)
         link: Map.LinkRecord
         for link in myList:
             # Filter out U-turns:
@@ -845,7 +864,8 @@ class WalkPathProcessor:
             ) and self.map.isReverseLink(walkPathElem.incomingLink, link):
                 # Is it a dead-end?
                 if hasExactly(
-                    self.map.outgoingLinks(walkPathElem.incomingLink.destNodeID), 1
+                    self.map.outgoingLinks(
+                        walkPathElem.incomingLink.destNodeID), 1
                 ):
                     if self.uTurnDeadEndPenalty is None:
                         if self.uTurnInterPenalty is None:

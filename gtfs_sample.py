@@ -117,7 +117,7 @@ for shapeID, gtfsTrack in gtfsShapesTracks.items():
 
 # Output matched results:
 with open("gtfs_matched.csv", mode="wt") as outputFile:
-    dump_io.dumpStandardInfo(map, matchedPaths, outputFile)
+    dump_io.dumpStandardInfo(map, matchedPaths, outputFile, intermediary=True)
 
 # Explain series of streets for each Shape ID:
 for shapeID in matchedPaths.keys():
