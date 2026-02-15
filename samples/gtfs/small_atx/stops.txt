@@ -1,5 +1,5 @@
 stop_id,stop_code,stop_name,stop_desc,stop_lat,stop_lon,
-101,101,MLK and Nueces,MLK and Nueces Eastbound,30.28200458468712,-97.74389123024623,
+101,101,MLK and Nueces,MLK and Nueces Eastbound,30.28200458468712,-97.74378759123024623,
 102,102,MLK and Nueces,MLK and Nueces Westbound,30.28198364058668,-97.74337290467327,
 103,103,18th and San Antonio,18th and San Antonio Eastbound,30.28088848851768,-97.74284671022727,
 104,104,Guadalupe and 18th,Guadalupe and 18th Southbound,30.28034059747505,-97.7420867557146,
