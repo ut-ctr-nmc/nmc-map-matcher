@@ -25,10 +25,13 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+from shapely import from_wkt
 from nmc_mm_lib import graph, path_engine, dump_io
 from support import gtfs
 from typing import Final, Any, Hashable, Generator
-import csv, os, sys
+import csv
+import os
+import sys
 import logging
 
 # Configure logging to use stdout
@@ -55,9 +58,9 @@ def mpoRead(filename: str) -> Generator[dict[str, Any]]:
 
 MPOCollection = dict[Hashable, dict[str, Any]]
 
-# Grab MPO model: we'll derive the topography from node locations (nodes.csv)
-# and connectivity (cnx.csv). The links.csv file has extra information about
-# streets that we'll put in the map as metadata.
+# Grab MPO model: we'll derive the topography from node ids (nodes.csv),
+# link segments (links.csv), and connectivity (cnx.csv). Nodes and links
+# have extra naming information that we'll put in as metadata.
 # TODO: This is much more compact with Pandas!
 nodes: MPOCollection = {}
 for fileLine in mpoRead("small_atx_nodes.csv"):
@@ -65,10 +68,12 @@ for fileLine in mpoRead("small_atx_nodes.csv"):
         "id": fileLine["id"],
         "lon": float(fileLine["lon"]),
         "lat": float(fileLine["lat"]),
+        "name": fileLine["name"],
     }
 links: MPOCollection = {}
 for fileLine in mpoRead("small_atx_links.csv"):
-    links[fileLine["id"]] = {"name": fileLine["name"], "dir": fileLine["dir"]}
+    links[fileLine["id"]] = {"geog": from_wkt(
+        fileLine["wkt"]), "name": fileLine["name"], "dir": fileLine["dir"]}
 cnxs: MPOCollection = {}
 for fileLine in mpoRead("small_atx_cnx.csv"):
     cnxs[fileLine["id"]] = {
@@ -79,17 +84,18 @@ for fileLine in mpoRead("small_atx_cnx.csv"):
 # Create map of it:
 map = graph.Map()  # Use default GPS to Web Mercator scheme
 for nodeID, node in nodes.items():
-    # Define each node from lon/lat, ID, w/o optional metadata dict
+    # Define each node from lon/lat, ID, w/o optional metadata dict. Keep in
+    # mind that we actually don't need these locations since we're using the
+    # link geometry.
     map.addNode(nodeID, node["lon"], node["lat"])
 for linkID, cnx in cnxs.items():
-    # Define each link by using node IDs. By saying that we hadn't specified
-    # endpoints, GPS endpoints for each link are grabbed from the nodes. Also
-    # add in the street name metadata:
+    # Define each link by using node IDs, but use link geometry. Also add in
+    # the street name metadata:
     map.addLink(
         cnx["source"]["id"],
         cnx["dest"]["id"],
+        controlPoints=links[linkID]["geog"],
         linkID=linkID,
-        hasEndpoints=False,
         metadata=links[linkID],
     )
 # Commit our geometry:
@@ -102,7 +108,8 @@ gtfsSet = gtfs.GTFSSet(GTFS_PATH)
 gtfsShapesTracks: dict[Hashable, tuple[graph.Map.Trackpoint, ...]] = {}
 for shapeID, shapeEntries in gtfsSet.shapes.items():
     gtfsShapesTracks[shapeID] = tuple(
-        map.makeTrackpoint(shapeEntry.lng, shapeEntry.lat, shapeID, shapeEntry.shapeSeq)
+        map.makeTrackpoint(shapeEntry.lng, shapeEntry.lat,
+                           shapeID, shapeEntry.shapeSeq)
         for shapeEntry in shapeEntries
     )
 
@@ -111,12 +118,13 @@ matchedPaths: dict[Hashable, list[path_engine.PathEnd]] = {}
 pathEngine = path_engine.PathEngine()  # Use default match parameters
 for shapeID, gtfsTrack in gtfsShapesTracks.items():
     logging.info(f"GTFS Shape ID {shapeID}:")
-    path: list[path_engine.PathEnd] | None = pathEngine.constructPath(gtfsTrack, map)
+    path: list[path_engine.PathEnd] | None = pathEngine.constructPath(
+        gtfsTrack, map)
     if path is not None:
         matchedPaths[shapeID] = path
 
 # Output matched results:
-with open("gtfs_matched.csv", mode="wt") as outputFile:
+with open("gtfs_small_matched.csv", mode="wt") as outputFile:
     dump_io.dumpStandardInfo(map, matchedPaths, outputFile, intermediary=True)
 
 # Explain series of streets for each Shape ID:

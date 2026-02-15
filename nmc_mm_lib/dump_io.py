@@ -51,12 +51,14 @@ def dumpStandardInfo(
     treeNodesLists: Mapping[Hashable, Iterable[path_engine.PathEnd]],
     outFile: IO = sys.stdout,
     intermediary: bool = False,
+    increment: bool | None = None,
     includeHeader: bool = True,
 ) -> None:
     """
     Outputs the body of a CSV format of track path information.
 
     @param intermediary: Also outputs lon/lat of link starts; uses sub-sequences
+    @param increment: Put a point once every given meters; uses sub-sequences
     """
     writer = csv.DictWriter(
         outFile, fieldnames=StdFieldNames.__annotations__.keys())
@@ -73,7 +75,7 @@ def dumpStandardInfo(
                         - treeNode.pointOnLink.getDistanceAlong()
                         - sum(routeTraverse.getLength() for routeTraverse in treeNode.routeInfo))
                 for index, routeTraverse in enumerate(treeNode.routeInfo):
-                    lon, lat = map.revertPoint(routeTraverse.getFirstCoords())
+                    lon, lat = map.revertPoint(*routeTraverse.getFirstCoords())
                     outData: StdFieldNames = {
                         "trackID": treeNode.refPoint.id,
                         "trackSeq": treeNode.refPoint.seq - 0.5 + 0.5 * index / len(treeNode.routeInfo),
