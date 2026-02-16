@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from nmc_mm_lib import graph, path_engine
 from collections.abc import Hashable, Iterable
-from typing import IO, Mapping, TypedDict
+from typing import IO, Mapping, TypedDict, NamedTuple
 from numbers import Number
 import csv
 import json
@@ -46,12 +46,20 @@ class StdFieldNames(TypedDict):
     linksTrav: str | None
 
 
+class StartsRecord(NamedTuple):
+    """
+    Used in the dumpStandardInfo function below
+    """
+    link: graph.Map.LinkRecord
+    dist: float
+
+
 def dumpStandardInfo(
     map: graph.Map,
     treeNodesLists: Mapping[Hashable, Iterable[path_engine.PathEnd]],
     outFile: IO = sys.stdout,
     intermediary: bool = False,
-    increment: bool | None = None,
+    increment: float | None = None,
     includeHeader: bool = True,
 ) -> None:
     """
@@ -67,7 +75,48 @@ def dumpStandardInfo(
     treeNodes: Iterable[path_engine.PathEnd]
     for treeNodes in treeNodesLists.values():
         treeNode: path_engine.PathEnd
+        priorTreeNode: path_engine.PathEnd  | None = None
         for treeNode in treeNodes:
+            # Special points considerations: periodic increments and/or points at link starts:
+            if (intermediary or increment and increment > 0) and priorTreeNode and not treeNode.restart and treeNode.refPoint.seq is not None:
+                dist = treeNode.totalDist
+                starts: list[StartsRecord] = [StartsRecord(link=treeNode.pointOnLink.link, dist=dist)]
+                dist = dist - treeNode.pointOnLink.getDistanceAlong() + treeNode.pointOnLink.link.getLength()
+                surplus = 0
+                for routeTraverse in treeNode.routeInfo:
+                    dist -= routeTraverse.getLength()
+                    starts.append(StartsRecord(link=routeTraverse, dist=dist))
+                    surplus += 1
+                starts.append(StartsRecord(link=priorTreeNode.pointOnLink.link, dist=priorTreeNode.totalDist))
+                span = starts[0].dist - starts[-1].dist
+                numSteps = ((span // increment) if increment else 0) + surplus
+                offset = priorTreeNode.pointOnLink.getDistanceAlong()
+
+                while len(starts) > 1:
+                    curStart: StartsRecord = starts.pop()
+                    if increment:
+                        dist += increment
+                        offset += increment
+                    else:
+                        dist = starts[-1].dist
+                    if dist >= starts[-1].dist:
+                        if intermediary:
+                            dist = starts[-1].dist
+                            offset = 0
+                            curStart = starts[-1]
+                        else:
+                            offset = dist - starts[-1].dist
+                            if increment:
+                                # Retract one step so we end up in same spot
+                                # when popped:
+                                dist -= increment
+                                offset -= increment
+                            continue
+                    lon, lat = map.revertPoint(*curStart.link.getPointAlong(dist - starts[-1].dist, normalize=False))
+
+
+
+
             if (intermediary and not treeNode.restart and len(treeNode.routeInfo) > 0 and treeNode.refPoint.seq is not None):
                 # Here we are going to look at each link start approaching the next
                 # matched point, and make a record for each.
@@ -111,6 +160,7 @@ def dumpStandardInfo(
             # A links traversed length of -1 shall be a special indication
             # saying that we are restarting, and the link list doesn't exist.
             writer.writerow(outData)
+            priorTreeNode = treeNode
 
 
 def stringToList(string: str) -> list[Number]:

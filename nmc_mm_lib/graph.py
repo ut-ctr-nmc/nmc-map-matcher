@@ -149,6 +149,11 @@ class Map:
         def getFirstCoords(self) -> tuple[float, float]:
             return self.data["geometry"].coords[0]
 
+        def getPointAlong(self, value: float, normalize: bool = False) -> tuple[float, float]:
+            pointAlong: shapely.geometry.Point = self.data["geometry"].interpolate(
+                value, normalized=normalize)
+            return pointAlong.x, pointAlong.y
+
     def addLink(
         self,
         origNodeID: Hashable,
