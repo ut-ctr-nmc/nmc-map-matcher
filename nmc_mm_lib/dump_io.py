@@ -75,21 +75,22 @@ def dumpStandardInfo(
     treeNodes: Iterable[path_engine.PathEnd]
     for treeNodes in treeNodesLists.values():
         treeNode: path_engine.PathEnd
-        priorTreeNode: path_engine.PathEnd  | None = None
+        priorTreeNode: path_engine.PathEnd | None = None
         for treeNode in treeNodes:
             # Special points considerations: periodic increments and/or points at link starts:
             if (intermediary or increment and increment > 0) and priorTreeNode and not treeNode.restart and treeNode.refPoint.seq is not None:
                 dist = treeNode.totalDist
-                starts: list[StartsRecord] = [StartsRecord(link=treeNode.pointOnLink.link, dist=dist)]
-                dist = dist - treeNode.pointOnLink.getDistanceAlong() + treeNode.pointOnLink.link.getLength()
-                surplus = 0
+                starts: list[StartsRecord] = [StartsRecord(
+                    link=treeNode.pointOnLink.link, dist=dist)]
+                dist = dist - treeNode.pointOnLink.getDistanceAlong() + \
+                    treeNode.pointOnLink.link.getLength()
                 for routeTraverse in treeNode.routeInfo:
                     dist -= routeTraverse.getLength()
                     starts.append(StartsRecord(link=routeTraverse, dist=dist))
-                    surplus += 1
-                starts.append(StartsRecord(link=priorTreeNode.pointOnLink.link, dist=priorTreeNode.totalDist))
-                span = starts[0].dist - starts[-1].dist
-                numSteps = ((span // increment) if increment else 0) + surplus
+                starts.append(StartsRecord(
+                    link=priorTreeNode.pointOnLink.link, dist=priorTreeNode.totalDist))
+                startDist = starts[-1].dist
+                span = starts[0].dist - startDist
                 offset = priorTreeNode.pointOnLink.getDistanceAlong()
 
                 while len(starts) > 1:
@@ -112,24 +113,13 @@ def dumpStandardInfo(
                                 dist -= increment
                                 offset -= increment
                             continue
-                    lon, lat = map.revertPoint(*curStart.link.getPointAlong(dist - starts[-1].dist, normalize=False))
-
-
-
-
-            if (intermediary and not treeNode.restart and len(treeNode.routeInfo) > 0 and treeNode.refPoint.seq is not None):
-                # Here we are going to look at each link start approaching the next
-                # matched point, and make a record for each.
-                dist = (treeNode.totalDist + treeNode.routeInfo[-1].getLength()
-                        - treeNode.pointOnLink.getDistanceAlong()
-                        - sum(routeTraverse.getLength() for routeTraverse in treeNode.routeInfo))
-                for index, routeTraverse in enumerate(treeNode.routeInfo):
-                    lon, lat = map.revertPoint(*routeTraverse.getFirstCoords())
+                    lon, lat = map.revertPoint(
+                        *curStart.link.getPointAlong(offset, normalize=False))
                     outData: StdFieldNames = {
                         "trackID": treeNode.refPoint.id,
-                        "trackSeq": treeNode.refPoint.seq - 0.5 + 0.5 * index / len(treeNode.routeInfo),
+                        "trackSeq": treeNode.refPoint.seq - 0.5 + 0.5 * (dist - startDist) / span,
                         "linkID": routeTraverse.id,
-                        "linkDist": 0.0,
+                        "linkDist": offset,
                         "totalDist": dist,
                         "lon": lon,
                         "lat": lat,
@@ -137,7 +127,6 @@ def dumpStandardInfo(
                         "linksTrav": None
                     }
                     writer.writerow(outData)
-                    dist += routeTraverse.getLength()
 
             lon, lat = map.revertPointOnLink(treeNode.pointOnLink)
             outData: StdFieldNames = {
@@ -155,7 +144,7 @@ def dumpStandardInfo(
                     [routeTraverse.id for routeTraverse in treeNode.routeInfo]
                     if not treeNode.restart
                     else []
-                ),
+                )
             }
             # A links traversed length of -1 shall be a special indication
             # saying that we are restarting, and the link list doesn't exist.

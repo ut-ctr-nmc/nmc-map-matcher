@@ -34,6 +34,8 @@ import os
 import sys
 import logging
 
+STEP_SIZE: Final[float] = 20.0
+
 # Configure logging to use stdout
 logging.basicConfig(
     level=logging.INFO,
@@ -125,7 +127,8 @@ for shapeID, gtfsTrack in gtfsShapesTracks.items():
 
 # Output matched results:
 with open("gtfs_small_matched.csv", mode="wt") as outputFile:
-    dump_io.dumpStandardInfo(map, matchedPaths, outputFile, intermediary=True)
+    dump_io.dumpStandardInfo(
+        map, matchedPaths, outputFile, intermediary=True, increment=STEP_SIZE)
 
 # Explain series of streets for each Shape ID:
 for shapeID in matchedPaths.keys():
