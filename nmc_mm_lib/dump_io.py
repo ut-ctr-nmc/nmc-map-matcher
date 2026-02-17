@@ -93,8 +93,8 @@ def dumpStandardInfo(
                 span = starts[0].dist - startDist
                 offset = priorTreeNode.pointOnLink.getDistanceAlong()
 
+                curStart: StartsRecord = starts.pop()
                 while len(starts) > 1:
-                    curStart: StartsRecord = starts.pop()
                     if increment:
                         dist += increment
                         offset += increment
@@ -112,6 +112,7 @@ def dumpStandardInfo(
                                 # when popped:
                                 dist -= increment
                                 offset -= increment
+                            curStart = starts.pop() # !?!?!
                             continue
                     lon, lat = map.revertPoint(
                         *curStart.link.getPointAlong(offset, normalize=False))
