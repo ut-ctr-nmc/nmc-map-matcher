@@ -50,6 +50,7 @@ class StartsRecord(NamedTuple):
     """
     Used in the dumpStandardInfo function below
     """
+
     link: graph.Map.LinkRecord
     dist: float
 
@@ -68,8 +69,7 @@ def dumpStandardInfo(
     @param intermediary: Also outputs lon/lat of link starts; uses sub-sequences
     @param increment: Put a point once every given meters; uses sub-sequences
     """
-    writer = csv.DictWriter(
-        outFile, fieldnames=StdFieldNames.__annotations__.keys())
+    writer = csv.DictWriter(outFile, fieldnames=StdFieldNames.__annotations__.keys())
     if includeHeader:
         writer.writeheader()
     treeNodes: Iterable[path_engine.PathEnd]
@@ -78,58 +78,83 @@ def dumpStandardInfo(
         priorTreeNode: path_engine.PathEnd | None = None
         for treeNode in treeNodes:
             # Special points considerations: periodic increments and/or points at link starts:
-            if (intermediary or increment and increment > 0) and priorTreeNode and not treeNode.restart and treeNode.refPoint.seq is not None:
+            if (
+                (intermediary or increment and increment > 0)
+                and priorTreeNode
+                and not treeNode.restart
+                and treeNode.refPoint.seq is not None
+            ):
                 dist = treeNode.totalDist
-                starts: list[StartsRecord] = [StartsRecord(
-                    link=treeNode.pointOnLink.link, dist=dist)]
-                dist = dist - treeNode.pointOnLink.getDistanceAlong() + \
-                    treeNode.pointOnLink.link.getLength()
+                starts: list[StartsRecord] = [
+                    StartsRecord(link=treeNode.pointOnLink.link, dist=dist)
+                ]
+                dist = (
+                    dist
+                    - treeNode.pointOnLink.getDistanceAlong()
+                    + treeNode.pointOnLink.link.getLength()
+                )
                 for routeTraverse in treeNode.routeInfo:
                     dist -= routeTraverse.getLength()
                     starts.append(StartsRecord(link=routeTraverse, dist=dist))
-                starts.append(StartsRecord(
-                    link=priorTreeNode.pointOnLink.link, dist=priorTreeNode.totalDist))
+                starts.append(
+                    StartsRecord(
+                        link=priorTreeNode.pointOnLink.link,
+                        dist=priorTreeNode.totalDist,
+                    )
+                )
                 startDist = starts[-1].dist
                 span = starts[0].dist - startDist
                 offset = priorTreeNode.pointOnLink.getDistanceAlong()
 
-                curStart: StartsRecord = starts.pop()
-                while len(starts) > 1:
-                    if increment:
-                        dist += increment
-                        offset += increment
-                    else:
-                        dist = starts[-1].dist
-                    if dist >= starts[-1].dist:
-                        if intermediary:
+                if span > 0: # TODO: Plus an epsilon?
+                    curStart: StartsRecord = starts.pop()
+                    dist = curStart.dist
+                    while len(starts) >= 1:
+                        popFlag = False
+                        if increment:
+                            dist += increment
+                            offset += increment
+                            if dist >= starts[-1].dist:
+                                if not intermediary:
+                                    # We carry on in the path of the next link, but
+                                    # not necessarily starting at that link:
+                                    offset = dist - starts[-1].dist
+                                    # Retract one step so we end up in same spot
+                                    # when popped:
+                                    dist -= increment
+                                    offset -= increment
+                                    curStart = starts.pop()
+                                    continue
+                                # Otherwise, We ensure we mark the beginning of each link:
+                                popFlag = True
+                        else:
+                            popFlag = True
+                        if popFlag:
                             dist = starts[-1].dist
                             offset = 0
-                            curStart = starts[-1]
-                        else:
-                            offset = dist - starts[-1].dist
-                            if increment:
-                                # Retract one step so we end up in same spot
-                                # when popped:
-                                dist -= increment
-                                offset -= increment
-                            curStart = starts.pop() # !?!?!
-                            continue
-                    lon, lat = map.revertPoint(
-                        *curStart.link.getPointAlong(offset, normalize=False))
-                    outData: StdFieldNames = {
-                        "trackID": treeNode.refPoint.id,
-                        "trackSeq": treeNode.refPoint.seq - 0.5 + 0.5 * (dist - startDist) / span,
-                        "linkID": routeTraverse.id,
-                        "linkDist": offset,
-                        "totalDist": dist,
-                        "lon": lon,
-                        "lat": lat,
-                        "numLinksTrav": None,
-                        "linksTrav": None
-                    }
-                    writer.writerow(outData)
+                            curStart = starts.pop()
+
+                        lon, lat = map.revertPoint(
+                            *curStart.link.getPointAlong(offset, normalize=False)
+                        )
+                        # TODO: Facilitate rounding:
+                        outData: StdFieldNames = {
+                            "trackID": treeNode.refPoint.id,
+                            "trackSeq": treeNode.refPoint.seq
+                            - 0.5
+                            + 0.5 * (dist - startDist) / span,
+                            "linkID": curStart.link.id,
+                            "linkDist": offset,
+                            "totalDist": dist,
+                            "lon": lon,
+                            "lat": lat,
+                            "numLinksTrav": None,
+                            "linksTrav": None,
+                        }
+                        writer.writerow(outData)
 
             lon, lat = map.revertPointOnLink(treeNode.pointOnLink)
+            # TODO: Facilitate rounding:
             outData: StdFieldNames = {
                 "trackID": treeNode.refPoint.id,
                 "trackSeq": (
@@ -145,7 +170,7 @@ def dumpStandardInfo(
                     [routeTraverse.id for routeTraverse in treeNode.routeInfo]
                     if not treeNode.restart
                     else []
-                )
+                ),
             }
             # A links traversed length of -1 shall be a special indication
             # saying that we are restarting, and the link list doesn't exist.
