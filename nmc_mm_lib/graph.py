@@ -30,6 +30,7 @@ from shapely.ops import transform
 import networkx
 import pyproj
 from pyproj.enums import TransformDirection
+
 # from nmc_mm_lib.path_engine import PathEngine
 # TODO: Avoid circular reference; bring in score functions through other means
 
@@ -149,9 +150,12 @@ class Map:
         def getFirstCoords(self) -> tuple[float, float]:
             return self.data["geometry"].coords[0]
 
-        def getPointAlong(self, value: float, normalize: bool = False) -> tuple[float, float]:
+        def getPointAlong(
+            self, value: float, normalize: bool = False
+        ) -> tuple[float, float]:
             pointAlong: shapely.geometry.Point = self.data["geometry"].interpolate(
-                value, normalized=normalize)
+                value, normalized=normalize
+            )
             return pointAlong.x, pointAlong.y
 
     def addLink(
@@ -269,8 +273,7 @@ class Map:
         @param treeNeeded: Whether to build the spatial index tree (default: True).
         """
         self.edgeIndexLookup = tuple(
-            Map.LinkRecord(origNodeID=u, destNodeID=v,
-                           data=data, id=data["id"])
+            Map.LinkRecord(origNodeID=u, destNodeID=v, data=data, id=data["id"])
             for u, v, data in self.graph.edges(data=True)
         )
         self.linkIDLookup = {}
@@ -442,8 +445,7 @@ class Map:
         # TODO: Create a nicer return type for this. Use PointOnLink!
 
         geometry: shapely.geometry.LineString = link.data["geometry"]
-        percentAlong: float = geometry.project(
-            trackPoint.point, normalized=True)
+        percentAlong: float = geometry.project(trackPoint.point, normalized=True)
         pointAlong: shapely.geometry.Point = geometry.interpolate(
             percentAlong, normalized=True
         )
@@ -565,7 +567,7 @@ class WalkPathProcessor:
     uTurnDeadEndPenalty: (
         float | None
     )  # Add this penalty to U-turns at dead-ends, or None for uTurnInterPenalty
-    pathEngine: 'PathEngine'  # The object that instanciates this class.
+    pathEngine: "PathEngine"  # The object that instanciates this class.
     backCache: dict[
         Hashable, dict[Hashable, Map.LinkRecord]
     ]  # Caches previous walkPathoperations to accelerate
@@ -588,7 +590,7 @@ class WalkPathProcessor:
 
     def __init__(
         self,
-        pathEngine: 'PathEngine',
+        pathEngine: "PathEngine",
         map: Map,
         limitRadius: float,
         limitDistance: float,
@@ -676,9 +678,10 @@ class WalkPathProcessor:
             # TODO: Use incomingLink length for last term?
             stepCount = 0
         else:
-            linkDistPotential = (
-                prevStruct.distance + incomingLink.data["geometry"].length
-            )
+            linkDistPotential = incomingLink.data["geometry"].length
+            # linkDistPotential = (
+            #     prevStruct.distance + incomingLink.data["geometry"].length
+            # )
             stepCount = prevStruct.stepCount + 1
 
         cost: float
@@ -707,8 +710,7 @@ class WalkPathProcessor:
             prevStruct.backtrackSet if prevStruct is not None else set()
         )
         if incomingLink.id not in oldBacktrackSet:
-            self.backtrackSet = oldBacktrackSet | {
-                incomingLink.id}  # This makes a copy
+            self.backtrackSet = oldBacktrackSet | {incomingLink.id}  # This makes a copy
         else:
             self.backtrackSet = oldBacktrackSet
 
@@ -768,9 +770,9 @@ class WalkPathProcessor:
         # Set up a queue for the search. Preload the queue with the first starting location:
         self.processingQueue = [
             WalkPathProcessor.PathElement(
-                0.0,
-                0,
-                self.createNext(
+                cost=0.0,
+                queueCounter=0,
+                nextStruct=self.createNext(
                     None, pointOnLinkOrig.link, startupCost, totalLinkCount
                 ),
             )
@@ -858,8 +860,7 @@ class WalkPathProcessor:
                 ],
             )
         else:
-            myList = self.map.outgoingLinks(
-                walkPathElem.incomingLink.destNodeID)
+            myList = self.map.outgoingLinks(walkPathElem.incomingLink.destNodeID)
         link: Map.LinkRecord
         for link in myList:
             # Filter out U-turns:
@@ -869,8 +870,7 @@ class WalkPathProcessor:
             ) and self.map.isReverseLink(walkPathElem.incomingLink, link):
                 # Is it a dead-end?
                 if hasExactly(
-                    self.map.outgoingLinks(
-                        walkPathElem.incomingLink.destNodeID), 1
+                    self.map.outgoingLinks(walkPathElem.incomingLink.destNodeID), 1
                 ):
                     if self.uTurnDeadEndPenalty is None:
                         if self.uTurnInterPenalty is None:
@@ -910,9 +910,9 @@ class WalkPathProcessor:
             self.queueCounter += 1
             self.processingQueue.append(
                 WalkPathProcessor.PathElement(
-                    walkPathElem.cost + penalty,
-                    self.queueCounter,
-                    self.createNext(
+                    cost=walkPathElem.cost + penalty,
+                    queueCounter=self.queueCounter,
+                    nextStruct=self.createNext(
                         walkPathElem,
                         link,
                         walkPathElem.cost + penalty,

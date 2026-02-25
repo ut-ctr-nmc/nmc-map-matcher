@@ -34,6 +34,10 @@ import sys
 import logging
 
 
+"Identifies minimum length of a span of intermediate points"
+MINIMUM_SPAN: float = 1.0
+
+
 class StdFieldNames(TypedDict):
     trackID: Hashable
     trackSeq: int | float
@@ -93,7 +97,7 @@ def dumpStandardInfo(
                     - treeNode.pointOnLink.getDistanceAlong()
                     + treeNode.pointOnLink.link.getLength()
                 )
-                for routeTraverse in treeNode.routeInfo:
+                for routeTraverse in reversed(treeNode.routeInfo):
                     dist -= routeTraverse.getLength()
                     starts.append(StartsRecord(link=routeTraverse, dist=dist))
                 starts.append(
@@ -106,7 +110,7 @@ def dumpStandardInfo(
                 span = starts[0].dist - startDist
                 offset = priorTreeNode.pointOnLink.getDistanceAlong()
 
-                if span > 0: # TODO: Plus an epsilon?
+                if span >= MINIMUM_SPAN:
                     curStart: StartsRecord = starts.pop()
                     dist = curStart.dist
                     while len(starts) >= 1:
@@ -133,6 +137,8 @@ def dumpStandardInfo(
                             dist = starts[-1].dist
                             offset = 0
                             curStart = starts.pop()
+                            if not starts:
+                                break
 
                         lon, lat = map.revertPoint(
                             *curStart.link.getPointAlong(offset, normalize=False)
