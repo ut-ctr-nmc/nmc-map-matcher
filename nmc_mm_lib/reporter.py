@@ -69,6 +69,8 @@ def prepareTrackpath(
     @param increment: Put a point once every given meters; uses sub-sequences
     @param fractionalSeq: Whether to use fractional sequence numbers
     """
+    # TODO: Add abilities to space points equally between tree nodes, and to put
+    # points at underlying geometry bends
 
     class StartsRecord(NamedTuple):
         link: graph.Map.LinkRecord
