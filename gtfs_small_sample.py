@@ -26,7 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from shapely import from_wkt
-from nmc_mm_lib import graph, path_engine, dump_io
+from nmc_mm_lib import graph, path_engine, dump_io, reporter
 from support import gtfs
 from typing import Final, Any, Hashable, Generator
 import csv
@@ -74,8 +74,11 @@ for fileLine in mpoRead("small_atx_nodes.csv"):
     }
 links: MPOCollection = {}
 for fileLine in mpoRead("small_atx_links.csv"):
-    links[fileLine["id"]] = {"geog": from_wkt(
-        fileLine["wkt"]), "name": fileLine["name"], "dir": fileLine["dir"]}
+    links[fileLine["id"]] = {
+        "geog": from_wkt(fileLine["wkt"]),
+        "name": fileLine["name"],
+        "dir": fileLine["dir"],
+    }
 cnxs: MPOCollection = {}
 for fileLine in mpoRead("small_atx_cnx.csv"):
     cnxs[fileLine["id"]] = {
@@ -110,8 +113,7 @@ gtfsSet = gtfs.GTFSSet(GTFS_PATH)
 gtfsShapesTracks: dict[Hashable, tuple[graph.Trackpoint, ...]] = {}
 for shapeID, shapeEntries in gtfsSet.shapes.items():
     gtfsShapesTracks[shapeID] = tuple(
-        map.makeTrackpoint(shapeEntry.lng, shapeEntry.lat,
-                           shapeID, shapeEntry.shapeSeq)
+        map.makeTrackpoint(shapeEntry.lng, shapeEntry.lat, shapeID, shapeEntry.shapeSeq)
         for shapeEntry in shapeEntries
     )
 
@@ -120,15 +122,20 @@ matchedPaths: dict[Hashable, list[path_engine.PathEnd]] = {}
 pathEngine = path_engine.PathEngine()  # Use default match parameters
 for shapeID, gtfsTrack in gtfsShapesTracks.items():
     logging.info(f"GTFS Shape ID {shapeID}:")
-    path: list[path_engine.PathEnd] | None = pathEngine.constructPath(
-        gtfsTrack, map)
+    path: list[path_engine.PathEnd] | None = pathEngine.constructPath(gtfsTrack, map)
     if path is not None:
         matchedPaths[shapeID] = path
 
+# Get a list of output trackpoints:
+trackpointLists: dict[Hashable, list[reporter.OutputTrackpoint]] = {}
+for shapeID, treeNodes in matchedPaths.items():
+    trackpointLists[shapeID] = reporter.prepareTrackpath(
+        map, treeNodes, intermediary=True, increment=STEP_SIZE
+    )
+
 # Output matched results:
 with open("gtfs_small_matched.csv", mode="wt") as outputFile:
-    dump_io.dumpStandardInfo(
-        map, matchedPaths, outputFile, intermediary=True, increment=STEP_SIZE)
+    dump_io.dumpStandardInfo(trackpointLists, outputFile, includeHeader=True)
 
 # Explain series of streets for each Shape ID:
 for shapeID in matchedPaths.keys():

@@ -24,18 +24,14 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from nmc_mm_lib import graph, path_engine
+from nmc_mm_lib import graph, path_engine, reporter
 from collections.abc import Hashable, Iterable
-from typing import IO, Mapping, TypedDict, NamedTuple
+from typing import IO, Mapping, TypedDict
 from numbers import Number
 import csv
 import json
 import sys
 import logging
-
-
-"Identifies minimum length of a span of intermediate points"
-MINIMUM_SPAN: float = 1.0
 
 
 class StdFieldNames(TypedDict):
@@ -50,138 +46,44 @@ class StdFieldNames(TypedDict):
     linksTrav: str | None
 
 
-class StartsRecord(NamedTuple):
-    """
-    Used in the dumpStandardInfo function below
-    """
-
-    link: graph.Map.LinkRecord
-    dist: float
-
-
 def dumpStandardInfo(
-    map: graph.Map,
-    treeNodesLists: Mapping[Hashable, Iterable[path_engine.PathEnd]],
+    trackpointLists: Mapping[Hashable, Iterable[reporter.OutputTrackpoint]],
     outFile: IO = sys.stdout,
-    intermediary: bool = False,
-    increment: float | None = None,
     includeHeader: bool = True,
 ) -> None:
     """
     Outputs the body of a CSV format of track path information.
-
-    @param intermediary: Also outputs lon/lat of link starts; uses sub-sequences
-    @param increment: Put a point once every given meters; uses sub-sequences
     """
     writer = csv.DictWriter(outFile, fieldnames=StdFieldNames.__annotations__.keys())
     if includeHeader:
         writer.writeheader()
-    treeNodes: Iterable[path_engine.PathEnd]
-    for treeNodes in treeNodesLists.values():
-        treeNode: path_engine.PathEnd
-        priorTreeNode: path_engine.PathEnd | None = None
-        for treeNode in treeNodes:
-            # Special points considerations: periodic increments and/or points at link starts:
-            if (
-                (intermediary or increment and increment > 0)
-                and priorTreeNode
-                and not treeNode.restart
-                and treeNode.refPoint.seq is not None
-            ):
-                dist = treeNode.totalDist
-                starts: list[StartsRecord] = [
-                    StartsRecord(link=treeNode.pointOnLink.link, dist=dist)
-                ]
-                dist = (
-                    dist
-                    - treeNode.pointOnLink.getDistanceAlong()
-                    + treeNode.pointOnLink.link.getLength()
-                )
-                for routeTraverse in reversed(treeNode.routeInfo):
-                    dist -= routeTraverse.getLength()
-                    starts.append(StartsRecord(link=routeTraverse, dist=dist))
-                starts.append(
-                    StartsRecord(
-                        link=priorTreeNode.pointOnLink.link,
-                        dist=priorTreeNode.totalDist,
-                    )
-                )
-                startDist = starts[-1].dist
-                span = starts[0].dist - startDist
-                offset = priorTreeNode.pointOnLink.getDistanceAlong()
-
-                if span >= MINIMUM_SPAN:
-                    curStart: StartsRecord = starts.pop()
-                    dist = curStart.dist
-                    while len(starts) >= 1:
-                        popFlag = False
-                        if increment:
-                            dist += increment
-                            offset += increment
-                            if dist >= starts[-1].dist:
-                                if not intermediary:
-                                    # We carry on in the path of the next link, but
-                                    # not necessarily starting at that link:
-                                    offset = dist - starts[-1].dist
-                                    # Retract one step so we end up in same spot
-                                    # when popped:
-                                    dist -= increment
-                                    offset -= increment
-                                    curStart = starts.pop()
-                                    continue
-                                # Otherwise, We ensure we mark the beginning of each link:
-                                popFlag = True
-                        else:
-                            popFlag = True
-                        if popFlag:
-                            dist = starts[-1].dist
-                            offset = 0
-                            curStart = starts.pop()
-                            if not starts:
-                                break
-
-                        lon, lat = map.revertPoint(
-                            *curStart.link.getPointAlong(offset, normalize=False)
-                        )
-                        # TODO: Facilitate rounding:
-                        outData: StdFieldNames = {
-                            "trackID": treeNode.refPoint.id,
-                            "trackSeq": treeNode.refPoint.seq
-                            - 0.5
-                            + 0.5 * (dist - startDist) / span,
-                            "linkID": curStart.link.id,
-                            "linkDist": offset,
-                            "totalDist": dist,
-                            "lon": lon,
-                            "lat": lat,
-                            "numLinksTrav": None,
-                            "linksTrav": None,
-                        }
-                        writer.writerow(outData)
-
-            lon, lat = map.revertPointOnLink(treeNode.pointOnLink)
+    trackpointList: Iterable[reporter.OutputTrackpoint]
+    for trackpointList in trackpointLists.values():
+        trackpoint: reporter.OutputTrackpoint
+        for trackpoint in trackpointList:
             # TODO: Facilitate rounding:
             outData: StdFieldNames = {
-                "trackID": treeNode.refPoint.id,
-                "trackSeq": (
-                    treeNode.refPoint.seq if treeNode.refPoint.seq is not None else -1
+                "trackID": trackpoint.id,
+                "trackSeq": (trackpoint.seq if trackpoint.seq is not None else -1),
+                "linkID": trackpoint.linkID,
+                "linkDist": trackpoint.linkDist,
+                "totalDist": trackpoint.totalDist,
+                "lon": trackpoint.lonHoriz,
+                "lat": trackpoint.latVert,
+                "numLinksTrav": (
+                    len(trackpoint.linksTrav)
+                    if trackpoint.linksTrav is not None
+                    else -1
                 ),
-                "linkID": treeNode.pointOnLink.link.id,
-                "linkDist": treeNode.pointOnLink.getDistanceAlong(),
-                "totalDist": treeNode.totalDist,
-                "lon": lon,
-                "lat": lat,
-                "numLinksTrav": len(treeNode.routeInfo) if not treeNode.restart else -1,
-                "linksTrav": str(
-                    [routeTraverse.id for routeTraverse in treeNode.routeInfo]
-                    if not treeNode.restart
-                    else []
+                "linksTrav": (
+                    str(trackpoint.linksTrav)
+                    if trackpoint.linksTrav is not None
+                    else None
                 ),
             }
             # A links traversed length of -1 shall be a special indication
             # saying that we are restarting, and the link list doesn't exist.
             writer.writerow(outData)
-            priorTreeNode = treeNode
 
 
 def stringToList(string: str) -> list[Number]:
@@ -236,10 +138,17 @@ def readStandardDump(
         newEntry = path_engine.PathEnd(trackPoint, matchPoint)
         newEntry.totalDist = float(inData["totalDist"])
         if int(inData["numLinksTrav"]) >= 0:
-            newEntry.routeInfo = [
-                baseMap.getLinkByID(linkID)
-                for linkID in stringToList(inData["linksTrav"])
-            ]
+            linkList: list[graph.Map.LinkRecord] = []
+            for linkID in stringToList(inData["linksTrav"]):
+                linkRecord = baseMap.getLinkByID(linkID)
+                if not linkRecord:
+                    logging.warning(
+                        "The path match file refers to a nonexistent link"
+                        + f" ID {linkID} in the linksTrav list."
+                    )
+                    continue
+                linkList.append(linkRecord)
+            newEntry.routeInfo = linkList
         newEntry.restart = int(inData["numLinksTrav"]) == -1
         # TODO: totalCost and totalLinkCount aren't being stored in the dump,
         # so they're not set.

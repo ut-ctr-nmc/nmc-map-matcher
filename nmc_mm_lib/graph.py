@@ -24,7 +24,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from collections.abc import Hashable, Iterable, Sequence, Generator
-from typing import NamedTuple, MutableMapping, Any, Self
+from typing import MutableMapping, Any, Self
+from dataclasses import dataclass
 import shapely
 from shapely.ops import transform
 import networkx
@@ -73,16 +74,16 @@ def hasExactly(iterable: Iterable[Any], count: int = 0) -> bool:
         return True
 
 
-class Trackpoint(NamedTuple):
+@dataclass(frozen=True)
+class Trackpoint:
     """
     A container for a geocoordinate, usually part of a series
     """
-
     lonHoriz: float
     latVert: float
     point: shapely.geometry.Point
-    id: Hashable | None = None
-    seq: int | float | None = None
+    id: Hashable | None
+    seq: int | float | None
 
 
 class Map:
@@ -146,7 +147,8 @@ class Map:
             **metadata,
         )
 
-    class LinkRecord(NamedTuple):
+    @dataclass(frozen=True)
+    class LinkRecord:
         """
         For recording individual links in edge lookups
         """
@@ -408,7 +410,8 @@ class Map:
         """
         self.trackpointCtr = value
 
-    class PointOnLink(NamedTuple):
+    @dataclass(frozen=True)
+    class PointOnLink:
         """
         PointOnLink is a specific point on a link. This is documented in
         Figure 1 of Perrine, et al. 2015 as "point_on_link".
@@ -628,7 +631,8 @@ class WalkPathProcessor:
         # List of required links for transit purposes.
         self.linkList = linkList
 
-    class Next(NamedTuple):
+    @dataclass(frozen=True)
+    class Next:
         """
         Allows path match requests to be queued. Each of these represents a
         traversal from the start of incomingLink to the starts of the next
@@ -725,7 +729,8 @@ class WalkPathProcessor:
             self.backtrackSet,
         )
 
-    class PathElement(NamedTuple):
+    @dataclass(frozen=True)
+    class PathElement:
         """
         PathElement is used to maintain the priority queue for walkPath.
         It contains the cost, a tie-breaker index, and the Next structure
