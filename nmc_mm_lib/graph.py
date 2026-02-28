@@ -73,6 +73,18 @@ def hasExactly(iterable: Iterable[Any], count: int = 0) -> bool:
         return True
 
 
+class Trackpoint(NamedTuple):
+    """
+    A container for a geocoordinate, usually part of a series
+    """
+
+    lonHoriz: float
+    latVert: float
+    point: shapely.geometry.Point
+    id: Hashable | None = None
+    seq: int | float | None = None
+
+
 class Map:
     """
     Map is a container for a node-link graph, maintained internally in
@@ -363,17 +375,6 @@ class Map:
         """
         return self.linkIDLookup[linkID] if linkID in self.linkIDLookup else None
 
-    class Trackpoint(NamedTuple):
-        """
-        Keeps an original track point and transformed coordinates.
-        """
-
-        lonHoriz: float
-        latVert: float
-        point: shapely.geometry.Point
-        id: Hashable | None = None
-        seq: int | None = None
-
     def makeTrackpoint(
         self,
         lonHoriz: float,
@@ -395,7 +396,7 @@ class Map:
         if seq is None:
             seq = self.trackpointCtr
             self.trackpointCtr += 1
-        return Map.Trackpoint(
+        return Trackpoint(
             id=ident, lonHoriz=lonHoriz, latVert=latVert, point=point, seq=seq
         )
 

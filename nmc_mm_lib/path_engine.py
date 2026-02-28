@@ -41,7 +41,7 @@ class PathEnd:
     Perrine et al., 2015.
     """
 
-    refPoint: graph.Map.Trackpoint
+    refPoint: graph.Trackpoint
     pointOnLink: graph.Map.PointOnLink
     totalCost: float  # "s", the total score of the path represented
     prevTreeNode: "PathEnd | None"  # "p", the previous PathEnd step in this path
@@ -51,7 +51,7 @@ class PathEnd:
     restart: bool  # "r", a Boolean signifying a discontinuity
 
     def __init__(
-        self, refPoint: graph.Map.Trackpoint, pointOnLink: graph.Map.PointOnLink
+        self, refPoint: graph.Trackpoint, pointOnLink: graph.Map.PointOnLink
     ):
         """
         Sets up values in this object, many of which need to be mutable
@@ -185,7 +185,7 @@ class PathEngine:
     def _findShortestPaths(
         self,
         pathProcessor: graph.WalkPathProcessor,
-        shapeEntry: graph.Map.Trackpoint,
+        shapeEntry: graph.Trackpoint,
         gtfsPointsPrev: list[PathEnd | None],
         gtfsPoints: list[PathEnd],
         avoidRestartCode: int = 0,
@@ -304,7 +304,7 @@ class PathEngine:
 
     def constructPath(
         self,
-        trackpoints: Sequence[graph.Map.Trackpoint],
+        trackpoints: Sequence[graph.Trackpoint],
         baseMap: graph.Map,
         linkList: list[Hashable] | None = None,
     ) -> list[PathEnd] | None:
@@ -334,7 +334,7 @@ class PathEngine:
         logging.info("Building path...")
 
         # TODO: Rename shapeEntry to "trackpoint".
-        shapeEntry: graph.Map.Trackpoint
+        shapeEntry: graph.Trackpoint
         for shapeCtr, shapeEntry in enumerate(trackpoints):
 
             if (shapeCtr + 1) == len(trackpoints) or (shapeCtr + 1) % 10 == 0:

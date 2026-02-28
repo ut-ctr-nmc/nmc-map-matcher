@@ -107,7 +107,7 @@ map.completeMap()
 gtfsSet = gtfs.GTFSSet(GTFS_PATH)
 
 # Express trackpoints derived from GTFS shapes in terms of map:
-gtfsShapesTracks: dict[Hashable, tuple[graph.Map.Trackpoint, ...]] = {}
+gtfsShapesTracks: dict[Hashable, tuple[graph.Trackpoint, ...]] = {}
 for shapeID, shapeEntries in gtfsSet.shapes.items():
     gtfsShapesTracks[shapeID] = tuple(
         map.makeTrackpoint(shapeEntry.lng, shapeEntry.lat,
