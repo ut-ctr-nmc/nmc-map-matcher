@@ -59,8 +59,25 @@ def dumpStandardInfo(
         writer.writeheader()
     trackpointList: Iterable[reporter.OutputTrackpoint]
     for trackpointList in trackpointLists.values():
+        linkIDInt = True
         trackpoint: reporter.OutputTrackpoint
         for trackpoint in trackpointList:
+            if trackpoint.linksTrav is not None:
+                for linkID in trackpoint.linksTrav:
+                    try:
+                        int(linkID)
+                    except ValueError:
+                        linkIDInt = False
+                        break
+            if not linkIDInt:
+                break
+        for trackpoint in trackpointList:
+            linkTravStr = None
+            if trackpoint.linksTrav is not None:
+                if linkIDInt:
+                    linkTravStr = str([int(linkID) for linkID in trackpoint.linksTrav])
+                else:
+                    linkTravStr = str(trackpoint.linksTrav)
             # TODO: Facilitate rounding:
             outData: StdFieldNames = {
                 "trackID": trackpoint.id,
@@ -75,11 +92,7 @@ def dumpStandardInfo(
                     if trackpoint.linksTrav is not None
                     else -1
                 ),
-                "linksTrav": (
-                    str(trackpoint.linksTrav)
-                    if trackpoint.linksTrav is not None
-                    else None
-                ),
+                "linksTrav": linkTravStr,
             }
             # A links traversed length of -1 shall be a special indication
             # saying that we are restarting, and the link list doesn't exist.

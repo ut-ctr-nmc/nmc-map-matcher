@@ -138,9 +138,9 @@ def prepareTrackpath(
                         dist = starts[-1].dist
                         offset = 0
                         curStart = starts.pop()
-                        linksTrav.append(curStart.link.id)
                         if not starts:
                             break
+                        linksTrav.append(curStart.link.id)
 
                     lon, lat = map.revertPoint(
                         *curStart.link.getPointAlong(offset, normalize=False)
