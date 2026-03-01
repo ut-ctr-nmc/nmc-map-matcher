@@ -79,6 +79,7 @@ class Trackpoint:
     """
     A container for a geocoordinate, usually part of a series
     """
+
     lonHoriz: float
     latVert: float
     point: shapely.geometry.Point
@@ -571,7 +572,8 @@ class WalkPathProcessor:
     uTurnDeadEndPenalty: (
         float | None
     )  # Add this penalty to U-turns at dead-ends, or None for uTurnInterPenalty
-    pathEngine: "PathEngine"  # The object that instanciates this class.
+    pathEngine: Any  # The "PathEngine" object that instanciates this class.
+    # TODO: We can't import PathEngine for typing because of circular references.
     backCache: dict[
         Hashable, dict[Hashable, Map.LinkRecord]
     ]  # Caches previous walkPathoperations to accelerate
@@ -594,7 +596,7 @@ class WalkPathProcessor:
 
     def __init__(
         self,
-        pathEngine: "PathEngine",
+        pathEngine,
         map: Map,
         limitRadius: float,
         limitDistance: float,
@@ -741,7 +743,16 @@ class WalkPathProcessor:
         queueCounter: int
         nextStruct: "WalkPathProcessor.Next"
 
-    # TODO: Create a return type for walkPath.
+    @dataclass(frozen=True)
+    class PathResult:
+        """
+        PathResult is a container for the results of a walkPath operation.
+        """
+
+        linkList: list[Map.LinkRecord] | None
+        distance: float
+        cost: float
+        linkListIndex: int
 
     def walkPath(
         self,
@@ -749,7 +760,7 @@ class WalkPathProcessor:
         pointOnLinkDest: Map.PointOnLink,
         startupCost: float = 0.0,  # TODO: !!! Use link.data['flatScore'] !!!
         totalLinkCount: int = 0,
-    ) -> tuple[list[Map.LinkRecord] | None, float, float, int]:
+    ) -> PathResult:
         """
         walkPath uses a breadth-first search to find the shortest distance from a given PointOnLink to another PointOnLink and
         returns a list of links representing nodes and following links encountered.  Specify a limiting radius for
@@ -768,7 +779,9 @@ class WalkPathProcessor:
         # Are the points too far away to begin with?
         origDestDist = pointOnLinkOrig.point.distance(pointOnLinkDest.point)
         if origDestDist > self.limitRadius:
-            return None, 0.0, 0.0, 0
+            return WalkPathProcessor.PathResult(
+                linkList=None, distance=0.0, cost=0.0, linkListIndex=0
+            )
 
         # Set a reasonable bound for the expected distance in this path search:
         self.backtrackScore = self.limitDistance
@@ -800,21 +813,22 @@ class WalkPathProcessor:
                 retList.append(element.incomingLink)
                 element = element.prevStruct
             retList.reverse()
-            return (
-                retList,
-                self.winner.distance,
-                self.winner.cost - startupCost,
-                self.winner.linkListIndex,
+            return WalkPathProcessor.PathResult(
+                linkList=retList,
+                distance=self.winner.distance,
+                cost=self.winner.cost - startupCost,
+                linkListIndex=self.winner.linkListIndex,
             )
         else:
             # We didn't find anything.
-            return None, 0.0, 0.0, 0
+            return WalkPathProcessor.PathResult(
+                linkList=None, distance=0.0, cost=0.0, linkListIndex=0
+            )
 
     # _walkPath is called internally by walkPath().
     def _walkPath(self, walkPathElem: Next) -> None:
         """
         _walkPath is the internal processing element for the pathfinder.
-        @type walkPathElem: _WalkPathNext
         """
         # Check maximum number of steps:
         if walkPathElem.stepCount >= self.limitSteps:
@@ -837,11 +851,11 @@ class WalkPathProcessor:
             # Log the winner into the cache by looking at all of the parent elements:
             if self.pointOnLinkDest.link.id not in self.backCache:
                 self.backCache[self.pointOnLinkDest.link.id] = {}
-            mappings = self.backCache[self.pointOnLinkDest.link.id]
-            "@type mappings: dict<int, GraphLink>"
+            mappings: dict[Hashable, Map.LinkRecord] = self.backCache[
+                self.pointOnLinkDest.link.id
+            ]
             if walkPathElem.prevStruct is not None:
-                element = walkPathElem.prevStruct
-                "@type element: _WalkPathNext"
+                element: WalkPathProcessor.Next = walkPathElem.prevStruct
                 while element.prevStruct is not None:
                     if (element.prevStruct.incomingLink.id in mappings) and (
                         mappings[element.prevStruct.incomingLink.id]

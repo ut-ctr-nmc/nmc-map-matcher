@@ -81,7 +81,7 @@ def dumpStandardInfo(
             # TODO: Facilitate rounding:
             outData: StdFieldNames = {
                 "trackID": trackpoint.id,
-                "trackSeq": (trackpoint.seq if trackpoint.seq is not None else -1),
+                "trackSeq": trackpoint.seq if trackpoint.seq is not None else -1,
                 "linkID": trackpoint.linkID,
                 "linkDist": trackpoint.linkDist,
                 "totalDist": trackpoint.totalDist,
