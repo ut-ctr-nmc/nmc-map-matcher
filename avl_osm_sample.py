@@ -73,6 +73,7 @@ def avlRead(filename: str) -> Generator[dict[str, Any]]:
             yield fileLine
 
 
+# TODO: We can put this into support, like we did for gtfs.py.
 
 class OSMReader:
     """
