@@ -26,13 +26,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from collections import namedtuple
-
+from support import osm_overpass
 from shapely import from_wkt
-import urllib.parse
-import requests
 from nmc_mm_lib import graph, path_engine, dump_io, reporter
-from support import gtfs
 from typing import Final, Any, Hashable, Generator, TypedDict, NamedTuple
 from datetime import datetime
 import csv
@@ -51,7 +47,7 @@ logging.basicConfig(
 
 AVL_PATH: Final[str] = os.path.join("samples", "avl", "samples/avl/capmetro_rapid_20241101.csv")
 OVERPASS_API: Final[str] = "https://overpass-api.de/api/interpreter"
-OVERPASS_BOUNDS: Final[OSMReader.OverpassBounds] = {
+OVERPASS_BOUNDS: Final[osm_overpass.OSMReader.OverpassBounds] = {
     # Depicts the GPS bounding box for the greater Austin, TX metro area:
     "minLat": 29.582,
     "maxLat": 30.672,
@@ -75,88 +71,6 @@ def avlRead(filename: str) -> Generator[dict[str, Any]]:
 
 # TODO: We can put this into support, like we did for gtfs.py.
 
-class OSMReader:
-    """
-    OSMReader is a class that handles reading OSM data from the Overpass API
-    and converting it into a graph.Map object.
-    """
-    # Determine roadway types we're interested in:
-    HIGHWAY_CLAUSE: str = '["highway"~"^(motorway|trunk|primary|secondary' \
-        '|tertiary|motorway_link|trunk_link|primary_link|unclassified' \
-        '|residential|living_street)$"]'
-    nodeCache: dict[Hashable, Intersection] = {}
-    waySets: dict[Hashable, dict[Way, bool]] = {}
-
-    class OverpassBounds(TypedDict):
-        """
-        Definition for Overpass bounding box to limit queries
-        """
-        minLat: float
-        maxLat: float
-        minLon: float
-        maxLon: float
-
-    def __init__(self, endpoint: str, bounds: OverpassBounds) -> None:
-        self.endpoint = endpoint
-        self.bounds = bounds
-
-    class Intersection(NamedTuple):
-        lat: float
-        lon: float
-        signal: bool
-        junction: bool
-        midblock_sig: bool
-
-    class Way(NamedTuple):
-        type: str
-        name: str
-
-    def geoRead(self) -> graph.Map:
-        """
-        Queries Overpass API for OSM data within the specified bounding box
-        """
-
-
-
-        # Commit our geometry:
-        map.completeMap()
-        return map
-
-    def getChunk(self, lowCoords, highCoords):
-        queryStr = f'[out:json];way({lowCoords[0]},{lowCoords[1]},{highCoords[0]},{highCoords[1]}){self.HIGHWAY_CLAUSE};(._;>;);out meta;'
-        print(f"Fetching from Overpass API ({lowCoords[0]:.3f}, {lowCoords[1]:.3f})-({highCoords[0]:.3f}, {highCoords[1]:.3f})")
-        queryStr = urllib.parse.quote(queryStr)
-        response = requests.get(self.endpoint + "?data=" + queryStr)
-        response.raise_for_status()
-        result = response.json()
-        
-        nodeCount = 0
-        for element in result["elements"]:
-            if "type" in element and element["type"] == "node" and element["id"] not in nodeCache:
-                sigFlag = False
-                junctFlag = False
-                if "tags" in element and "highway" in element["tags"]:
-                    sigFlag = element["tags"]["highway"] == "traffic_signals"
-                    junctFlag = element["tags"]["highway"] == "motorway_junction"
-                nodeCache[element["id"]] = OSMReader.Intersection(lat=element["lat"],
-                                                            lon=element["lon"],
-                                                            signal=sigFlag,
-                                                            junction=junctFlag,
-                                                            midblock_sig=None)
-                waySets[element["id"]] = {} # That's way -> True if endpoint
-                nodeCount += 1
-        for element in result["elements"]:
-            if "type" in element and element["type"] == "way":
-                if "tags" in element and "highway" in element["tags"]:
-                    ourName = element["tags"]["name"].strip().upper() if "name" in element["tags"] else "none"
-                    way = OSMReader.Way(type=element["tags"]["highway"], name=ourName)
-                    index = 0
-                    numNodes = len(element["nodes"])
-                    for nodeID in element["nodes"]:
-                        if nodeID in waySets:
-                            waySets[nodeID][way] = nodeID == 0 or nodeID == numNodes - 1
-                        index += 1
-        print("New nodes: %d." % nodeCount)
 
 '''
 
