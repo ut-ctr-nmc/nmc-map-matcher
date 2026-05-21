@@ -58,6 +58,7 @@ class OSMReader:
         """
         Internal record-keeping for OSMReader
         """
+        id: Hashable
         type: str
         name: str
 
@@ -79,16 +80,16 @@ class OSMReader:
         self.nodeCache = {}
         self.waySets = {}
         
+        logging.info(f"Fetching {self.bounds.stepsEW}x{self.bounds.stepsNS} OSM data...")
         blockWidth = (self.bounds.maxLon - self.bounds.minLon) / self.bounds.stepsEW
         blockHeight = (self.bounds.maxLat - self.bounds.minLat) / self.bounds.stepsNS
         for vStep in range(self.bounds.stepsNS):
             for hStep in range(self.bounds.stepsEW):
                 lowCoords = (self.bounds.minLat + blockHeight * vStep - blockHeight * self.bounds.overlap, self.bounds.minLon + blockWidth * hStep - blockWidth * self.bounds.overlap)
                 highCoords = (self.bounds.minLat + blockHeight * (vStep + 1) + blockHeight * self.bounds.overlap, self.bounds.minLon + blockWidth * (hStep + 1) + blockWidth * self.bounds.overlap)
-                print("Getting (%.4f,%.4f)-(%.4f,%.4f)..." % (lowCoords[0], lowCoords[1], highCoords[0], highCoords[1]))
                 self.getChunk(lowCoords, highCoords)
 
-        print("Sorting through final geometry...")
+        logging.info("Sorting through final geometry...")
         intList = []
         for nodeID, node in self.nodeCache.items():
             nonMotorwayCnt = 0
@@ -104,12 +105,9 @@ class OSMReader:
             if node.signal or (motorwayCnt + nonMotorwayCnt > 1 and not (endCnt == 2 and motorwayCnt + nonMotorwayCnt == 2)):
                 motorwayFlag = node.junction or nonMotorwayCnt == 0
                 intList.append(OSMReader.Intersection(lat=node.lat, lon=node.lon, signal=node.signal, junction=motorwayFlag)) 
-        print("Number of intersections: %d" % len(intList))
+        logging.info("Number of intersections: %d" % len(intList))
             
-        # Commit our geometry:
-        logging.info("Committing geometry.")
-        map.completeMap()
-        return map
+
 
     def getChunk(self, lowCoords, highCoords):
         queryStr = f'[out:json];way({lowCoords[0]},{lowCoords[1]},{highCoords[0]},{highCoords[1]}){self.HIGHWAY_CLAUSE};(._;>;);out meta;'
@@ -141,12 +139,12 @@ class OSMReader:
             if "type" in element and element["type"] == "way":
                 if "tags" in element and "highway" in element["tags"]:
                     ourName = element["tags"]["name"].strip().upper() if "name" in element["tags"] else "none"
-                    way = OSMReader.Way(type=element["tags"]["highway"], name=ourName)
+                    way = OSMReader.Way(id=element["id"], type=element["tags"]["highway"], name=ourName)
                     wayCount += 1
                     numNodes = len(element["nodes"])
-                    for nodeID in element["nodes"]:
+                    for index, nodeID in enumerate(element["nodes"]):
                         if nodeID in self.waySets:
-                            self.waySets[nodeID][way] = nodeID == 0 or nodeID == numNodes - 1
+                            self.waySets[nodeID][way] = index == 0 or index == numNodes - 1
         logging.info(f"New nodes: {nodeCount}; New ways: {wayCount}.")
         return nodeCount
     

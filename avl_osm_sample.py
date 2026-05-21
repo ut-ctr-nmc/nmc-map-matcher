@@ -119,6 +119,13 @@ def process():
     print("Done.")
 '''
 
+'''
+        # Commit our geometry:
+        logging.info("Committing geometry.")
+        map.completeMap()
+        return map
+'''
+
 AVLCollection = dict[str, dict[datetime, Any]]
 
 avl: AVLCollection = {}
