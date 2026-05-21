@@ -47,16 +47,16 @@ logging.basicConfig(
 
 AVL_PATH: Final[str] = os.path.join("samples", "avl", "samples/avl/capmetro_rapid_20241101.csv")
 OVERPASS_API: Final[str] = "https://overpass-api.de/api/interpreter"
-OVERPASS_BOUNDS: Final[osm_overpass.OSMReader.OverpassBounds] = {
+OVERPASS_BOUNDS: Final[osm_overpass.OSMReader.OverpassBounds] = osm_overpass.OSMReader.OverpassBounds(
     # Depicts the GPS bounding box for the greater Austin, TX metro area:
-    "minLat": 29.582,
-    "maxLat": 30.672,
-    "minLon": -98.050,
-    "maxLon": -97.513
-}
-STEPS_NS: Final[int] = 3 # How many north-south chunks to request
-STEPS_EW: Final[int] = 3 # How many east-west chunks to request
-OVERLAP: Final[float] = 0.05 # Degrees of overlaps in rectangular chunks
+    minLat = 29.582,
+    maxLat = 30.672,
+    minLon = -98.050,
+    maxLon = -97.513,
+    stepsNS = 3, # How many north-south chunks to request
+    stepsEW = 3, # How many east-west chunks to request
+    overlap = 0.05 # Degrees of overlaps in rectangular chunks
+)
 
 def avlRead(filename: str) -> Generator[dict[str, Any]]:
     """

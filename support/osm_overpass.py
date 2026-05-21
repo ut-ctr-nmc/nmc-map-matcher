@@ -25,7 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import urllib.parse
 import requests
 from nmc_mm_lib import graph
-from typing import Hashable, TypedDict, NamedTuple
+from typing import Hashable, NamedTuple
 import logging
 
 class OSMReader:
@@ -33,7 +33,7 @@ class OSMReader:
     OSMReader is a class that handles reading OSM data from the Overpass API
     and converting it into a graph.Map object.
     """
-    class OverpassBounds(TypedDict):
+    class OverpassBounds(NamedTuple):
         """
         Definition for Overpass bounding box to limit queries
         """
@@ -41,6 +41,9 @@ class OSMReader:
         maxLat: float
         minLon: float
         maxLon: float
+        stepsNS: int = 1
+        stepsEW: int = 1
+        overlap: float = 0.05
 
     class Intersection(NamedTuple):
         """
@@ -62,8 +65,8 @@ class OSMReader:
     HIGHWAY_CLAUSE: str = '["highway"~"^(motorway|trunk|primary|secondary' \
         '|tertiary|motorway_link|trunk_link|primary_link|unclassified' \
         '|residential|living_street)$"]'
-    nodeCache: dict[Hashable, Intersection] = {}
-    waySets: dict[Hashable, dict[Way, bool]] = {}
+    nodeCache: dict[Hashable, Intersection]
+    waySets: dict[Hashable, dict[Way, bool]]
 
     def __init__(self, endpoint: str, bounds: OverpassBounds) -> None:
         self.endpoint = endpoint
@@ -73,10 +76,38 @@ class OSMReader:
         """
         Queries Overpass API for OSM data within the specified bounding box
         """
+        self.nodeCache = {}
+        self.waySets = {}
+        
+        blockWidth = (self.bounds.maxLon - self.bounds.minLon) / self.bounds.stepsEW
+        blockHeight = (self.bounds.maxLat - self.bounds.minLat) / self.bounds.stepsNS
+        for vStep in range(self.bounds.stepsNS):
+            for hStep in range(self.bounds.stepsEW):
+                lowCoords = (self.bounds.minLat + blockHeight * vStep - blockHeight * self.bounds.overlap, self.bounds.minLon + blockWidth * hStep - blockWidth * self.bounds.overlap)
+                highCoords = (self.bounds.minLat + blockHeight * (vStep + 1) + blockHeight * self.bounds.overlap, self.bounds.minLon + blockWidth * (hStep + 1) + blockWidth * self.bounds.overlap)
+                print("Getting (%.4f,%.4f)-(%.4f,%.4f)..." % (lowCoords[0], lowCoords[1], highCoords[0], highCoords[1]))
+                self.getChunk(lowCoords, highCoords)
 
-
-
+        print("Sorting through final geometry...")
+        intList = []
+        for nodeID, node in self.nodeCache.items():
+            nonMotorwayCnt = 0
+            motorwayCnt = 0
+            endCnt = 0
+            for way, endFlag in self.waySets[nodeID].items():
+                if way.type.startswith("motorway"):
+                    motorwayCnt += 1
+                else:
+                    nonMotorwayCnt += 1
+                if endFlag:
+                    endCnt += 1
+            if node.signal or (motorwayCnt + nonMotorwayCnt > 1 and not (endCnt == 2 and motorwayCnt + nonMotorwayCnt == 2)):
+                motorwayFlag = node.junction or nonMotorwayCnt == 0
+                intList.append(OSMReader.Intersection(lat=node.lat, lon=node.lon, signal=node.signal, junction=motorwayFlag)) 
+        print("Number of intersections: %d" % len(intList))
+            
         # Commit our geometry:
+        logging.info("Committing geometry.")
         map.completeMap()
         return map
 
@@ -88,6 +119,7 @@ class OSMReader:
         response.raise_for_status()
         result = response.json()
         
+        # Pass #1: Nodes:
         nodeCount = 0
         for element in result["elements"]:
             if "type" in element and element["type"] == "node" and element["id"] not in self.nodeCache:
@@ -102,15 +134,19 @@ class OSMReader:
                                                             junction=junctFlag)
                 self.waySets[element["id"]] = {} # That's way -> True if endpoint
                 nodeCount += 1
+        
+        # Pass #2: Ways:
+        wayCount = 0
         for element in result["elements"]:
             if "type" in element and element["type"] == "way":
                 if "tags" in element and "highway" in element["tags"]:
                     ourName = element["tags"]["name"].strip().upper() if "name" in element["tags"] else "none"
                     way = OSMReader.Way(type=element["tags"]["highway"], name=ourName)
-                    index = 0
+                    wayCount += 1
                     numNodes = len(element["nodes"])
                     for nodeID in element["nodes"]:
-                        if nodeID in waySets:
-                            waySets[nodeID][way] = nodeID == 0 or nodeID == numNodes - 1
-                        index += 1
-        print("New nodes: %d." % nodeCount)
+                        if nodeID in self.waySets:
+                            self.waySets[nodeID][way] = nodeID == 0 or nodeID == numNodes - 1
+        logging.info(f"New nodes: {nodeCount}; New ways: {wayCount}.")
+        return nodeCount
+    
