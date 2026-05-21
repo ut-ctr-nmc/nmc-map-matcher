@@ -58,6 +58,14 @@ OVERPASS_BOUNDS: Final[osm_overpass.OSMReader.OverpassBounds] = osm_overpass.OSM
     overlap = 0.05 # Degrees of overlaps in rectangular chunks
 )
 
+# Create OSM base map:
+osmReader = osm_overpass.OSMReader(OVERPASS_API, OVERPASS_BOUNDS)
+osmReader.geoRead()
+map = graph.Map(workingCRS="EPSG:3081")  # Use Texas system in meters
+osmReader.addToMap(map)
+map.completeMap()
+
+# Now, load in AVL bus tracks:
 def avlRead(filename: str) -> Generator[dict[str, Any]]:
     """
     Reads AVL CSV file and yields line by line
@@ -67,64 +75,6 @@ def avlRead(filename: str) -> Generator[dict[str, Any]]:
         csvReader = csv.DictReader(fileHandle)
         for fileLine in csvReader:
             yield fileLine
-
-
-# TODO: We can put this into support, like we did for gtfs.py.
-
-
-'''
-
-
-
-def process():
-    nodeCache = {}
-    waySets = {}
-    
-    nodeCount = 0
-    blockWidth = (CORNER_HIGH[1] - CORNER_LOW[1]) / STEPS_EW
-    blockHeight = (CORNER_HIGH[0] - CORNER_LOW[0]) / STEPS_NS
-    for vStep in range(STEPS_NS):
-        for hStep in range(STEPS_EW):
-            lowCoords = (CORNER_LOW[0] + blockHeight * vStep - blockHeight * OVERLAP, CORNER_LOW[1] + blockWidth * hStep - blockWidth * OVERLAP)
-            highCoords = (CORNER_LOW[0] + blockHeight * (vStep + 1) + blockHeight * OVERLAP, CORNER_LOW[1] + blockWidth * (hStep + 1) + blockWidth * OVERLAP)
-            print("Getting (%.4f,%.4f)-(%.4f,%.4f)..." % (lowCoords[0], lowCoords[1], highCoords[0], highCoords[1]))
-            nodeCount = getChunk(nodeCache, waySets, lowCoords, highCoords)
-
-    print("Sorting through final geometry...")
-    intList = []
-    for nodeID, node in nodeCache.items():
-        nonMotorwayCnt = 0
-        motorwayCnt = 0
-        endCnt = 0
-        for way, endFlag in waySets[nodeID].items():
-            if way.type.startswith("motorway"):
-                motorwayCnt += 1
-            else:
-                nonMotorwayCnt += 1
-            if endFlag:
-                endCnt += 1
-        if node.signal or (motorwayCnt + nonMotorwayCnt > 1 and not (endCnt == 2 and motorwayCnt + nonMotorwayCnt == 2)):
-            motorwayFlag = node.junction or nonMotorwayCnt == 0
-            intList.append(Intersection(lat=node.lat, lon=node.lon, signal=node.signal, junction=motorwayFlag,
-                                        midblock_sig=node.signal and motorwayCnt + nonMotorwayCnt < 2)) 
-    print("Number of intersections: %d" % len(intList))
-    
-    print("Outputting CSV '%s'..." % OUTFILE)
-    outHandle = open(OUTFILE, "w")
-    csvWriter = csv.writer(outHandle)
-    csvWriter.writerow(['lat', 'lon', 'signal', 'junction', 'midblock_sig'])
-    for node in intList:
-        csvWriter.writerow([node.lat, node.lon, tf(node.signal), tf(node.junction), tf(node.midblock_sig)])
-    outHandle.close()
-    print("Done.")
-'''
-
-'''
-        # Commit our geometry:
-        logging.info("Committing geometry.")
-        map.completeMap()
-        return map
-'''
 
 AVLCollection = dict[str, dict[datetime, Any]]
 
@@ -142,69 +92,43 @@ for fileLine in avlRead(AVL_PATH):
         "shape_id": fileLine["shape_id"]
     }
 
-
-'''
-# Create map of it:
-map = graph.Map()  # Use default GPS to Web Mercator scheme
-for nodeID, node in nodes.items():
-    # Define each node from lon/lat, ID, w/o optional metadata dict. Keep in
-    # mind that we actually don't need these locations since we're using the
-    # link geometry.
-    map.addNode(nodeID, node["lon"], node["lat"])
-for linkID, cnx in cnxs.items():
-    # Define each link by using node IDs, but use link geometry. Also add in
-    # the street name metadata:
-    map.addLink(
-        cnx["source"]["id"],
-        cnx["dest"]["id"],
-        controlPoints=links[linkID]["geog"],
-        linkID=linkID,
-        metadata=links[linkID],
-    )
-'''
-
-
-
-
-
-
-# Express trackpoints derived from GTFS shapes in terms of map:
-gtfsShapesTracks: dict[Hashable, tuple[graph.Trackpoint, ...]] = {}
-for shapeID, shapeEntries in gtfsSet.shapes.items():
-    gtfsShapesTracks[shapeID] = tuple(
-        map.makeTrackpoint(shapeEntry.lng, shapeEntry.lat, shapeID, shapeEntry.shapeSeq)
-        for shapeEntry in shapeEntries
+# Express trackpoints derived from AVL data in terms of map:
+avlTracks: dict[Hashable, tuple[graph.Trackpoint, ...]] = {}
+for tripID, avlEntries in avl.items():
+    avlTracks[tripID] = tuple(
+        map.makeTrackpoint(lonHoriz=avlEntry["lon"], latVert=avlEntry["lat"], ident=avlEntry["timestamp"], seq=index)
+        for index, avlEntry in enumerate(avlEntries.values())
     )
 
-# Run path match for each GTFS route:
+# Run path match for each AVL track:
 matchedPaths: dict[Hashable, list[path_engine.PathEnd]] = {}
 pathEngine = path_engine.PathEngine()  # Use default match parameters
-for shapeID, gtfsTrack in gtfsShapesTracks.items():
-    logging.info(f"GTFS Shape ID {shapeID}:")
-    path: list[path_engine.PathEnd] | None = pathEngine.constructPath(gtfsTrack, map)
+for tripID, avlTrack in avlTracks.items():
+    logging.info(f"AVL Trip ID {tripID} with {len(avlTrack)} trackpoints")
+    path: list[path_engine.PathEnd] | None = pathEngine.constructPath(avlTrack, map)
     if path is not None:
-        matchedPaths[shapeID] = path
+        matchedPaths[tripID] = path
 
 # Get a list of output trackpoints:
 trackpointLists: dict[Hashable, list[reporter.OutputTrackpoint]] = {}
-for shapeID, treeNodes in matchedPaths.items():
-    trackpointLists[shapeID] = reporter.prepareTrackpath(
+for tripID, treeNodes in matchedPaths.items():
+    trackpointLists[tripID] = reporter.prepareTrackpath(
         map, treeNodes, intermediary=True, increment=STEP_SIZE
     )
 
 # Output matched results:
-with open("gtfs_small_matched.csv", mode="wt") as outputFile:
+with open("avl_matched.csv", mode="wt") as outputFile:
     dump_io.dumpStandardInfo(trackpointLists, outputFile, includeHeader=True)
 
-# Explain series of streets for each Shape ID:
-for shapeID in matchedPaths.keys():
-    logging.info(f"GTFS Shape ID: {shapeID}")
-    streetName = ("", "")
+# Explain series of streets for each AVL Trip ID:
+for tripID in matchedPaths.keys():
+    logging.info(f"AVL Trip ID: {tripID}")
+    streetName = ""
     pathPoint: path_engine.PathEnd
-    for pathPoint in matchedPaths[shapeID]:
+    for pathPoint in matchedPaths[tripID]:
         link: graph.Map.LinkRecord
         for link in [pathPoint.pointOnLink.link] + pathPoint.routeInfo:
-            newStreetName = (link.data["name"], link.data["dir"])
+            newStreetName = link.data["name"].strip().lower()
             if newStreetName != streetName:
-                logging.info(f'  {link.data["name"]} going {link.data["dir"]}')
+                logging.info(f'  {link.data["name"].strip()}')
                 streetName = newStreetName
