@@ -45,7 +45,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-AVL_PATH: Final[str] = os.path.join("samples", "avl", "samples/avl/capmetro_rapid_20241101.csv")
+AVL_PATH: Final[str] = os.path.join("samples", "avl", "capmetro_rapid_20241101.csv")
 OVERPASS_API: Final[str] = "https://overpass-api.de/api/interpreter"
 OVERPASS_BOUNDS: Final[osm_overpass.OSMReader.OverpassBounds] = osm_overpass.OSMReader.OverpassBounds(
     # Depicts the GPS bounding box for the greater Austin, TX metro area:
@@ -70,7 +70,6 @@ def avlRead(filename: str) -> Generator[dict[str, Any]]:
     """
     Reads AVL CSV file and yields line by line
     """
-    filename = os.path.join(AVL_PATH, filename)
     with open(filename, mode="r", newline="") as fileHandle:
         csvReader = csv.DictReader(fileHandle)
         for fileLine in csvReader:
@@ -82,14 +81,16 @@ avl: AVLCollection = {}
 for fileLine in avlRead(AVL_PATH):
     if fileLine["trip_id"] not in avl:
         avl[fileLine["trip_id"]] = {}
-    datetimeKey = datetime.fromisoformat(fileLine["timestamp"])
+    datetimeKey = datetime.fromisoformat(fileLine["avl_timestamp"])
     avl[fileLine["trip_id"]][datetimeKey] = {
-        "id": fileLine["id"],
-        "lat": float(fileLine["lat"]),
-        "lon": float(fileLine["lon"]),
-        "timestamp": fileLine["timestamp"],
-        "route_id": fileLine["route_id"],
-        "shape_id": fileLine["shape_id"]
+        "lat": float(fileLine["latitude"]),
+        "lon": float(fileLine["longitude"]),
+        "timestamp": datetimeKey,
+        "stop_id": fileLine["stop_id"],
+        "current_status": fileLine["current_status"],
+        "current_stop_seq": fileLine["current_stop_seq"],
+        "speed": float(fileLine["speed"]),
+        "bearing": float(fileLine["bearing"]) if fileLine["bearing"] else None,
     }
 
 # Express trackpoints derived from AVL data in terms of map:

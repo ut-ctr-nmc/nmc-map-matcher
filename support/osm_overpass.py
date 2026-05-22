@@ -99,6 +99,8 @@ class OSMReader:
         blockHeight = (self.bounds.maxLat - self.bounds.minLat) / self.bounds.stepsNS
         for vStep in range(self.bounds.stepsNS):
             for hStep in range(self.bounds.stepsEW):
+                if vStep != 1 or hStep != 1:
+                    continue  # For testing, only fetch the middle chunk
                 lowCoords = (
                     self.bounds.minLat
                     + blockHeight * vStep
@@ -140,18 +142,19 @@ class OSMReader:
                             nodeID=node.id,
                             lonHoriz=node.lon,
                             latVert=node.lat,
-                            metadata=node._asdict(),
+                            metadata={k: v for k, v in zip(node._fields, node) if k not in {"id", "lat", "lon"}},
                         )
                         addedNodes |= {node}
                     if endFlag and index > 0:
                         controlPoints = [
                             (n.lon, n.lat) for n in way.nodes[startIdx : index + 1]
                         ]
+                        metadata = {k: v for k, v in zip(way._fields, way) if k not in {"id", "nodes"}}
                         map.addLink(
                             origNodeID=way.nodes[startIdx].id,
                             destNodeID=node.id,
                             controlPoints=controlPoints,
-                            metadata=way._asdict(),
+                            metadata=metadata,
                         )
                         linkCount += 1
                         if not way.oneWay:
@@ -160,7 +163,7 @@ class OSMReader:
                                 origNodeID=node.id,
                                 destNodeID=way.nodes[startIdx].id,
                                 controlPoints=reversed(controlPoints),
-                                metadata=way._asdict(),
+                                metadata=metadata,
                             )
                             reversedLinkCount += 1
                         startIdx = index
@@ -216,17 +219,14 @@ class OSMReader:
                         else "none"
                     )
                     motorway = element["tags"]["highway"] == "motorway"
-                    oneWay = motorway or (
-                        "oneway" in element["tags"]
-                        and (
-                            element["tags"]["oneway"] == "yes"
-                            or element["tags"]["oneway"] == "1"
-                        )
-                    )
-                    assert (
-                        not "oneway" in element["tags"]
-                        or str(element["tags"]["oneway"]) != "-1"
-                    ), f"Way {element['id']}: reverse one-way not supported"
+                    oneWay = False
+                    if "oneway" in element["tags"]:
+                        if element["tags"]["oneway"] == "yes" or element["tags"]["oneway"] == "1":
+                            oneWay = True
+                        elif element["tags"]["oneway"] == "-1":
+                            # Reverse one-way: why does it exist?
+                            element["nodes"] = list(reversed(element["nodes"]))
+                            oneWay = True
                     nodes = tuple(self.nodeCache[nodeID] for nodeID in element["nodes"])
                     way = OSMReader.Way(
                         id=element["id"],
