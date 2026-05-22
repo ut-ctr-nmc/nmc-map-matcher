@@ -176,8 +176,9 @@ class OSMReader:
         logging.info(
             f"Fetching from Overpass API ({lowCoords[0]:.3f}, {lowCoords[1]:.3f})-({highCoords[0]:.3f}, {highCoords[1]:.3f})"
         )
-        queryStr = urllib.parse.quote(queryStr)
-        response = requests.get(self.endpoint + "?data=" + queryStr)
+        logging.debug(f"Query: {queryStr}")
+        headers = {"Accept": "application/json", "Content-Type": "text/plain", "User-Agent": "NMCMapMatcher/2.0"}
+        response = requests.post(self.endpoint, data={"data": queryStr}, headers=headers)
         response.raise_for_status()
         result = response.json()
 

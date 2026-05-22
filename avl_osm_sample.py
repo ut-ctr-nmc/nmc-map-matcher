@@ -40,7 +40,7 @@ STEP_SIZE: Final[float] = 20.0
 
 # Configure logging to use stdout
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
     stream=sys.stdout,
 )
