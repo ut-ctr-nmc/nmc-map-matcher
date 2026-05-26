@@ -23,7 +23,6 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import urllib.parse
 import requests
 from nmc_mm_lib import graph
 from typing import Hashable, NamedTuple
@@ -76,7 +75,7 @@ class OSMReader:
     HIGHWAY_CLAUSE: str = (
         '["highway"~"^(motorway|trunk|primary|secondary'
         "|tertiary|motorway_link|trunk_link|primary_link|unclassified"
-        '|residential|living_street)$"]'
+        '|residential|living_street|service)$"]'
     )
     nodeCache: dict[Hashable, Node]
     waySet: set[Way]
@@ -145,12 +144,13 @@ class OSMReader:
                             metadata={k: v for k, v in zip(node._fields, node) if k not in {"id", "lat", "lon"}},
                         )
                         addedNodes |= {node}
-                    if endFlag and index > 0:
+                    if endFlag and index > startIdx:
                         controlPoints = [
                             (n.lon, n.lat) for n in way.nodes[startIdx : index + 1]
                         ]
                         metadata = {k: v for k, v in zip(way._fields, way) if k not in {"id", "nodes"}}
                         map.addLink(
+                            linkID=f"{way.id}:{way.nodes[startIdx].id}->{node.id}",
                             origNodeID=way.nodes[startIdx].id,
                             destNodeID=node.id,
                             controlPoints=controlPoints,
@@ -160,6 +160,7 @@ class OSMReader:
                         if not way.oneWay:
                             # We need our map to be unidirectional, so create reverse link:
                             map.addLink(
+                                linkID=f"{way.id}:{node.id}->{way.nodes[startIdx].id}",
                                 origNodeID=node.id,
                                 destNodeID=way.nodes[startIdx].id,
                                 controlPoints=reversed(controlPoints),
@@ -222,7 +223,9 @@ class OSMReader:
                     oneWay = False
                     if "oneway" in element["tags"]:
                         if element["tags"]["oneway"] == "yes" or element["tags"]["oneway"] == "1":
-                            oneWay = True
+                            # Make sure we aren't fighting with a bus exception:
+                            if "oneway:bus" not in element["tags"] or element["tags"]["oneway:bus"] != "no":
+                                oneWay = True
                         elif element["tags"]["oneway"] == "-1":
                             # Reverse one-way: why does it exist?
                             element["nodes"] = list(reversed(element["nodes"]))

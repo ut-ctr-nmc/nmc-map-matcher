@@ -29,7 +29,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from support import osm_overpass
 from shapely import from_wkt
 from nmc_mm_lib import graph, path_engine, dump_io, reporter
-from typing import Final, Any, Hashable, Generator, TypedDict, NamedTuple
+from typing import Final, Any, Hashable, Generator
 from datetime import datetime
 import csv
 import os
@@ -47,15 +47,17 @@ logging.basicConfig(
 
 AVL_PATH: Final[str] = os.path.join("samples", "avl", "capmetro_rapid_20241101.csv")
 OVERPASS_API: Final[str] = "https://overpass-api.de/api/interpreter"
-OVERPASS_BOUNDS: Final[osm_overpass.OSMReader.OverpassBounds] = osm_overpass.OSMReader.OverpassBounds(
-    # Depicts the GPS bounding box for the greater Austin, TX metro area:
-    minLat = 29.582,
-    maxLat = 30.672,
-    minLon = -98.050,
-    maxLon = -97.513,
-    stepsNS = 3, # How many north-south chunks to request
-    stepsEW = 3, # How many east-west chunks to request
-    overlap = 0.05 # Degrees of overlaps in rectangular chunks
+OVERPASS_BOUNDS: Final[osm_overpass.OSMReader.OverpassBounds] = (
+    osm_overpass.OSMReader.OverpassBounds(
+        # Depicts the GPS bounding box for the greater Austin, TX metro area:
+        minLat=29.582,
+        maxLat=30.672,
+        minLon=-98.050,
+        maxLon=-97.513,
+        stepsNS=3,  # How many north-south chunks to request
+        stepsEW=3,  # How many east-west chunks to request
+        overlap=0.05,  # Degrees of overlaps in rectangular chunks
+    )
 )
 
 # Create OSM base map:
@@ -64,6 +66,7 @@ osmReader.geoRead()
 map = graph.Map(workingCRS="EPSG:3081")  # Use Texas system in meters
 osmReader.addToMap(map)
 map.completeMap()
+
 
 # Now, load in AVL bus tracks:
 def avlRead(filename: str) -> Generator[dict[str, Any]]:
@@ -74,6 +77,7 @@ def avlRead(filename: str) -> Generator[dict[str, Any]]:
         csvReader = csv.DictReader(fileHandle)
         for fileLine in csvReader:
             yield fileLine
+
 
 AVLCollection = dict[str, dict[datetime, Any]]
 
@@ -97,7 +101,9 @@ for fileLine in avlRead(AVL_PATH):
 avlTracks: dict[Hashable, tuple[graph.Trackpoint, ...]] = {}
 for tripID, avlEntries in avl.items():
     avlTracks[tripID] = tuple(
-        map.makeTrackpoint(lonHoriz=avlEntry["lon"], latVert=avlEntry["lat"], ident=avlEntry["timestamp"], seq=index)
+        map.makeTrackpoint(
+            lonHoriz=avlEntry["lon"], latVert=avlEntry["lat"], ident=tripID, seq=index
+        )
         for index, avlEntry in enumerate(avlEntries.values())
     )
 
