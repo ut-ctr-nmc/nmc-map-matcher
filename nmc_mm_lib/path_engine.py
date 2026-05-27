@@ -203,23 +203,9 @@ class PathEngine:
         # (On the first time through, this loop will be skipped).
         iterList: list[PathEnd | None] = pathPointsPrev if pathPointsPrev else [None]
         pathPointPrev: PathEnd | None
-        '''DEBUGGING'''
-        if shapeEntry.seq == 249:
-            logging.info("Ding! A")
-        if shapeEntry.seq == 260:
-            logging.info("The bad 260")
-        ''''''
         for pathPointPrev in iterList:
             pathPoint: PathEnd
-            for pathPoint in pathPoints:
-                '''DEBUGGING'''
-                if (
-                    pathPointPrev is not None and
-                    str(pathPointPrev.pointOnLink.link.id) == "436634456:5521523483->152616228" and
-                    str(pathPoint.pointOnLink.link.id) == "1366187880:6643750655->7629807406"
-                ):
-                    print("Ding! B")
-                ''''''
+            for pathPoint in pathPoints: # TODO: What if these were found simultaneously?
                 # Calculate path from pathPointPrev to candidate points.
                 walkResult = (
                     graph.WalkPathProcessor.PathResult(
@@ -243,8 +229,8 @@ class PathEngine:
                             < pathPoint.totalCost
                         )
                     ):
-                        # This is the first proposed parent, or the proposed parent is cheaper than what
-                        # is there. Set it:
+                        # This is the first proposed parent, or the proposed parent is
+                        # less costly than what was found previously. Set it:
                         pathPoint.prevTreeNode = pathPointPrev
                         pathPoint.routeInfo = walkResult.linkList
                         pathPoint.totalLinkCount = walkResult.linkListIndex

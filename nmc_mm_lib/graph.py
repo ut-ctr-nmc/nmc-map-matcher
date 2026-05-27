@@ -618,7 +618,7 @@ class WalkPathProcessor:
         self.uTurnInterPenalty = None  # Disable U-turns in intersections
         self.uTurnDeadEndPenalty = 50  # Allow U-turns at dead-ends
 
-        # walkPath cache:
+        # walkPath cache to log earlier pathfinding operations:
         self.backCache = {}
 
         # Keep the running score:
@@ -686,9 +686,6 @@ class WalkPathProcessor:
             stepCount = 0
         else:
             linkDistPotential = incomingLink.data["geometry"].length
-            # linkDistPotential = (
-            #     prevStruct.distance + incomingLink.data["geometry"].length
-            # )
             stepCount = prevStruct.stepCount + 1
 
         cost: float
@@ -844,6 +841,7 @@ class WalkPathProcessor:
             return
 
         # Are we at the destination?
+        # TODO: What happens if we change this to "a destination" among the several?
         if walkPathElem.incomingLink is self.pointOnLinkDest.link:
             # We have a winner!
             self.winner = walkPathElem
