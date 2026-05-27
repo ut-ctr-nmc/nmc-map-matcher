@@ -203,9 +203,22 @@ class PathEngine:
         # (On the first time through, this loop will be skipped).
         iterList: list[PathEnd | None] = pathPointsPrev if pathPointsPrev else [None]
         pathPointPrev: PathEnd | None
+        '''DEBUGGING'''
+        if shapeEntry.seq == 249:
+            logging.info("Ding! A")
+        ''''''
         for pathPointPrev in iterList:
             pathPoint: PathEnd
             for pathPoint in pathPoints:
+                '''DEBUGGING'''
+                if (
+
+                    pathPointPrev is not None and
+                    str(pathPointPrev.pointOnLink.link.id) == "436634456:5521523483->152616228" and
+                    str(pathPoint.pointOnLink.link.id) == "1366187880:6643750655->7629807406"
+                ):
+                    print("Ding! B")
+                ''''''
                 # Calculate path from pathPointPrev to candidate points.
                 walkResult = (
                     graph.WalkPathProcessor.PathResult(
@@ -386,7 +399,7 @@ class PathEngine:
                 lastValidIndex = shapeCtr
                 invalidCtr += 1
                 logging.warning(
-                    f"No closest links were found for trackpoint {shapeEntry.id}, sequence {shapeEntry.seq}."
+                    f"No closest links found for trackpoint {shapeEntry.id}, seq. {shapeEntry.seq}."
                 )
                 continue
             else:

@@ -96,7 +96,7 @@ class Map:
     fromCRS: pyproj.CRS
     workingCRS: pyproj.CRS
     transformer: pyproj.Transformer
-    graph: networkx.DiGraph = networkx.DiGraph()
+    graph: networkx.MultiDiGraph = networkx.MultiDiGraph()
     edgeIndexLookup: tuple["LinkRecord", ...] = tuple()
     linkIDLookup: dict[Hashable, "LinkRecord"] = {}
     tree: shapely.strtree.STRtree | None = None

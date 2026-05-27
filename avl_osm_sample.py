@@ -111,6 +111,10 @@ for tripID, avlEntries in avl.items():
 matchedPaths: dict[Hashable, list[path_engine.PathEnd]] = {}
 pathEngine = path_engine.PathEngine()  # Use default match parameters
 for tripID, avlTrack in avlTracks.items():
+    '''DEBUGGING'''
+    if tripID == "2811287_12440":
+        continue
+    ''''''
     logging.info(f"AVL Trip ID {tripID} with {len(avlTrack)} trackpoints")
     path: list[path_engine.PathEnd] | None = pathEngine.constructPath(avlTrack, map)
     if path is not None:
