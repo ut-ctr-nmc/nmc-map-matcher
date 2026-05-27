@@ -273,11 +273,11 @@ class Map:
         self.graph.add_edge(
             origNodeID,
             destNodeID,
+            key=linkID,
             geometry=geometry,
             flatScore=flatScore,
             lengthWeight=lengthWeight,
             treeIndex=-1,
-            id=linkID,
             **metadata,
         )
 
@@ -288,8 +288,8 @@ class Map:
         @param treeNeeded: Whether to build the spatial index tree (default: True).
         """
         self.edgeIndexLookup = tuple(
-            Map.LinkRecord(origNodeID=u, destNodeID=v, data=data, id=data["id"])
-            for u, v, data in self.graph.edges(data=True)
+            Map.LinkRecord(origNodeID=u, destNodeID=v, data=data, id=key)
+            for u, v, key, data in self.graph.edges(data=True, keys=True)
         )
         self.linkIDLookup = {}
 
@@ -366,7 +366,7 @@ class Map:
         """
         return (
             self.edgeIndexLookup[treeIndex]
-            for u, v, treeIndex in self.graph.edges(nodeID, data="treeIndex")
+            for u, v, keys, treeIndex in self.graph.edges(nodeID, data="treeIndex", keys=True)
         )
 
     def getLinkByID(self, linkID: Hashable) -> LinkRecord | None:
@@ -762,11 +762,12 @@ class WalkPathProcessor:
         totalLinkCount: int = 0,
     ) -> PathResult:
         """
-        walkPath uses a breadth-first search to find the shortest distance from a given PointOnLink to another PointOnLink and
-        returns a list of links representing nodes and following links encountered.  Specify a limiting radius for
-        evaluating target nodes, and maximum distance traversed.  Also specify a smaller radius for small distances backwards.
-        If nothing is found, then None is returned.  An empty list signifies that the destination is on the same link as the
-        origin.
+        walkPath uses a breadth-first search to find the shortest distance from a given
+        PointOnLink to another PointOnLink and returns a list of links representing nodes
+        and following links encountered. Specify a limiting radius for evaluating target
+        nodes, and maximum distance traversed. Also specify a smaller radius for small
+        distances backwards. If nothing is found, then None is returned. An empty list
+        signifies that the destination is on the same link as the origin.
         """
         # Initializations:
         self.pointOnLinkOrig = (
@@ -825,7 +826,7 @@ class WalkPathProcessor:
                 linkList=None, distance=0.0, cost=0.0, linkListIndex=0
             )
 
-    # _walkPath is called internally by walkPath().
+    # _walkPath() is called internally by walkPath().
     def _walkPath(self, walkPathElem: Next) -> None:
         """
         _walkPath is the internal processing element for the pathfinder.
@@ -921,7 +922,7 @@ class WalkPathProcessor:
                 # will allow the index to be reset to the last known value.
 
             # Had we visited this before?
-            if link.data["id"] in walkPathElem.backtrackSet:
+            if link.id in walkPathElem.backtrackSet:
                 continue
                 # TODO: This won't work with park-and-rides where a path loops around on itself. This can possibly be fixed by adding a penalty
                 # and allowing the path to be traversed. Turn this on with an option. Execution will probably be a bit slower.

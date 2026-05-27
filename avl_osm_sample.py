@@ -109,7 +109,11 @@ for tripID, avlEntries in avl.items():
 
 # Run path match for each AVL track:
 matchedPaths: dict[Hashable, list[path_engine.PathEnd]] = {}
-pathEngine = path_engine.PathEngine()  # Use default match parameters
+pathEngine = path_engine.PathEngine(
+    path_engine.PathEngine.Params(
+        maxHops=16
+    )
+)
 for tripID, avlTrack in avlTracks.items():
     '''DEBUGGING'''
     if tripID == "2811287_12440":

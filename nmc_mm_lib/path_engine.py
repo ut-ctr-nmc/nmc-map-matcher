@@ -206,13 +206,14 @@ class PathEngine:
         '''DEBUGGING'''
         if shapeEntry.seq == 249:
             logging.info("Ding! A")
+        if shapeEntry.seq == 260:
+            logging.info("The bad 260")
         ''''''
         for pathPointPrev in iterList:
             pathPoint: PathEnd
             for pathPoint in pathPoints:
                 '''DEBUGGING'''
                 if (
-
                     pathPointPrev is not None and
                     str(pathPointPrev.pointOnLink.link.id) == "436634456:5521523483->152616228" and
                     str(pathPoint.pointOnLink.link.id) == "1366187880:6643750655->7629807406"
@@ -280,7 +281,7 @@ class PathEngine:
                     f"No map paths were found for path {shapeEntry.id}, sequence {shapeEntry.seq}."
                 )
 
-            # Figure out which if the previous paths is the cheapest.
+            # Figure out which of the previous paths is the cheapest.
             pathPointRestart: PathEnd | None = None
             if len(pathPointsPrev) > 0:
                 pathPointPrev: PathEnd | None
