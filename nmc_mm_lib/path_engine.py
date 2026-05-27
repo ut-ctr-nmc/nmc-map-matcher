@@ -231,6 +231,9 @@ class PathEngine:
                     ):
                         # This is the first proposed parent, or the proposed parent is
                         # less costly than what was found previously. Set it:
+                        # TODO: If more costly parents are to be replaced, we can pass pathPoint's
+                        #       recent cost to walkPath(), or pass pathPoint to exceedsPreviousCosts(),
+                        #       and check there.
                         pathPoint.prevTreeNode = pathPointPrev
                         pathPoint.routeInfo = walkResult.linkList
                         pathPoint.totalLinkCount = walkResult.linkListIndex
