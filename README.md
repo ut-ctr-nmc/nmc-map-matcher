@@ -20,10 +20,10 @@ The NMC Map Matcher is designed to take a set of georeference points, such as GP
 * Starts and ends of trajectories may occur at midpoints along links in the underlying map.
 * The algorithm will often survive and highlight gaps or errors in the underlying mapping.
 * Most any optimization on a graph representing linear relations can be solved using this algorithm.
-* Code is structured to map-match while new trajectory points arrive; the algorithm does not expect the entire trajectory to be known when it starts. *(To be implemented)*
+* The algorithm is structured to map-match and maintain several "best guesses" while new trajectory points arrive; the algorithm does not expect the entire trajectory to be known when it starts. *(An example is to be implemented)*
 * The algorithm may be parallelized *(To be implemented)*
 * Code is provided to return GPS coordinates at critical points "snapped to" the underlying map, or GPS coordinates along the underlying map at a desired spacing.
-* Sample codes include the mapping of GTFS shape subsets on a tiny network, and the mapping of bus trajectories on an OpenStreetMap representation of a major metro area.
+* "Out-of-the-box" sample codes include the mapping of GTFS shape subsets on a tiny network, and the mapping of bus trajectories on an OpenStreetMap representation of a major metro area.
 
 This code accompanies this paper:
 
