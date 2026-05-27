@@ -72,11 +72,19 @@ class OSMReader:
         nodes: tuple["OSMReader.Node", ...]
 
     # Determine roadway types we're interested in:
-    HIGHWAY_CLAUSE: str = (
-        '["highway"~"^(motorway|trunk|primary|secondary'
-        "|tertiary|motorway_link|trunk_link|primary_link|unclassified"
-        '|residential|living_street|service)$"]'
-    )
+    HIGHWAY_CLAUSE: str = """
+// 1. Get all standard main highway types (excluding service)
+way["highway"~"^(motorway|trunk|primary|secondary|tertiary|motorway_link|trunk_link|primary_link|unclassified|residential|living_street)$"];
+
+// 2. Isolate service roads that are part of active bus route relations
+relation["type"="route"]["route"="bus"] -> .busRoutes;
+way["highway"="service"](r.busRoutes);
+
+// 3. Isolate service roads explicitly tagged for bus access
+way["highway"="service"]["bus"~"^(yes|designated)$"];
+way["highway"="service"]["psv"="yes"];
+    """
+    TIMEOUT: int = 25
     nodeCache: dict[Hashable, Node]
     waySet: set[Way]
     wayNodeLkp: dict[Hashable, set[Way]]
@@ -141,14 +149,22 @@ class OSMReader:
                             nodeID=node.id,
                             lonHoriz=node.lon,
                             latVert=node.lat,
-                            metadata={k: v for k, v in zip(node._fields, node) if k not in {"id", "lat", "lon"}},
+                            metadata={
+                                k: v
+                                for k, v in zip(node._fields, node)
+                                if k not in {"id", "lat", "lon"}
+                            },
                         )
                         addedNodes |= {node}
                     if endFlag and index > startIdx:
                         controlPoints = [
                             (n.lon, n.lat) for n in way.nodes[startIdx : index + 1]
                         ]
-                        metadata = {k: v for k, v in zip(way._fields, way) if k not in {"id", "nodes"}}
+                        metadata = {
+                            k: v
+                            for k, v in zip(way._fields, way)
+                            if k not in {"id", "nodes"}
+                        }
                         map.addLink(
                             linkID=f"{way.id}:{way.nodes[startIdx].id}->{node.id}",
                             origNodeID=way.nodes[startIdx].id,
@@ -176,13 +192,19 @@ class OSMReader:
         """
         Internal function to make a single Overpass API query for the specified bounding box
         """
-        queryStr = f"[out:json];way({lowCoords[0]},{lowCoords[1]},{highCoords[0]},{highCoords[1]}){self.HIGHWAY_CLAUSE};(._;>;);out meta;"
+        queryStr = f"[out:json][timeout:{self.TIMEOUT}][bbox:{lowCoords[0]},{lowCoords[1]},{highCoords[0]},{highCoords[1]}];({self.HIGHWAY_CLAUSE});(._;>;);out meta;"
         logging.info(
             f"Fetching from Overpass API ({lowCoords[0]:.3f}, {lowCoords[1]:.3f})-({highCoords[0]:.3f}, {highCoords[1]:.3f})"
         )
         logging.debug(f"Query: {queryStr}")
-        headers = {"Accept": "application/json", "Content-Type": "text/plain", "User-Agent": "NMCMapMatcher/2.0"}
-        response = requests.post(self.endpoint, data={"data": queryStr}, headers=headers)
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "text/plain",
+            "User-Agent": "NMCMapMatcher/2.0",
+        }
+        response = requests.post(
+            self.endpoint, data={"data": queryStr}, headers=headers
+        )
         response.raise_for_status()
         result = response.json()
 
@@ -222,9 +244,15 @@ class OSMReader:
                     motorway = element["tags"]["highway"] == "motorway"
                     oneWay = False
                     if "oneway" in element["tags"]:
-                        if element["tags"]["oneway"] == "yes" or element["tags"]["oneway"] == "1":
+                        if (
+                            element["tags"]["oneway"] == "yes"
+                            or element["tags"]["oneway"] == "1"
+                        ):
                             # Make sure we aren't fighting with a bus exception:
-                            if "oneway:bus" not in element["tags"] or element["tags"]["oneway:bus"] != "no":
+                            if (
+                                "oneway:bus" not in element["tags"]
+                                or element["tags"]["oneway:bus"] != "no"
+                            ):
                                 oneWay = True
                         elif element["tags"]["oneway"] == "-1":
                             # Reverse one-way: why does it exist?
