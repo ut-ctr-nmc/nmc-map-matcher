@@ -24,16 +24,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from collections.abc import Hashable, Iterable, Sequence, Generator
-from typing import MutableMapping, Any, Self
+from typing import Callable, MutableMapping, Any, NamedTuple, Self
 from dataclasses import dataclass
 import shapely
 from shapely.ops import transform
 import networkx
 import pyproj
 from pyproj.enums import TransformDirection
-
-# from nmc_mm_lib.path_engine import PathEngine
-# TODO: Avoid circular reference; bring in score functions through other means
 
 
 def hasMoreThan(iterable: Iterable[Any], count: int = 0) -> bool:
@@ -560,21 +557,38 @@ class Map:
 
 class WalkPathProcessor:
     """
-    WalkPathProcessor contains methods used to conduct the walkPath algorithm.
-    It maintains a cache that persists in-between individual pathfinding
-    operations.
+    WalkPathProcessor contains methods used to conduct the walkPath algorithm. This is the
+    step to find the shortest path between parents and a destination PointOnLink. It
+    maintains a cache that persists in-between individual pathfinding operations.
     """
 
-    map: Map
-    uTurnInterPenalty: (
-        float | None
-    )  # Add this penalty to U-turns, or None if U-turns not allowed
-    uTurnDeadEndPenalty: (
-        float | None
-    )  # Add this penalty to U-turns at dead-ends, or None for uTurnInterPenalty
-    pathEngine: Any  # The "PathEngine" object that instanciates this class.
-    # TODO: We can't import PathEngine for typing because of circular references.
-    backCache: dict[
+    class Params(NamedTuple):
+        """
+        Used for configuring the desired behavior of WalkPathProcessor. Remarks
+        for each parameter coincide with constants in Perrine et al., 2015.
+
+        @param scoreFunction: Used for scoring, based upon costs derived from pair of PointOnLink objects
+        @param exceedsPreviousCosts: A function that checks if a proposed path's cost exceeds the costs of previously found paths
+        @param limitPathDist: Path distance (m) to allow new proposed paths from one point to another (default: 500.0)
+        @param limitDirectDist: Radius (m) to allow new proposed paths from one point to another (default: 500.0)
+        @param limitDirectDistRev: Radius (m) to allow backtracking on a link (e.g. entering an off-map parking lot) (default: 160.0)
+        @param limitSteps: Maximum number of basemap links to pursue in a path-finding operation (default: 12)
+        @param uTurnInterPenalty: Penalty to add to U-turns in intersections, or None to disable U-turns in intersections (default: None)
+        @param uTurnDeadEndPenalty: Penalty to add to U-turns at dead-ends, or None for uTurnInterPenalty (default: 50)
+        """
+        map: Map
+        scoreFunction: Callable[[Map.PointOnLink | None, float, Map.PointOnLink | None], float]
+        exceedsPreviousCosts: Callable[[float], bool]
+        limitPathDist: float = 500.0
+        limitDirectDist: float = 500.0
+        limitDirectDistRev: float = 160.0
+        limitSteps: int = 12
+        uTurnInterPenalty: float | None = None
+        uTurnDeadEndPenalty: float | None = 50.0
+
+
+    pointOnLinkDest: Map.PointOnLink
+    backCache: dict[ # TODO: Change to tracking sources, not destinations.
         Hashable, dict[Hashable, Map.LinkRecord]
     ]  # Caches previous walkPathoperations to accelerate
     winner: "Next | None"  # Records the winning queue element
@@ -582,47 +596,29 @@ class WalkPathProcessor:
         "PathElement"
     ]  # Processing queue to facilitate the breadth-first search
     pointOnLinkOrig: Map.PointOnLink  # For internal record-keeping
-    pointOnLinkDest: Map.PointOnLink  # For internal record-keeping
     linkList: (
         list[Hashable] | None
     )  # Constrains matching to this list of links IDs, if provided
     # TODO: Can the LinkList be more like a tree, or does it need to be?
-    limitDistance: float
-    limitRadiusRev: float
-    limitSteps: int
-    limitRadius: float
     backtrackScore: float
     queueCounter: int
 
     def __init__(
         self,
-        pathEngine,
-        map: Map,
-        limitRadius: float,
-        limitDistance: float,
-        limitRadiusRev: float,
-        limitSteps: int,
+        params: Params,
+        pointOnLinkDest: Map.PointOnLink,
         linkList: list[Hashable] | None = None,
     ):
         """
         This sets the parameters that are final for the entire walkPath
         algorithm execution:
         """
-        self.pathEngine = pathEngine
-        self.map = map
-        self.limitDistance = limitDistance
-        self.limitRadiusRev = limitRadiusRev
-        self.limitSteps = limitSteps
-        self.limitRadius = limitRadius
-
-        self.uTurnInterPenalty = None  # Disable U-turns in intersections
-        self.uTurnDeadEndPenalty = 50  # Allow U-turns at dead-ends
+        self.params = params
+        self.pointOnLinkDest = pointOnLinkDest
+        self.linkList = linkList
 
         # walkPath cache to log earlier pathfinding operations:
-        self.backCache = {}
-
-        # Keep the running score:
-        self.backtrackScore = limitDistance
+        self.backCache = {} # TODO: This stuck between pointOnLinkDest changes.
 
         # Record the winning queue element:
         self.winner = None
@@ -696,12 +692,12 @@ class WalkPathProcessor:
             linkDistPotential -= (
                 1.0 - self.pointOnLinkDest.percentAlong
             ) * incomingLink.data["geometry"].length
-            cost = startupCost + self.pathEngine.scoreFunction(
+            cost = startupCost + self.params.scoreFunction(
                 self.pointOnLinkOrig, linkDistPotential, self.pointOnLinkDest
             )
         else:
             # Normal operation; we hadn't encountered the destination link yet:
-            cost = startupCost + self.pathEngine.scoreFunction(
+            cost = startupCost + self.params.scoreFunction(
                 self.pointOnLinkOrig, linkDistPotential, None
             )
 
@@ -754,7 +750,6 @@ class WalkPathProcessor:
     def walkPath(
         self,
         pointOnLinkOrig: Map.PointOnLink,
-        pointOnLinkDest: Map.PointOnLink,
         startupCost: float = 0.0,  # TODO: !!! Use link.data['flatScore'] !!!
         totalLinkCount: int = 0,
     ) -> PathResult:
@@ -770,19 +765,17 @@ class WalkPathProcessor:
         self.pointOnLinkOrig = (
             pointOnLinkOrig  # TOOD: Rearrange methods to keep these local
         )
-        self.pointOnLinkDest = pointOnLinkDest
         self.winner = None
-        self.backtrackScore = self.limitDistance
 
         # Are the points too far away to begin with?
-        origDestDist = pointOnLinkOrig.point.distance(pointOnLinkDest.point)
-        if origDestDist > self.limitRadius:
+        origDestDist = pointOnLinkOrig.point.distance(self.pointOnLinkDest.point)
+        if origDestDist > self.params.limitDirectDist:
             return WalkPathProcessor.PathResult(
                 linkList=None, distance=0.0, cost=0.0, linkListIndex=0
             )
 
         # Set a reasonable bound for the expected distance in this path search:
-        self.backtrackScore = self.limitDistance
+        self.backtrackScore = self.params.limitDirectDist
 
         # Set up a queue for the search. Preload the queue with the first starting location:
         self.processingQueue = [
@@ -829,7 +822,7 @@ class WalkPathProcessor:
         _walkPath is the internal processing element for the pathfinder.
         """
         # Check maximum number of steps:
-        if walkPathElem.stepCount >= self.limitSteps:
+        if walkPathElem.stepCount >= self.params.limitSteps:
             return
 
         # Check total distance; we are not interested if we exceed our previous best score:
@@ -837,7 +830,7 @@ class WalkPathProcessor:
             return
 
         # Do we exceed the worst cost in the list of simultaneous costs?
-        if self.pathEngine.exceedsPreviousCosts(walkPathElem.cost):
+        if self.params.exceedsPreviousCosts(walkPathElem.cost):
             return
 
         # Are we at the destination?
@@ -879,31 +872,31 @@ class WalkPathProcessor:
                 ],
             )
         else:
-            myList = self.map.outgoingLinks(walkPathElem.incomingLink.destNodeID)
+            myList = self.params.map.outgoingLinks(walkPathElem.incomingLink.destNodeID)
         link: Map.LinkRecord
         for link in myList:
             # Filter out U-turns:
             penalty = 0.0
             if (
-                self.uTurnDeadEndPenalty != 0 or self.uTurnInterPenalty != 0
-            ) and self.map.isReverseLink(walkPathElem.incomingLink, link):
+                self.params.uTurnDeadEndPenalty != 0 or self.params.uTurnInterPenalty != 0
+            ) and self.params.map.isReverseLink(walkPathElem.incomingLink, link):
                 # Is it a dead-end?
                 if hasExactly(
-                    self.map.outgoingLinks(walkPathElem.incomingLink.destNodeID), 1
+                    self.params.map.outgoingLinks(walkPathElem.incomingLink.destNodeID), 1
                 ):
-                    if self.uTurnDeadEndPenalty is None:
-                        if self.uTurnInterPenalty is None:
+                    if self.params.uTurnDeadEndPenalty is None:
+                        if self.params.uTurnInterPenalty is None:
                             continue
                         else:
-                            penalty = self.uTurnInterPenalty
+                            penalty = self.params.uTurnInterPenalty
                     else:
-                        penalty = self.uTurnDeadEndPenalty
+                        penalty = self.params.uTurnDeadEndPenalty
                 else:
-                    if self.uTurnInterPenalty is None:
+                    if self.params.uTurnInterPenalty is None:
                         continue
                     else:
-                        penalty = self.uTurnInterPenalty
-                penalty = self.pathEngine.scoreFunction(
+                        penalty = self.params.uTurnInterPenalty
+                penalty = self.params.scoreFunction(
                     None, penalty, None
                 )  # TODO: !!! Use stuff in link.data !!!
 

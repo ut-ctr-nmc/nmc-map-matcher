@@ -23,7 +23,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from collections.abc import Hashable, Iterable, Sequence
+from collections.abc import Callable, Hashable, Iterable, Sequence
 from typing import Final, NamedTuple
 from nmc_mm_lib import graph
 import operator, copy
@@ -116,7 +116,7 @@ class PathEngine:
         tossRatio: float = 1.0
 
     params: Params
-    prevCosts: list[float]  # A list of limitSimulPaths cost values that can be
+    prevCosts: list[float] = []  # A list of limitSimulPaths cost values that can be
     # used to determine if proposed paths are worth
     # traversing.
     shapeScatterCache: list[graph.Map.PointOnLink] | None = None
@@ -132,63 +132,82 @@ class PathEngine:
         """
         self.params = params
 
-    def scoreFunction(
-        self,
-        prevGeoPoint: graph.Map.PointOnLink | None,
-        distance: float,
-        geoPoint: graph.Map.PointOnLink | None,
-    ) -> float:
+    def _gatherWPPParams(self, map: graph.Map) -> graph.WalkPathProcessor.Params:
         """
-        scoreFunction calculates a cost value given prior path distance, and deviation from the basemap link.
-        This corresponds with algorithm "ScoreFunction" in Perrine et al., 2015.
+        _gatherWPPParams gathers the parameters that are needed to initialize a WalkPathProcessor.
 
-        @param prevGeoPoint: graph.PointOnLink
-        @param distance: float
-        @param geoPoint: graph.PointOnLink
-        @return: Calculated score value
+        @return The parameters to initialize a WalkPathProcessor.
         """
-        cost: float
-        if prevGeoPoint is None:
-            # We are starting anew. Count the "black line distance" from the basemap link to the trackpoint:
-            if geoPoint is not None:
-                cost = geoPoint.refDist * self.params.driftFactor
-                if geoPoint.nonPerpPenalty:
-                    cost = cost * self.params.nonPerpPenalty
+
+        # Bake functions from parameters given in this PathEngine.
+        def scoreFunction(
+            prevGeoPoint: graph.Map.PointOnLink | None,
+            distance: float,
+            geoPoint: graph.Map.PointOnLink | None,
+        ) -> float:
+            """
+            scoreFunction calculates a cost value given prior path distance, and deviation from the basemap link.
+            This corresponds with algorithm "ScoreFunction" in Perrine et al., 2015.
+
+            @param prevGeoPoint: graph.PointOnLink
+            @param distance: float
+            @param geoPoint: graph.PointOnLink
+            @return: Calculated score value
+            """
+            cost: float
+            if prevGeoPoint is None:
+                # We are starting anew. Count the "black line distance" from the basemap link to the trackpoint:
+                if geoPoint is not None:
+                    cost = geoPoint.refDist * self.params.driftFactor
+                    if geoPoint.nonPerpPenalty:
+                        cost = cost * self.params.nonPerpPenalty
+                else:
+                    cost = 0.0
+                return cost
             else:
-                cost = 0.0
-            return cost
-        else:
-            # We're jumping from one link to another, so add the "black line" distance to the total basemap link distance:
-            if geoPoint is not None:
-                cost = geoPoint.refDist * self.params.driftFactor
-                if geoPoint.nonPerpPenalty:
-                    cost = cost * self.params.nonPerpPenalty
-            else:
-                cost = 0.0
-            return cost + abs(distance) * self.params.distFactor
-            # Change from Perrine et al., 2015: Use absolute value of distance here because all movement
-            # should be incrementing even in cases where a proposed path is moving back and forth on a link
-            # because of shape point noise or tiny U-turns.
+                # We're jumping from one link to another, so add the "black line" distance to the total basemap link distance:
+                if geoPoint is not None:
+                    cost = geoPoint.refDist * self.params.driftFactor
+                    if geoPoint.nonPerpPenalty:
+                        cost = cost * self.params.nonPerpPenalty
+                else:
+                    cost = 0.0
+                return cost + abs(distance) * self.params.distFactor
+                # Change from Perrine et al., 2015: Use absolute value of distance here because all movement
+                # should be incrementing even in cases where a proposed path is moving back and forth on a link
+                # because of shape point noise or tiny U-turns.
 
-    def exceedsPreviousCosts(self, cost: float) -> bool:
-        """
-        Returns true if the given cost value exceeds the most expensive cost already recorded (if the list is
-        limitSimulPaths elements long)
+        # Bake an exceeds checker:
+        def exceedsPreviousCosts(cost: float) -> bool:
+            """
+            Returns true if the given cost value exceeds the most expensive cost already recorded (if the list is
+            limitSimulPaths elements long)
 
-        @param cost: The cost value to check
-        """
-        return (
-            len(self.prevCosts) >= self.params.limitSimulPaths
-            and cost > self.prevCosts[-1]
+            @param cost: The cost value to check
+            """
+            return (
+                len(self.prevCosts) >= self.params.limitSimulPaths
+                and cost > self.prevCosts[-1]
+            )
+
+        return graph.WalkPathProcessor.Params(
+            map=map,
+            scoreFunction=scoreFunction,
+            exceedsPreviousCosts=exceedsPreviousCosts,
+            limitPathDist=self.params.limitPathDist,
+            limitDirectDist=self.params.limitDirectDist,
+            limitDirectDistRev=self.params.limitDirectDistRev,
+            limitSteps=self.params.maxHops,
         )
 
     def _findShortestPaths(
         self,
-        pathProcessor: graph.WalkPathProcessor,
+        wppParams: graph.WalkPathProcessor.Params,
         shapeEntry: graph.Trackpoint,
         pathPointsPrev: list[PathEnd | None],
         pathPoints: list[PathEnd],
         avoidRestartCode: int = 0,
+        constrainList: list[Hashable] | None = None,
     ) -> list[PathEnd]:
         """
         _findShortestPaths coordinates the creation of a list of new tree nodes for each of the reachable new points.
@@ -197,26 +216,27 @@ class PathEngine:
         @param avoidRestartCode: 0 to allow restarts; 1 to allow restarts but suppress message; 2 to avoid restarts
         """
         # Initialize the list of costs that will be used to reduce the number of path-finding iterations:
-        self.prevCosts: list[float] = []
+        self.prevCosts.clear()
 
         # Then, for each previous tree entry, find the shortest path to each current tree entry:
         # (On the first time through, this loop will be skipped).
         iterList: list[PathEnd | None] = pathPointsPrev if pathPointsPrev else [None]
         pathPointPrev: PathEnd | None
+        # TODO: Make pathProcessors here while constructing.
         for pathPointPrev in iterList:
             pathPoint: PathEnd
             for pathPoint in pathPoints: # TODO: What if these were found simultaneously?
+                pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(wppParams, pathPoint.pointOnLink, constrainList)
                 # Calculate path from pathPointPrev to candidate points.
                 walkResult = (
                     graph.WalkPathProcessor.PathResult(
-                        [], 0.0, self.scoreFunction(None, 0.0, pathPoint.pointOnLink), 0
+                        [], 0.0, wppParams.scoreFunction(None, 0.0, pathPoint.pointOnLink), 0
                     )
                     if not pathPointPrev
                     else pathProcessor.walkPath(
                         pathPointPrev.pointOnLink,
-                        pathPoint.pointOnLink,
                         pathPointPrev.totalCost,
-                        pathPointPrev.totalLinkCount,
+                        pathPointPrev.totalLinkCount
                     )
                 )
 
@@ -251,7 +271,7 @@ class PathEngine:
                             self.prevCosts.append(pathPoint.totalCost)
                         else:
                             self.prevCosts[-1] = pathPoint.totalCost
-                        self.prevCosts[:] = sorted(self.prevCosts[:])
+                        self.prevCosts.sort()
 
         # Clean up tree entries that didn't get assigned to a parent:
         if len(pathPointsPrev) > 0:
@@ -295,7 +315,7 @@ class PathEngine:
                     )
                     pathPoint.totalCost = (
                         pathPointRestart.totalCost
-                        + self.scoreFunction(
+                        + wppParams.scoreFunction(
                             pathPointRestart.pointOnLink,
                             distance,
                             pathPoint.pointOnLink,
@@ -309,6 +329,7 @@ class PathEngine:
 
         return pathPoints
 
+
     def constructPath(
         self,
         trackpoints: Sequence[graph.Trackpoint],
@@ -319,23 +340,16 @@ class PathEngine:
         constructPath goes through a list of trackpoints and finds the shortest path through the given baseMap.
         This roughly corresponds with algorithms "WalkTrack" and "TrackpointArrives" in Figure 2 of Perrine et al. 2015.
         """
-        # TODO: Consider having baseMap a member of the PathEngine class.
+        # Various local variable initializations:
         pathPointsPrev: list[PathEnd] = []
-
-        pathProcessor = graph.WalkPathProcessor(
-            self,
-            baseMap,
-            self.params.limitDirectDist,
-            self.params.limitPathDist,
-            self.params.limitDirectDistRev,
-            self.params.maxHops,
-            linkList,
-        )
         shapeCtr: int
         startInvalidCheckFlag: bool = True
         startValidIndex: int = 0
         lastValidIndex: int = -1
         invalidCtr: int = 0
+
+        # Create the parameter set for the WalkPathProcessor:
+        wppParams = self._gatherWPPParams(baseMap)
 
         logging.info("Building path...")
 
@@ -407,7 +421,7 @@ class PathEngine:
             # (We're adding another layer to the tree, and previous tree nodes can be found by accessing
             # PathEnd.prevTreeNode)
             pathPointsPrev = self._findShortestPaths(
-                pathProcessor, shapeEntry, pathPointsPrev, endPoints
+                wppParams, shapeEntry, pathPointsPrev, endPoints, constrainList=linkList
             )
 
         if startInvalidCheckFlag:
@@ -489,7 +503,7 @@ class PathEngine:
 
     def _tryTreeStack(
         self,
-        pathProcessor: graph.WalkPathProcessor,
+        wppParams: graph.WalkPathProcessor.Params,
         oldTreeNode: PathEnd,
         prevTreeNodes: list[PathEnd | None],
         baseMap: graph.Map,
@@ -568,7 +582,7 @@ class PathEngine:
             if pathPoints:
                 # Find the shortest paths from pathPointsPrev to the handful of closest basemap points:
                 curList: list[PathEnd] = self._findShortestPaths(
-                    pathProcessor,
+                    wppParams,
                     oldTreeNode.refPoint,
                     prevTreeNodes,
                     pathPoints,
@@ -632,21 +646,16 @@ class PathEngine:
         """
         refinePath goes through existing path points and tries to route from a restart. Uses termRefactorRadius.
         """
-        logging.info("Refining path...")
+        # Local variable initializations:
         treeNodes: list[PathEnd] = []
-
-        pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(
-            self,
-            baseMap,
-            self.params.limitDirectDist,
-            self.params.limitPathDist,
-            self.params.limitDirectDistRev,
-            self.params.maxHops,
-        )
-
         oldPathIndex = 0
         restartIndex = -1
         evalCode = 0  # 0 = not in restart zone; 1 = in restart zone; 2 = tidying up after restart zone.
+
+        # Create the WalkPathProcessor parameters:
+        wppParams = self._gatherWPPParams(baseMap)
+
+        logging.info("Refining path...")
         while oldPathIndex < len(oldPath):
             # Check to see if we need to find the next restart:
             if (oldPathIndex == 0) or (
@@ -692,7 +701,7 @@ class PathEngine:
 
             # Visit this shape point further and figure out how to reevaluate it.
             treeNodes, evalCode = self._tryTreeStack(
-                pathProcessor,
+                wppParams,
                 oldPath[oldPathIndex],
                 treeNodes,
                 baseMap,
