@@ -775,7 +775,7 @@ class WalkPathProcessor:
             )
 
         # Set a reasonable bound for the expected distance in this path search:
-        self.backtrackScore = self.params.limitDirectDist
+        self.backtrackScore = self.params.limitPathDist
 
         # Set up a queue for the search. Preload the queue with the first starting location:
         self.processingQueue = [
