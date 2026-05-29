@@ -756,10 +756,8 @@ class WalkPathProcessor:
         """
         walkPath uses a breadth-first search to find the shortest distance from a given
         PointOnLink to another PointOnLink and returns a list of links representing nodes
-        and following links encountered. Specify a limiting radius for evaluating target
-        nodes, and maximum distance traversed. Also specify a smaller radius for small
-        distances backwards. If nothing is found, then None is returned. An empty list
-        signifies that the destination is on the same link as the origin.
+        and following links encountered. If nothing is found, then None is returned. An
+        empty list signifies that the destination is on the same link as the origin.
         """
         # Initializations:
         self.pointOnLinkOrig = (
