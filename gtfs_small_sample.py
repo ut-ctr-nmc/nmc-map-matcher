@@ -34,7 +34,7 @@ import os
 import sys
 import logging
 
-STEP_SIZE: Final[float] = 20.0
+REPORT_STEP_SIZE: Final[float] = 20.0
 
 # Configure logging to use stdout
 logging.basicConfig(
@@ -130,7 +130,7 @@ for shapeID, gtfsTrack in gtfsShapesTracks.items():
 trackpointLists: dict[Hashable, list[reporter.OutputTrackpoint]] = {}
 for shapeID, treeNodes in matchedPaths.items():
     trackpointLists[shapeID] = reporter.prepareTrackpath(
-        map, treeNodes, intermediary=True, increment=STEP_SIZE
+        map, treeNodes, intermediary=True, increment=REPORT_STEP_SIZE
     )
 
 # Output matched results:

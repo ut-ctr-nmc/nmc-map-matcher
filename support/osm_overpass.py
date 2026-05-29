@@ -106,8 +106,6 @@ way["highway"="service"]["psv"="yes"];
         blockHeight = (self.bounds.maxLat - self.bounds.minLat) / self.bounds.stepsNS
         for vStep in range(self.bounds.stepsNS):
             for hStep in range(self.bounds.stepsEW):
-                if vStep != 1 or hStep != 1:
-                    continue  # For testing, only fetch the middle chunk
                 lowCoords = (
                     self.bounds.minLat
                     + blockHeight * vStep

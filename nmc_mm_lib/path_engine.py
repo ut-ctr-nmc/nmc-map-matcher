@@ -191,10 +191,7 @@ class PathEngine:
 
             @param cost: The cost value to check
             """
-            return (
-                len(prevCosts) >= limitSimulPaths
-                and cost > prevCosts[-1]
-            )
+            return len(prevCosts) >= limitSimulPaths and cost > prevCosts[-1]
 
         return graph.WalkPathProcessor.Params(
             map=map,
@@ -205,10 +202,6 @@ class PathEngine:
             limitDirectDistRev=self.params.limitDirectDistRev,
             limitSteps=self.params.maxHops,
         )
-
-    '''DEBUG'''
-    pathProcessor: graph.WalkPathProcessor = None
-    ''''''
 
     def _findShortestPaths(
         self,
@@ -235,25 +228,26 @@ class PathEngine:
         # TODO: Make pathProcessors here while constructing.
         for pathPointPrev in iterList:
             pathPoint: PathEnd
-            for pathPoint in pathPoints: # TODO: What if these were found simultaneously?
-                # TODO: Re-engage this after DEBUG out:
-                # pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(wppParams, pathPoint.pointOnLink, constrainList)
-                '''DEBUG'''
-                if self.pathProcessor is None:
-                    self.pathProcessor = graph.WalkPathProcessor(wppParams, pathPoint.pointOnLink, constrainList)
-                pathProcessor: graph.WalkPathProcessor = self.pathProcessor
-                pathProcessor.pointOnLinkDest = pathPoint.pointOnLink
-                ''''''
+            for (
+                pathPoint
+            ) in pathPoints:  # TODO: What if these were found simultaneously?
+                pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(
+                    wppParams, pathPoint.pointOnLink, constrainList
+                )
+
                 # Calculate path from pathPointPrev to candidate points.
                 walkResult = (
                     graph.WalkPathProcessor.PathResult(
-                        [], 0.0, wppParams.scoreFunction(None, 0.0, pathPoint.pointOnLink), 0
+                        [],
+                        0.0,
+                        wppParams.scoreFunction(None, 0.0, pathPoint.pointOnLink),
+                        0,
                     )
                     if not pathPointPrev
                     else pathProcessor.walkPath(
                         pathPointPrev.pointOnLink,
                         pathPointPrev.totalCost,
-                        pathPointPrev.totalLinkCount
+                        pathPointPrev.totalLinkCount,
                     )
                 )
 
@@ -312,8 +306,9 @@ class PathEngine:
             if len(pathPointsPrev) > 0:
                 pathPointPrev: PathEnd | None
                 for pathPointPrev in pathPointsPrev:
-                    if (pathPointRestart is None) or (pathPointPrev and
-                        pathPointPrev.totalCost < pathPointRestart.totalCost
+                    if (pathPointRestart is None) or (
+                        pathPointPrev
+                        and pathPointPrev.totalCost < pathPointRestart.totalCost
                     ):
                         pathPointRestart = pathPointPrev
 
@@ -345,7 +340,6 @@ class PathEngine:
             pathPoints = pathPointsWork[0 : self.params.limitSimulPaths]
 
         return pathPoints
-
 
     def constructPath(
         self,
@@ -657,9 +651,7 @@ class PathEngine:
 
         return curListAll, evalCode
 
-    def refinePath(
-        self, oldPath: list[PathEnd], baseMap: graph.Map
-    ) -> list[PathEnd]:
+    def refinePath(self, oldPath: list[PathEnd], baseMap: graph.Map) -> list[PathEnd]:
         """
         refinePath goes through existing path points and tries to route from a restart. Uses termRefactorRadius.
         """

@@ -36,7 +36,7 @@ import os
 import sys
 import logging
 
-STEP_SIZE: Final[float] = 20.0
+REPORT_STEP_SIZE: Final[float] = 20.0
 
 # Configure logging to use stdout
 logging.basicConfig(
@@ -50,12 +50,12 @@ OVERPASS_API: Final[str] = "https://overpass-api.de/api/interpreter"
 OVERPASS_BOUNDS: Final[osm_overpass.OSMReader.OverpassBounds] = (
     osm_overpass.OSMReader.OverpassBounds(
         # Depicts the GPS bounding box for the greater Austin, TX metro area:
-        minLat=29.582,
-        maxLat=30.672,
-        minLon=-98.050,
-        maxLon=-97.513,
-        stepsNS=3,  # How many north-south chunks to request
-        stepsEW=3,  # How many east-west chunks to request
+        minLat=29.9272,
+        maxLat=30.3268,
+        minLon=-97.8800,
+        maxLon=-97.6831,
+        stepsNS=1,  # How many north-south chunks to request
+        stepsEW=1,  # How many east-west chunks to request
         overlap=0.05,  # Degrees of overlaps in rectangular chunks
     )
 )
@@ -111,7 +111,7 @@ for tripID, avlEntries in avl.items():
 matchedPaths: dict[Hashable, list[path_engine.PathEnd]] = {}
 pathEngine = path_engine.PathEngine(
     path_engine.PathEngine.Params(
-        maxHops=16 # Needed because of small segments in urban areas with many intersections
+        maxHops=16  # Needed because of small segments in urban areas with many intersections
     )
 )
 for tripID, avlTrack in avlTracks.items():
@@ -124,7 +124,7 @@ for tripID, avlTrack in avlTracks.items():
 trackpointLists: dict[Hashable, list[reporter.OutputTrackpoint]] = {}
 for tripID, treeNodes in matchedPaths.items():
     trackpointLists[tripID] = reporter.prepareTrackpath(
-        map, treeNodes, intermediary=True, increment=STEP_SIZE
+        map, treeNodes, intermediary=True, increment=REPORT_STEP_SIZE
     )
 
 # Output matched results:
@@ -144,5 +144,5 @@ for tripID in matchedPaths.keys():
             linkName = link.data["name"].strip()
             newStreetName = linkName.lower()
             if newStreetName != "none" and newStreetName != streetName:
-                logging.info(f'  {linkName}')
+                logging.info(f"  {linkName}")
                 streetName = newStreetName
