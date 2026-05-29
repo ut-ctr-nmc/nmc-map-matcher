@@ -111,7 +111,7 @@ for tripID, avlEntries in avl.items():
 matchedPaths: dict[Hashable, list[path_engine.PathEnd]] = {}
 pathEngine = path_engine.PathEngine(
     path_engine.PathEngine.Params(
-        maxHops=16
+        maxHops=16 # Needed because of small segments in urban areas with many intersections
     )
 )
 for tripID, avlTrack in avlTracks.items():
@@ -137,9 +137,12 @@ for tripID in matchedPaths.keys():
     streetName = ""
     pathPoint: path_engine.PathEnd
     for pathPoint in matchedPaths[tripID]:
+        if pathPoint.restart:
+            logging.info("  <GAP>")
         link: graph.Map.LinkRecord
-        for link in [pathPoint.pointOnLink.link] + pathPoint.routeInfo:
-            newStreetName = link.data["name"].strip().lower()
-            if newStreetName != streetName:
-                logging.info(f'  {link.data["name"].strip()}')
+        for link in pathPoint.routeInfo + [pathPoint.pointOnLink.link]:
+            linkName = link.data["name"].strip()
+            newStreetName = linkName.lower()
+            if newStreetName != "none" and newStreetName != streetName:
+                logging.info(f'  {linkName}')
                 streetName = newStreetName
