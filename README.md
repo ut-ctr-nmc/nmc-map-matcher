@@ -32,10 +32,7 @@ This code accompanies this paper:
    network modeling. Transportation Research Board 94th Annual Meeting,
    Jan. 2015, Washington DC.
 
-Entry points for this Python 3 project consists of a couple of samples that are documented at the project website on GitHub.
-
-For documentation, please access the wiki on the GitHub site:
-   https://github.com/ut-ctr-nmc/nmc-map-matcher/wiki
+Entry points for this Python 3 project consists of a couple of samples that are documented at the project website on GitHub. For documentation, please access the wiki on the GitHub site: https://github.com/ut-ctr-nmc/nmc-map-matcher/wiki
    
 This project appears in the TRB Annual Meeting 2015 program as a
 "practice-ready" paper. While this project contains functioning code, be advised that it isn't quite finished and until some further adaptations are made for your use case. The quickest way to get the code running on your computer is to do the following:
