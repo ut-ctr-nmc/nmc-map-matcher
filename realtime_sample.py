@@ -79,6 +79,8 @@ def trackpointStreamer(
             # Now that we fed in a trackpoint, let's see if we can make sense of the track
             # so far. First, drill down through the hypotheses until we find a parent layer
             # that has just one path. Assumption then is that all others have been pruned.
+            # Alternatively, it is possible to look at the score for each path (.totalCost)
+            # and make decisions based on that.
             currentIndex += 1
             index = currentIndex
             parentsList: list[set[path_engine.PathEnd | None]] = [
@@ -107,7 +109,7 @@ def trackpointStreamer(
                         )
                         if newStreetName != streetName:
                             logging.info(
-                                f"+ Conclusion: {newStreetName[0]} going {newStreetName[1]}"
+                                f"+ Conclusion (@ {parent.totalDist:.1f} m): {newStreetName[0]} going {newStreetName[1]}"
                             )
                             streetName = newStreetName
                     del parentsList[0]
@@ -118,22 +120,26 @@ def trackpointStreamer(
 
 
 # Run the map matcher on the trackpoint generator:
-pathEngine = path_engine.PathEngine()  # Use default match parameters
+pathEngine = path_engine.PathEngine(
+    # Use parameters that maintain fewer hypotheses so we can get conclusive results
+    # sooner for this demo:
+    path_engine.PathEngine.Params(limitClosestPoints=4, limitSimulPaths=3, maxHops=3)
+)
 finalList: list[path_engine.PathEnd] | None = pathEngine.constructPath(
     trackpointStreamer(TRACK_FILE, pathEngine), map
 )
 
 # The final list given by constuctPath() is the lowest-cost path through the tree. We'll
-# report just on that, up to the point we reported earlier while streaming.
-index: int = currentIndex
+# report just on that, starting at the point we reported earlier while streaming.
+index = stableIndex
 streetName = ("", "")
-while index > stableIndex and finalList is not None:
-    index -= 1
+while index <= currentIndex and finalList is not None:
     if finalList[index] is not None and not finalList[index].restart:
         newStreetName = (
             finalList[index].pointOnLink.link.data["name"],
             finalList[index].pointOnLink.link.data["dir"],
         )
         if newStreetName != streetName:
-            logging.info(f"+ Most likely: {newStreetName[0]} going {newStreetName[1]}")
+            logging.info(f"+ Most likely (@ {finalList[index].totalDist:.1f} m): {newStreetName[0]} going {newStreetName[1]}")
             streetName = newStreetName
+    index += 1
