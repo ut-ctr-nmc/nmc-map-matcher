@@ -88,7 +88,7 @@ def trackpointStreamer(
             index = currentIndex
             parentsList: list[set[path_engine.PathEnd | None]] = [
                 {*pathEngine.pathPointsPrev}  # Start with current layer of hypotheses
-            ]
+            ] # We are using sets to avoid duplicate parents when multiple paths share the same parent.
             while index > stableIndex:
                 # Then get most recent updated parent layers up to the point we last reported.
                 parentsList.append(
