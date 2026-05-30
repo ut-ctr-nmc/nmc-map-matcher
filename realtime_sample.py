@@ -1,6 +1,8 @@
 """
 realtime_sample.py demonstrates the capability of map-matching a stream of
-    trackpoints as they arrive in real time through a small simulation.
+    trackpoints as they arrive in real time through a small simulation, and
+    reporting up to where the map matcher has made a conclusive decision on
+    the "correct" path so far.
 @author: Kenneth Perrine
 @contact: kperrine@utexas.edu
 @organization: Network Modeling Center, Center for Transportation Research,
@@ -46,7 +48,7 @@ map: graph.Map = mpo_read.readMPOModel(
     os.path.join(MPO_PATH, "small_atx_cnx.csv"),
 )
 
-# We'll need to keep track of this in the generator, and afterwards.
+# We'll need to keep track of our traversal in the generator, and afterwards.
 stableIndex: int = -1
 currentIndex: int = -1
 
@@ -55,7 +57,8 @@ def trackpointStreamer(
     filename: str, pathEngine: path_engine.PathEngine
 ) -> Iterator[graph.Trackpoint]:
     """
-    Simulates a stream of trackpoints by reading them from a file one by one.
+    Simulates a stream of trackpoints by reading them from a file one by one, and
+    yielding with a delay in between, as well as reporting along the way.
     Assumes the file is formatted as sequence,lat,lon (with no header).
     """
     global stableIndex, currentIndex
@@ -84,9 +87,10 @@ def trackpointStreamer(
             currentIndex += 1
             index = currentIndex
             parentsList: list[set[path_engine.PathEnd | None]] = [
-                {*pathEngine.pathPointsPrev}
+                {*pathEngine.pathPointsPrev}  # Start with current layer of hypotheses
             ]
             while index > stableIndex:
+                # Then get most recent updated parent layers up to the point we last reported.
                 parentsList.append(
                     {
                         parent.prevTreeNode
@@ -98,15 +102,16 @@ def trackpointStreamer(
             parentsList.reverse()  # We want to start with the oldest layer and work forward.
             while parentsList:
                 if len(parentsList[0]) == 1:
-                    # A single parent means we have a single lowest-cost path, and we are
-                    # early enough in the tree that the algorithm has made this sole
-                    # conclusion.
+                    # A single parent means the map matcher has made a conclusive decision.
                     parent = next(iter(parentsList[0]))
                     if parent is not None and not parent.restart:
                         newStreetName = (
                             parent.pointOnLink.link.data["name"],
                             parent.pointOnLink.link.data["dir"],
                         )
+                        # Report if we have turned to a new street, and also note the
+                        # corresponding travel distance on the road network WRT the
+                        # trackpoint at this parent layer.
                         if newStreetName != streetName:
                             logging.info(
                                 f"+ Conclusion (@ {parent.totalDist:.1f} m): {newStreetName[0]} going {newStreetName[1]}"
@@ -140,6 +145,8 @@ while index <= currentIndex and finalList is not None:
             finalList[index].pointOnLink.link.data["dir"],
         )
         if newStreetName != streetName:
-            logging.info(f"+ Most likely (@ {finalList[index].totalDist:.1f} m): {newStreetName[0]} going {newStreetName[1]}")
+            logging.info(
+                f"+ Most likely (@ {finalList[index].totalDist:.1f} m): {newStreetName[0]} going {newStreetName[1]}"
+            )
             streetName = newStreetName
     index += 1
