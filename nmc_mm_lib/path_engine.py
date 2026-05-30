@@ -29,9 +29,12 @@ from nmc_mm_lib import graph
 import operator, copy
 import logging
 
-# Multiplier for shape-to-shape evaluations that happen while refining on a
-# restart:
+# Multiplier for trackpoint-to-trackpoint evaluations that happen while refining
+# on a restart:
 RESTART_PENALTY_MULT: Final[float] = 2.0
+
+# Trackpoint processing logging interval:
+POINT_LOG_INTERVAL: Final[int] = 10
 
 
 class PathEnd:
@@ -116,6 +119,7 @@ class PathEngine:
         tossRatio: float = 1.0
 
     params: Params
+    pathPointsPrev: Sequence[PathEnd | None]
     prevCosts: list[float] = []  # A list of limitSimulPaths cost values that can be
     # used to determine if proposed paths are worth traversing.
     shapeScatterCache: list[graph.Map.PointOnLink] | None = None
@@ -146,6 +150,7 @@ class PathEngine:
         limitSimulPaths: int = self.params.limitSimulPaths
 
         # Bake functions from parameters given in this PathEngine.
+        # TODO: Create a class derived from an "interface" instead of one-off functions.
         def scoreFunction(
             prevGeoPoint: graph.Map.PointOnLink | None,
             distance: float,
@@ -207,7 +212,6 @@ class PathEngine:
         self,
         wppParams: graph.WalkPathProcessor.Params,
         shapeEntry: graph.Trackpoint,
-        pathPointsPrev: list[PathEnd | None],
         pathPoints: list[PathEnd],
         avoidRestartCode: int = 0,
         constrainList: list[Hashable] | None = None,
@@ -223,7 +227,9 @@ class PathEngine:
 
         # Then, for each previous tree entry, find the shortest path to each current tree entry:
         # (On the first time through, this loop will be skipped).
-        iterList: list[PathEnd | None] = pathPointsPrev if pathPointsPrev else [None]
+        iterList: Sequence[PathEnd | None] = (
+            self.pathPointsPrev if self.pathPointsPrev else [None]
+        )
         pathPointPrev: PathEnd | None
         # TODO: Make pathProcessors here while constructing.
         for pathPointPrev in iterList:
@@ -285,7 +291,7 @@ class PathEngine:
                         self.prevCosts.sort()
 
         # Clean up tree entries that didn't get assigned to a parent:
-        if len(pathPointsPrev) > 0:
+        if len(self.pathPointsPrev) > 0:
             pathPointsWork: list[PathEnd] = []
             for pathPoint in pathPoints:
                 if pathPoint.prevTreeNode is not None:
@@ -295,7 +301,7 @@ class PathEngine:
 
         # Warn if we ended up with nothing and move on to the next point:
         if (len(pathPointsWork) == 0) and (avoidRestartCode < 2):
-            if (avoidRestartCode < 1) and (len(pathPointsPrev) > 0):
+            if (avoidRestartCode < 1) and (len(self.pathPointsPrev) > 0):
                 # Warn if we are not at the start and we didn't find valid map points.
                 logging.warning(
                     f"No map paths were found for path {shapeEntry.id}, sequence {shapeEntry.seq}."
@@ -303,9 +309,9 @@ class PathEngine:
 
             # Figure out which of the previous paths is the cheapest.
             pathPointRestart: PathEnd | None = None
-            if len(pathPointsPrev) > 0:
+            if len(self.pathPointsPrev) > 0:
                 pathPointPrev: PathEnd | None
-                for pathPointPrev in pathPointsPrev:
+                for pathPointPrev in self.pathPointsPrev:
                     if (pathPointRestart is None) or (
                         pathPointPrev
                         and pathPointPrev.totalCost < pathPointRestart.totalCost
@@ -343,7 +349,7 @@ class PathEngine:
 
     def constructPath(
         self,
-        trackpoints: Sequence[graph.Trackpoint],
+        trackpoints: Iterable[graph.Trackpoint],
         baseMap: graph.Map,
         linkList: list[Hashable] | None = None,
     ) -> list[PathEnd] | None:
@@ -352,8 +358,7 @@ class PathEngine:
         This roughly corresponds with algorithms "WalkTrack" and "TrackpointArrives" in Figure 2 of Perrine et al. 2015.
         """
         # Various local variable initializations:
-        pathPointsPrev: list[PathEnd] = []
-        shapeCtr: int
+        self.pathPointsPrev = []
         startInvalidCheckFlag: bool = True
         startValidIndex: int = 0
         lastValidIndex: int = -1
@@ -364,34 +369,37 @@ class PathEngine:
 
         logging.info("Building path...")
 
-        # TODO: Rename shapeEntry to "trackpoint".
-        shapeEntry: graph.Trackpoint
-        for shapeCtr, shapeEntry in enumerate(trackpoints):
+        trackpoint: graph.Trackpoint
+        trackCtr: int = -1
+        for trackCtr, trackpoint in enumerate(trackpoints):
 
-            if (shapeCtr + 1) == len(trackpoints) or (shapeCtr + 1) % 10 == 0:
-                logging.info(f"   ... {shapeCtr + 1} of {len(trackpoints)}")
+            if (trackCtr + 1) % POINT_LOG_INTERVAL == 0:
+                if isinstance(trackpoints, Sequence):
+                    logging.info(f"   ... {trackCtr + 1} of {len(trackpoints)}")
+                else:
+                    logging.info(f"   ... {trackCtr + 1}")
 
             # TODO: move the forceLinks stuff to baseMap.findPointsOnLinks().
             closestLinks: list[graph.Map.PointOnLink]
             if (
                 self.forceLinks
-                and shapeCtr < len(self.forceLinks)
-                and self.forceLinks[shapeCtr] is not None
+                and trackCtr < len(self.forceLinks)
+                and self.forceLinks[trackCtr] is not None
             ):
                 # Custom behavior for forcing the use of a limited set of links:
                 # TODO: Why not make a Map out of the subset, and it will be more versatile?
                 closestLinks = []
                 linkID: Hashable
                 link: graph.Map.LinkRecord | None
-                for linkID in self.forceLinks[shapeCtr]:
+                for linkID in self.forceLinks[trackCtr]:
                     link = baseMap.getLinkByID(linkID)
                     if link is None:
                         logging.warning(
-                            f"forceLinks for index {shapeCtr} contains link ID {linkID} that doesn't exist in the map."
+                            f"forceLinks for index {trackCtr} contains link ID {linkID} that doesn't exist in the map."
                         )
                         continue
                     dist, percentAlong, isPerpendicular, pointAlong = baseMap.pointDist(
-                        shapeEntry, link
+                        trackpoint, link
                     )
                     closestLinks.append(
                         graph.Map.PointOnLink(
@@ -402,19 +410,23 @@ class PathEngine:
             else:
                 # Normal behavior: search among all links:
                 closestLinks = baseMap.findPointsOnLinks(
-                    shapeEntry,
+                    trackpoint,
                     self.params.searchRadius,
                     self.params.radiusPrimary,
                     self.params.radiusSecondary,
-                    (pathPoint.pointOnLink for pathPoint in pathPointsPrev),
+                    (
+                        pathPoint.pointOnLink
+                        for pathPoint in self.pathPointsPrev
+                        if pathPoint is not None
+                    ),
                     self.params.limitClosestPoints,
                 )
 
             if not closestLinks:
-                lastValidIndex = shapeCtr
+                lastValidIndex = trackCtr
                 invalidCtr += 1
                 logging.warning(
-                    f"No closest links found for trackpoint {shapeEntry.id}, seq. {shapeEntry.seq}."
+                    f"No closest links found for trackpoint {trackpoint.id}, seq. {trackpoint.seq}."
                 )
                 continue
             else:
@@ -425,18 +437,21 @@ class PathEngine:
 
             # Initialize blank endpoint entries:
             endPoints: list[PathEnd] = [
-                PathEnd(shapeEntry, endPoint) for endPoint in closestLinks
+                PathEnd(trackpoint, endPoint) for endPoint in closestLinks
             ]
 
             # Find the shortest paths from pathPointsPrev to the handful of closest base map points:
             # (We're adding another layer to the tree, and previous tree nodes can be found by accessing
             # PathEnd.prevTreeNode)
-            pathPointsPrev = self._findShortestPaths(
-                wppParams, shapeEntry, pathPointsPrev, endPoints, constrainList=linkList
+            self.pathPointsPrev = self._findShortestPaths(
+                wppParams, trackpoint, endPoints, constrainList=linkList
             )
 
+        if not isinstance(trackpoints, Sequence):
+            logging.info(f"Finished with {trackCtr + 1} trackpoints.")
+
         if startInvalidCheckFlag:
-            startValidIndex = len(trackpoints)
+            startValidIndex = trackCtr + 1
 
         # Additional reporting on points found and not found:
         reportStr = ""
@@ -444,17 +459,15 @@ class PathEngine:
         if startValidIndex > 0:
             reportStr = f"{startValidIndex} are missing from the start"
             missingEnds = startValidIndex
-        if lastValidIndex == len(trackpoints) and startValidIndex < len(trackpoints):
+        if lastValidIndex == trackCtr + 1 and startValidIndex < trackCtr + 1:
             if startValidIndex > 0:
                 reportStr += " and "
             reportStr += f"{invalidCtr} are missing from the end"
             missingEnds += invalidCtr
         if len(reportStr) > 0:
-            logging.warning(
-                f"Out of {len(trackpoints)} georeference points, {reportStr}."
-            )
-        if float(missingEnds) / len(trackpoints) > self.params.tossRatio:
-            logging.warning(f"Aborting ID {shapeEntry.id}.")
+            logging.warning(f"Out of {trackCtr + 1} georeference points, {reportStr}.")
+        if float(missingEnds) / (trackCtr + 1) > self.params.tossRatio:
+            logging.warning(f"Aborting ID {trackpoint.id}.")
             return None
 
         # Now, extract the shortest path. First, find the end that has the
@@ -464,11 +477,12 @@ class PathEngine:
         # candidate paths.
         logging.info("Finalizing path...")
         pathPoint: PathEnd | None = None
-        if len(pathPointsPrev) > 0:
+        if len(self.pathPointsPrev) > 0:
             pathPointPrev: PathEnd | None
-            for pathPointPrev in pathPointsPrev:
+            for pathPointPrev in self.pathPointsPrev:
                 if (pathPoint is None) or (
-                    pathPointPrev.totalCost < pathPoint.totalCost
+                    pathPointPrev is not None
+                    and pathPointPrev.totalCost < pathPoint.totalCost
                 ):
                     pathPoint = pathPointPrev
 
@@ -516,7 +530,6 @@ class PathEngine:
         self,
         wppParams: graph.WalkPathProcessor.Params,
         oldTreeNode: PathEnd,
-        prevTreeNodes: list[PathEnd | None],
         baseMap: graph.Map,
         evalCode: int,
         firstFlag: bool,
@@ -532,7 +545,7 @@ class PathEngine:
         """
         prevPointsOnLinks: tuple[graph.Map.PointOnLink, ...] = tuple(
             prevTreeNode.pointOnLink
-            for prevTreeNode in prevTreeNodes
+            for prevTreeNode in self.pathPointsPrev
             if prevTreeNode is not None
         )
         curListAll: list[PathEnd] = []
@@ -555,12 +568,14 @@ class PathEngine:
                         # Specialized operation: force the use of the given link:
                         # TODO: Consider a scheme where we are walking through two maps simultaneously. It should work!
                         self.shapeScatterCache = []
-                        linkHashes: Iterable[Hashable] = self.forceLinks[
-                            pathIndex
-                        ]  # ** NEED TO FIGURE OUT WHAT TO DO WITH ITERABLE **
-                        link: graph.Map.LinkRecord = baseMap.getLinkByID(
-                            next(iter(linkHashes))
-                        )  # TODO: Hack to get first element
+                        linkHashes: Iterable[Hashable] = self.forceLinks[pathIndex]
+                        firstLinkHash: Hashable = next(
+                            iter(linkHashes)
+                        )  # Hack to get first element of iterable
+                        link: graph.Map.LinkRecord | None = baseMap.getLinkByID(
+                            firstLinkHash
+                        )
+                        assert link is not None
                         dist, percentAlong, isPerpendicular, point = baseMap.pointDist(
                             oldTreeNode.refPoint, link
                         )
@@ -595,7 +610,6 @@ class PathEngine:
                 curList: list[PathEnd] = self._findShortestPaths(
                     wppParams,
                     oldTreeNode.refPoint,
-                    prevTreeNodes,
                     pathPoints,
                     1 if firstFlag else 2,
                 )
@@ -613,7 +627,7 @@ class PathEngine:
                         curListAll.append(treeNode)
             else:
                 # Evidently we didn't find any candidate points. In this case, duplicate the previously matched link:
-                for prevTreeNode in prevTreeNodes:
+                for prevTreeNode in self.pathPointsPrev:
                     curTreeNode = copy.copy(oldTreeNode)
                     curTreeNode.prevTreeNode = prevTreeNode
                     dist = oldTreeNode.refPoint.point.distance(
@@ -629,12 +643,12 @@ class PathEngine:
             # get the system to retrace the steps that had been traversed before.
             curTreeNode: PathEnd = copy.copy(oldTreeNode)
             "@type curTreeNode: PathEnd"
-            if not prevTreeNodes:  # This happens on the first element of a path.
-                prevTreeNodes.append(None)
+            if not self.pathPointsPrev:  # This happens on the first element of a path.
+                self.pathPointsPrev = [None]
             assert (
-                len(prevTreeNodes) == 1
+                len(self.pathPointsPrev) == 1
             )  # There should just be one of these because we're drawing from a final tree.
-            curTreeNode.prevTreeNode = prevTreeNodes[0]
+            curTreeNode.prevTreeNode = self.pathPointsPrev[0]
             curListAll.append(curTreeNode)
 
         if firstFlag:
@@ -656,7 +670,7 @@ class PathEngine:
         refinePath goes through existing path points and tries to route from a restart. Uses termRefactorRadius.
         """
         # Local variable initializations:
-        treeNodes: list[PathEnd] = []
+        self.pathPointsPrev = []
         oldPathIndex = 0
         restartIndex = -1
         evalCode = 0  # 0 = not in restart zone; 1 = in restart zone; 2 = tidying up after restart zone.
@@ -709,10 +723,9 @@ class PathEngine:
             # TODO: Also if a shape point is flagged to be reevaluated.
 
             # Visit this shape point further and figure out how to reevaluate it.
-            treeNodes, evalCode = self._tryTreeStack(
+            self.pathPointsPrev, evalCode = self._tryTreeStack(
                 wppParams,
                 oldPath[oldPathIndex],
-                treeNodes,
                 baseMap,
                 evalCode,
                 True,
@@ -726,9 +739,9 @@ class PathEngine:
 
             # Check to see if we have a complete path:
             flag = False
-            treeNode: PathEnd
-            for treeNode in treeNodes:
-                if not treeNode.restart:
+            treeNode: PathEnd | None
+            for treeNode in self.pathPointsPrev:
+                if treeNode is not None and not treeNode.restart:
                     flag = True
             if not flag:
                 logging.warning(
@@ -739,11 +752,12 @@ class PathEngine:
         # Now, extract the shortest path.  First, find the end that has the cheapest cost:
         logging.info("Finishing path...")
         pathPoint: PathEnd | None = None
-        if len(treeNodes) > 0:
-            treeNodeElem: PathEnd
-            for treeNodeElem in treeNodes:
+        if len(self.pathPointsPrev) > 0:
+            treeNodeElem: PathEnd | None
+            for treeNodeElem in self.pathPointsPrev:
                 if (pathPoint is None) or (
-                    treeNodeElem.totalCost < pathPoint.totalCost
+                    treeNodeElem is not None
+                    and treeNodeElem.totalCost < pathPoint.totalCost
                 ):
                     pathPoint = treeNodeElem
 

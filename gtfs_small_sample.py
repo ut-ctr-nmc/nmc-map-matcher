@@ -79,17 +79,19 @@ for shapeID, treeNodes in matchedPaths.items():
     )
 
 # Output matched results:
+logging.info("Outputting matched results to gtfs_small_matched.csv")
 with open("gtfs_small_matched.csv", mode="wt") as outputFile:
     dump_io.dumpStandardInfo(trackpointLists, outputFile, includeHeader=True)
 
 # Explain series of streets for each Shape ID:
+logging.info("Reporting on streets and directions:")
 for shapeID in matchedPaths.keys():
     logging.info(f"GTFS Shape ID: {shapeID}")
     streetName = ("", "")
     pathPoint: path_engine.PathEnd
     for pathPoint in matchedPaths[shapeID]:
         link: graph.Map.LinkRecord
-        for link in [pathPoint.pointOnLink.link] + pathPoint.routeInfo:
+        for link in pathPoint.routeInfo + [pathPoint.pointOnLink.link]:
             newStreetName = (link.data["name"], link.data["dir"])
             if newStreetName != streetName:
                 logging.info(f'  {link.data["name"]} going {link.data["dir"]}')
