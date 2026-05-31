@@ -214,7 +214,6 @@ class PathEngine:
         shapeEntry: graph.Trackpoint,
         pathPoints: list[PathEnd],
         avoidRestartCode: int = 0,
-        constrainList: list[Hashable] | None = None,
     ) -> list[PathEnd]:
         """
         _findShortestPaths coordinates the creation of a list of new tree nodes for each of the reachable new points.
@@ -238,7 +237,7 @@ class PathEngine:
                 pathPoint
             ) in pathPoints:  # TODO: What if these were found simultaneously?
                 pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(
-                    wppParams, pathPoint.pointOnLink, constrainList
+                    wppParams, pathPoint.pointOnLink
                 )
 
                 # Calculate path from pathPointPrev to candidate points.
@@ -351,7 +350,6 @@ class PathEngine:
         self,
         trackpoints: Iterable[graph.Trackpoint],
         baseMap: graph.Map,
-        linkList: list[Hashable] | None = None,
     ) -> list[PathEnd] | None:
         """
         constructPath goes through a list of trackpoints and finds the shortest path through the given baseMap.
@@ -444,7 +442,7 @@ class PathEngine:
             # (We're adding another layer to the tree, and previous tree nodes can be found by accessing
             # PathEnd.prevTreeNode)
             self.pathPointsPrev = self._findShortestPaths(
-                wppParams, trackpoint, endPoints, constrainList=linkList
+                wppParams, trackpoint, endPoints
             )
 
         if not isinstance(trackpoints, Sequence):
@@ -485,281 +483,6 @@ class PathEngine:
                     and pathPointPrev.totalCost < pathPoint.totalCost
                 ):
                     pathPoint = pathPointPrev
-
-        # Then, follow that end to the beginning:
-        ret: list[PathEnd] = []
-        while pathPoint is not None:
-            ret.append(pathPoint)
-            pathPoint = pathPoint.prevTreeNode
-
-        # Reverse the order of the list to go from start to end.
-        return ret[::-1]
-
-    @staticmethod
-    def _findNextRestart(pathPath: list[PathEnd], startIndex: int = 0) -> int:
-        """
-        Goes through the list of path points and gives the index of the point before a restart.
-
-        @return The index before the next restart, or -1 if not found.
-        """
-        while startIndex < len(pathPath) and not pathPath[startIndex].restart:
-            startIndex += 1
-        if startIndex >= len(pathPath):
-            return -1
-        return startIndex
-
-    def setRefineParams(self, termRefactorRadius: float) -> None:
-        """
-        Sets the parameters that are specific to refining paths.
-
-        @param termRefactorRadius: The radius around restart points that cause tree points to be reevaluated.
-        """
-        self.termRefactorRadius = termRefactorRadius
-
-    def setForceLinks(self, forceLinks: Sequence[Iterable[Hashable]] | None):
-        """
-        Forces refinePath() to use specific links.
-
-        @param forceLinks: A list of sets of links or None values where each element corresponds with the
-            oldPath list passed into refinePath(). Set to None to disable entirely (default).
-        """
-        # TODO: Transition to using another map as the forceLinks source.
-        self.forceLinks = forceLinks
-
-    def _tryTreeStack(
-        self,
-        wppParams: graph.WalkPathProcessor.Params,
-        oldTreeNode: PathEnd,
-        baseMap: graph.Map,
-        evalCode: int,
-        firstFlag: bool,
-        pathIndex: int | None = None,
-    ) -> tuple[list[PathEnd], int]:
-        """
-        Potentially recursively called internal worker method that reevaluates tree indices and
-        generates new tree nodes.
-
-        @param evalCode: Use 0: no evaluation, 1: full evaluation, 2: wrap up loose ends
-        @param pathIndex: This must be provided for path refining that uses forced links.
-        @return The list of new tree nodes, and then the eval code that was most recently used.
-        """
-        prevPointsOnLinks: tuple[graph.Map.PointOnLink, ...] = tuple(
-            prevTreeNode.pointOnLink
-            for prevTreeNode in self.pathPointsPrev
-            if prevTreeNode is not None
-        )
-        curListAll: list[PathEnd] = []
-
-        if firstFlag:
-            self.shapeScatterCache = None
-
-        # Are we in an area that requires reevaluation (e.g. restart)?  Deal with shape points here:
-        pathPoints: list[PathEnd]
-        if evalCode > 0:
-            if evalCode == 1:
-                # Check if we had found all of the shape proximity points already:
-                if self.shapeScatterCache is None:
-                    if (
-                        pathIndex is not None
-                        and self.forceLinks is not None
-                        and pathIndex < len(self.forceLinks)
-                        and self.forceLinks[pathIndex] is not None
-                    ):
-                        # Specialized operation: force the use of the given link:
-                        # TODO: Consider a scheme where we are walking through two maps simultaneously. It should work!
-                        self.shapeScatterCache = []
-                        linkHashes: Iterable[Hashable] = self.forceLinks[pathIndex]
-                        firstLinkHash: Hashable = next(
-                            iter(linkHashes)
-                        )  # Hack to get first element of iterable
-                        link: graph.Map.LinkRecord | None = baseMap.getLinkByID(
-                            firstLinkHash
-                        )
-                        assert link is not None
-                        dist, percentAlong, isPerpendicular, point = baseMap.pointDist(
-                            oldTreeNode.refPoint, link
-                        )
-                        self.shapeScatterCache.append(
-                            graph.Map.PointOnLink(
-                                link, percentAlong, not isPerpendicular, dist, point
-                            )
-                        )
-                    else:
-                        # Normal operation: find closest limitClosestPoints points to the shape point among all links:
-                        self.shapeScatterCache = baseMap.findPointsOnLinks(
-                            oldTreeNode.refPoint,
-                            self.params.searchRadius,
-                            self.params.radiusPrimary,
-                            self.params.radiusSecondary,
-                            prevPointsOnLinks,
-                            self.params.limitClosestPoints,
-                        )
-
-                # Create new PathEnd objects:
-                pathPoints = []
-                matchPoint: graph.Map.PointOnLink
-                for matchPoint in self.shapeScatterCache:
-                    pathPoint: PathEnd = PathEnd(oldTreeNode.refPoint, matchPoint)
-                    pathPoints.append(pathPoint)
-            elif evalCode == 2:
-                # We are getting all previous points to converge down on one point, preserving the best one:
-                pathPoints = [oldTreeNode.cleanCopy()]
-
-            if pathPoints:
-                # Find the shortest paths from pathPointsPrev to the handful of closest basemap points:
-                curList: list[PathEnd] = self._findShortestPaths(
-                    wppParams,
-                    oldTreeNode.refPoint,
-                    pathPoints,
-                    1 if firstFlag else 2,
-                )
-                # Check for restarts and penalize.  Only keep the first (cheapest) restart.  Meanwhile, append to
-                # the results list:
-                restartFlag = False
-                treeNode: PathEnd
-                for treeNode in curList:
-                    if treeNode.restart:
-                        if not restartFlag:
-                            treeNode.totalCost *= RESTART_PENALTY_MULT
-                            curListAll.append(treeNode)
-                            restartFlag = True
-                    else:
-                        curListAll.append(treeNode)
-            else:
-                # Evidently we didn't find any candidate points. In this case, duplicate the previously matched link:
-                for prevTreeNode in self.pathPointsPrev:
-                    curTreeNode = copy.copy(oldTreeNode)
-                    curTreeNode.prevTreeNode = prevTreeNode
-                    dist = oldTreeNode.refPoint.point.distance(
-                        curTreeNode.pointOnLink.point
-                    )  # TODO: Again, separate from Shapely.
-                    curTreeNode.totalDist += dist * RESTART_PENALTY_MULT
-                    curTreeNode.totalCost += dist * RESTART_PENALTY_MULT
-                    curListAll.append(curTreeNode)
-
-        elif firstFlag:
-            # This happens if we are not reevaluating the existing paths at all.
-            # TODO: The total cost isn't being added up properly here.  Try combining the evalCode 0 and 2 parts to
-            # get the system to retrace the steps that had been traversed before.
-            curTreeNode: PathEnd = copy.copy(oldTreeNode)
-            "@type curTreeNode: PathEnd"
-            if not self.pathPointsPrev:  # This happens on the first element of a path.
-                self.pathPointsPrev = [None]
-            assert (
-                len(self.pathPointsPrev) == 1
-            )  # There should just be one of these because we're drawing from a final tree.
-            curTreeNode.prevTreeNode = self.pathPointsPrev[0]
-            curListAll.append(curTreeNode)
-
-        if firstFlag:
-            if evalCode == 2:
-                # Only keep the best result when we converge down to one point:
-                curListAll.sort(key=operator.attrgetter("totalCost"))
-                curListAll = [curListAll[0]]
-
-        # Limit the number of results:
-        # TODO: Re-enable if needed?
-        # curListAll = curListAll[0:self.limitSimulPaths]
-
-        # curListAll.sort(key = operator.attrgetter('totalCost'))
-
-        return curListAll, evalCode
-
-    def refinePath(self, oldPath: list[PathEnd], baseMap: graph.Map) -> list[PathEnd]:
-        """
-        refinePath goes through existing path points and tries to route from a restart. Uses termRefactorRadius.
-        """
-        # Local variable initializations:
-        self.pathPointsPrev = []
-        oldPathIndex = 0
-        restartIndex = -1
-        evalCode = 0  # 0 = not in restart zone; 1 = in restart zone; 2 = tidying up after restart zone.
-
-        # Create the WalkPathProcessor parameters:
-        wppParams: graph.WalkPathProcessor.Params = self._gatherWPPParams(baseMap)
-
-        logging.info("Refining path...")
-        while oldPathIndex < len(oldPath):
-            # Check to see if we need to find the next restart:
-            if (oldPathIndex == 0) or (
-                (evalCode != 1)
-                and (restartIndex != -1)
-                and (restartIndex < oldPathIndex)
-            ):
-                restartIndex = self._findNextRestart(oldPath, restartIndex + 1)
-
-            # Check for restart point. Check if we are in the radius of the last known good point or the restart point.
-            if (
-                restartIndex >= 1
-                and oldPath[oldPathIndex].pointOnLink.point.distance(
-                    oldPath[restartIndex - 1].pointOnLink.point
-                )
-                < self.termRefactorRadius
-            ) or (
-                restartIndex >= 0
-                and oldPath[oldPathIndex].pointOnLink.point.distance(
-                    oldPath[restartIndex].pointOnLink.point
-                )
-                < self.termRefactorRadius
-            ):
-                if evalCode == 0:
-                    evalCode = 1  # Full reevaluation
-                    logging.info(
-                        f"Enter restart zone at track ID {oldPath[oldPathIndex].refPoint.id}, seq {oldPath[oldPathIndex].refPoint.seq}"
-                    )
-            else:
-                # Tie up loose ends if the previous round had new points found.
-                if evalCode == 1:
-                    evalCode = 2
-                    logging.info(
-                        f"Exiting zone at track ID {oldPath[oldPathIndex].refPoint.id}, seq {oldPath[oldPathIndex].refPoint.seq}"
-                    )
-
-            if evalCode == 1:
-                logging.info(
-                    f"INFO:   ... track seq. {oldPath[oldPathIndex].refPoint.seq}"
-                )
-
-            # TODO: Also if a shape point is flagged to be reevaluated.
-
-            # Visit this shape point further and figure out how to reevaluate it.
-            self.pathPointsPrev, evalCode = self._tryTreeStack(
-                wppParams,
-                oldPath[oldPathIndex],
-                baseMap,
-                evalCode,
-                True,
-                oldPathIndex,
-            )
-
-            if evalCode == 2:
-                # We have tied up loose ends; now reset.
-                # TODO: To always trace current paths for sanity-check, don't set evalCode to 0.
-                evalCode = 0
-
-            # Check to see if we have a complete path:
-            flag = False
-            treeNode: PathEnd | None
-            for treeNode in self.pathPointsPrev:
-                if treeNode is not None and not treeNode.restart:
-                    flag = True
-            if not flag:
-                logging.warning(
-                    f"No basemap path found into track ID {oldPath[oldPathIndex].refPoint.id}, seq {oldPath[oldPathIndex].refPoint.seq}"
-                )
-            oldPathIndex += 1
-
-        # Now, extract the shortest path.  First, find the end that has the cheapest cost:
-        logging.info("Finishing path...")
-        pathPoint: PathEnd | None = None
-        if len(self.pathPointsPrev) > 0:
-            treeNodeElem: PathEnd | None
-            for treeNodeElem in self.pathPointsPrev:
-                if (pathPoint is None) or (
-                    treeNodeElem is not None
-                    and treeNodeElem.totalCost < pathPoint.totalCost
-                ):
-                    pathPoint = treeNodeElem
 
         # Then, follow that end to the beginning:
         ret: list[PathEnd] = []

@@ -79,7 +79,7 @@ def trackpointStreamer(
             )
             yield trackpoint
 
-            # Now that we fed in a trackpoint, let's see if we can make sense of the track
+            # Now that we fed in a trackpoint, let's see if we can make sense of the matches
             # so far. First, drill down through the hypotheses until we find a parent layer
             # that has just one path. Assumption then is that all others have been pruned.
             # Alternatively, it is possible to look at the score for each path (.totalCost)

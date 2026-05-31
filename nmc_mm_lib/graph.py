@@ -607,7 +607,6 @@ class WalkPathProcessor:
         self,
         params: Params,
         pointOnLinkDest: Map.PointOnLink,
-        linkList: list[Hashable] | None = None,
     ):
         """
         This sets the parameters that are final for the entire walkPath
@@ -615,7 +614,6 @@ class WalkPathProcessor:
         """
         self.params = params
         self.pointOnLinkDest = pointOnLinkDest
-        self.linkList = linkList
 
         # walkPath cache to log earlier pathfinding operations:
         self.backCache = {} # TODO: This stuck between pointOnLinkDest changes.
@@ -625,9 +623,6 @@ class WalkPathProcessor:
 
         # For tie-breaking when dealing with the priority queue.
         self.queueCounter = 0
-
-        # List of required links for transit purposes.
-        self.linkList = linkList
 
     @dataclass(frozen=True)
     class Next:
@@ -897,18 +892,6 @@ class WalkPathProcessor:
                 penalty = self.params.scoreFunction(
                     None, penalty, None
                 )  # TODO: !!! Use stuff in link.data !!!
-
-            # Is this the next link we need to process according to the link list (transit)?
-            if (
-                self.linkList
-                and walkPathElem.linkListIndex + 1 < len(self.linkList)
-                and self.linkList[walkPathElem.linkListIndex + 1] != link.id
-            ):
-                continue
-                # TODO: We want to eventually allow the path to be departed and then regained. How to do this? We can create a "path lost" state,
-                # and as long as that state is True, then search forward in self.linkList to see if we regain the path. Or, add the indices into
-                # the link list into the actual link graph objects (as sets). Departure from a set will incur a penalty, and encounter with a set
-                # will allow the index to be reset to the last known value.
 
             # Had we visited this before?
             if link.id in walkPathElem.backtrackSet:
