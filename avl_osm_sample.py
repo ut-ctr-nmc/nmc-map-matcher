@@ -63,7 +63,7 @@ OVERPASS_BOUNDS: Final[osm_overpass.OSMReader.OverpassBounds] = (
 # Create OSM base map:
 osmReader = osm_overpass.OSMReader(OVERPASS_API, OVERPASS_BOUNDS)
 osmReader.geoRead()
-map = graph.Map(workingCRS="EPSG:3081")  # Use Texas system in meters
+map = graph.Map(workingCRS="EPSG:3082")  # Use Texas system in meters
 osmReader.addToMap(map)
 map.completeMap()
 
