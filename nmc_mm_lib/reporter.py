@@ -49,6 +49,7 @@ class OutputTrackpoint(graph.Trackpoint):
     linksTrav: (
         list[Hashable] | None
     )  # A list of link IDs traversed to get to this point, None if restarted
+    subseqFlag: bool  # Whether this point is part of a subsequence
 
 
 def prepareTrackpath(
@@ -159,6 +160,7 @@ def prepareTrackpath(
                         linkDist=offset,
                         totalDist=dist,
                         linksTrav=linksTrav.copy(),
+                        subseqFlag=True,
                     )
                     ret.append(newRec)
                     linksTrav.clear()
@@ -180,6 +182,7 @@ def prepareTrackpath(
             linkDist=treeNode.pointOnLink.getDistanceAlong(),
             totalDist=treeNode.totalDist,
             linksTrav=linksTrav.copy() if not treeNode.restart else None,
+            subseqFlag=False,
         )
         ret.append(newRec)
         linksTrav.clear()
