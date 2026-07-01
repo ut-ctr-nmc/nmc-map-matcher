@@ -464,8 +464,14 @@ class PathEngine:
             missingEnds += invalidCtr
         if len(reportStr) > 0:
             logging.warning(f"Out of {trackCtr + 1} georeference points, {reportStr}.")
-        if float(missingEnds) / (trackCtr + 1) > self.params.tossRatio:
-            logging.warning(f"Aborting ID {trackpoint.id}.")
+        if (
+            trackCtr == -1
+            or float(missingEnds) / (trackCtr + 1) > self.params.tossRatio
+        ):
+            if trackCtr == -1:
+                logging.warning("No trackpoints were processed.")
+            else:
+                logging.warning(f"Aborting ID {trackpoint.id}.") # pyright: ignore[reportPossiblyUnboundVariable]
             return None
 
         # Now, extract the shortest path. First, find the end that has the
