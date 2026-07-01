@@ -25,7 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import requests
 from nmc_mm_lib import graph
-from typing import Hashable, NamedTuple
+from typing import Any, Hashable, NamedTuple
 import logging
 
 
@@ -69,12 +69,13 @@ class OSMReader:
         name: str
         oneWay: bool
         motorway: bool
+        tags: tuple[tuple[str, Hashable], ...]
         nodes: tuple["OSMReader.Node", ...]
 
     # Determine roadway types we're interested in:
     HIGHWAY_CLAUSE: str = """
 // 1. Get all standard main highway types (excluding service)
-way["highway"~"^(motorway|trunk|primary|secondary|tertiary|motorway_link|trunk_link|primary_link|unclassified|residential|living_street)$"];
+way["highway"~"^(motorway|trunk|primary|secondary|tertiary|motorway_link|trunk_link|primary_link|secondary_link|unclassified|residential|living_street)$"];
 
 // 2. Isolate service roads that are part of active bus route relations
 relation["type"="route"]["route"="bus"] -> .busRoutes;
@@ -98,7 +99,7 @@ way["highway"="service"]["psv"="yes"];
         Queries Overpass API for OSM data within the specified bounding box
         """
         self.nodeCache = {}
-        self.waySet = {*()}
+        self.waySet = set()
         self.wayNodeLkp = {}
 
         logging.info(f"Fetching {self.bounds.stepsEW}x{self.bounds.stepsNS} OSM data")
@@ -129,7 +130,7 @@ way["highway"="service"]["psv"="yes"];
         Utility for loading the OSM Nodes and Ways to a None/Link representation in given graph.Map
         """
         logging.info("Loading into map")
-        addedNodes: set[OSMReader.Node] = {*()}
+        addedNodes: set[OSMReader.Node] = set()
 
         # Traverse through nodes in each Way, breaking apart sections between
         # nodes into links:
@@ -159,7 +160,7 @@ way["highway"="service"]["psv"="yes"];
                             (n.lon, n.lat) for n in way.nodes[startIdx : index + 1]
                         ]
                         metadata = {
-                            k: v
+                            k: dict(v) if k == "tags" and isinstance(v, tuple) else v # type: ignore
                             for k, v in zip(way._fields, way)
                             if k not in {"id", "nodes"}
                         }
@@ -226,7 +227,7 @@ way["highway"="service"]["psv"="yes"];
                     signal=sigFlag,
                     junction=junctFlag,
                 )
-                self.wayNodeLkp[element["id"]] = {*()}
+                self.wayNodeLkp[element["id"]] = set()
                 nodeCount += 1
 
         # Pass #2: Ways:
@@ -263,6 +264,9 @@ way["highway"="service"]["psv"="yes"];
                         name=ourName,
                         oneWay=oneWay,
                         motorway=motorway,
+                        tags=tuple(
+                            (k, v) for k, v in element["tags"].items() if k != "name"
+                        ),
                         nodes=nodes,
                     )
                     self.waySet |= {way}
