@@ -23,11 +23,12 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from collections.abc import Hashable, Iterable, Sequence
+from collections.abc import Iterable, Sequence
 from typing import Final, NamedTuple
-from nmc_mm_lib import graph
-import operator, copy
+import operator
 import logging
+
+from nmc_mm_lib import graph
 
 # Multiplier for trackpoint-to-trackpoint evaluations that happen while refining
 # on a restart:
@@ -321,10 +322,7 @@ class PathEngine:
                     pathPoint.prevTreeNode = pathPointRestart
 
                     # Fake a distance and cost from the linear distance so that we something to report later.
-                    # TODO: To separate from Shapely, consider adding a distance method to PointOnLink or Map.
-                    distance = pathPointRestart.pointOnLink.point.distance(
-                        pathPointRestart.pointOnLink.point
-                    )
+                    distance = pathPoint.pointOnLink.findDistanceFrom(pathPointRestart.pointOnLink)
                     pathPoint.totalCost = (
                         pathPointRestart.totalCost
                         + wppParams.scoreFunction(

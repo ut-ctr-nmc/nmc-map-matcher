@@ -432,6 +432,15 @@ class Map:
             geometry: shapely.geometry.LineString = self.link.data["geometry"]
             return geometry.length * self.percentAlong
 
+        def findDistanceFrom(self, other: "Map.PointOnLink") -> float:
+            """
+            Calculates the distance from this PointOnLink to another PointOnLink.
+
+            @param other: The other PointOnLink to measure distance to.
+            @return: The distance between the two points.
+            """
+            return self.point.distance(other.point)
+
     def pointDist(
         self, trackPoint: Trackpoint, link: LinkRecord
     ) -> tuple[float, float, bool, shapely.geometry.Point]:
