@@ -231,9 +231,8 @@ class PathEngine:
         # TODO: Make pathProcessors here while constructing.
         for pathPointPrev in iterList:
             pathPoint: PathEnd
-            for (
-                pathPoint
-            ) in pathPoints:  # TODO: What if these were found simultaneously?
+            for pathPoint in pathPoints:
+                # TODO: What if these were found simultaneously?
                 pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(
                     wppParams, pathPoint.pointOnLink
                 )
@@ -341,8 +340,10 @@ class PathEngine:
             pathPoints = pathPointsWork[0 : self.params.limitSimulPaths]
 
         return pathPoints
-    
-    def _reportProgress(self, trackCtr: int, trackpoints: Iterable[graph.Trackpoint]) -> None:
+
+    def _reportProgress(
+        self, trackCtr: int, trackpoints: Iterable[graph.Trackpoint]
+    ) -> None:
         """
         _reportProgress logs the progress of the path construction process.
 
@@ -375,7 +376,9 @@ class PathEngine:
             f"No map paths were found for path {trackpoint.id}, sequence {trackpoint.seq}."
         )
 
-    def _reportFinal(self, trackCtr: int, startValidIndex: int, invalidCtr: int) -> bool:
+    def _reportFinal(
+        self, trackCtr: int, startValidIndex: int, invalidCtr: int
+    ) -> bool:
         """
         _reportFinal logs the final report of the path construction process.
 
