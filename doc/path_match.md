@@ -5,7 +5,16 @@
 
 ## PathEngine
 
-Path matching functionality is implemented in `nmc_mm_lib.path_engine`, class `PathEngine`. In this, underlying map topology is found that allows one to traverse from one trackpoint to the next. When instantiated, `PathEngine` takes a `PathEngine.Params` NamedTuple that has the following members. Note that all units here are expressed in meters *only if* the *working CRS* is set to a projection that provides projections in meters, and that the projections are nearly Euclidian. The default `EPSG:3857` working CRS supposedly does this on a worldwide scale, although accuracy should improve if a more localized CRS is used. For example, `EPSG:3082` is what had been used for related projects in Texas.
+Path matching functionality is implemented in `nmc_mm_lib.path_engine`, class `PathEngine`. In short, given an already completed base map and list of trackpoints, to start:
+
+```python
+engine = nmc_mm_lib.path_engine.PathEngine(params: PathEngine.Params | None)
+results: list[path_engine.PathEnd] = engine.constructPath(trackpoints: Iterable[graph.Trackpoint], baseMap: graph.Map)
+```
+
+In this, underlying map topology is found that allows one to traverse from one trackpoint to the next.
+
+When instantiated, `PathEngine` takes a `PathEngine.Params` NamedTuple that has the following members. Note that all units here are expressed in meters *only if* the *working CRS* is set to a projection that provides projections in meters, and that the projections are nearly Euclidian. The default `EPSG:3857` working CRS supposedly does this on a worldwide scale, although accuracy should improve if a more localized CRS is used. For example, `EPSG:3082` is what had been used for related projects in Texas.
 
 Parameters for instantiating `PathEngine`:
 
