@@ -46,6 +46,7 @@ class OutputTrackpoint(graph.Trackpoint):
         float  # Distance along the corresponding link that this point corresponds to
     )
     totalDist: float  # Cumulative distance along corresponding track
+    distanceAway: float  # Distance of match away from topology. Measure of quality
     linksTrav: (
         list[Hashable] | None
     )  # A list of link IDs traversed to get to this point, None if restarted
@@ -159,6 +160,7 @@ def prepareTrackpath(
                         linkID=curStart.link.id,
                         linkDist=offset,
                         totalDist=dist,
+                        distanceAway=0.0,
                         linksTrav=linksTrav.copy(),
                         subseqFlag=True,
                     )
@@ -181,6 +183,7 @@ def prepareTrackpath(
             linkID=treeNode.pointOnLink.link.id,
             linkDist=treeNode.pointOnLink.getDistanceAlong(),
             totalDist=treeNode.totalDist,
+            distanceAway=treeNode.pointOnLink.refDist,
             linksTrav=linksTrav.copy() if not treeNode.restart else None,
             subseqFlag=False,
         )

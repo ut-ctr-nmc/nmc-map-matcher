@@ -1,6 +1,11 @@
-# Path Match
+# Path Match <!-- omit in toc -->
 
-Path Match is implemented in `nmc_mm_lib.path_engine`, class `PathEngine`. In this, underlying map topology is found that allows one to traverse from one trackpoint to the next. When instantiated, `PathEngine` takes a `PathEngine.Params` NamedTuple that has the following members. Note that all units here are expressed in meters *only if* the *working CRS* is set to a projection that provides projections in meters, and that the projections are nearly Euclidian. The default `EPSG:3857` working CRS supposedly does this on a worldwide scale, although accuracy should improve if a more localized CRS is used. For example, `EPSG:3082` is what had been used for related projects in Texas.
+- [PathEngine](#pathengine)
+- [Reporting](#reporting)
+
+## PathEngine
+
+Path matching functionality is implemented in `nmc_mm_lib.path_engine`, class `PathEngine`. In this, underlying map topology is found that allows one to traverse from one trackpoint to the next. When instantiated, `PathEngine` takes a `PathEngine.Params` NamedTuple that has the following members. Note that all units here are expressed in meters *only if* the *working CRS* is set to a projection that provides projections in meters, and that the projections are nearly Euclidian. The default `EPSG:3857` working CRS supposedly does this on a worldwide scale, although accuracy should improve if a more localized CRS is used. For example, `EPSG:3082` is what had been used for related projects in Texas.
 
 Parameters for instantiating `PathEngine`:
 
@@ -30,3 +35,13 @@ These are a couple key error messages that you may see:
 
 * `WARNING: No map paths were found for path ##, sequence ##.` This means that no topology in the underlying map was found to coincide with the reported trackpoint. This may happen if the trackpoint exists well outside of a map's bounding rectangle, or if trackpoints are located in spaces not represented by the underlying map. For example, if the underlying map only represents major state highways, but the trackpoint exists in the middle of a large parking lot, and parameters aren't loose enough for a nearby highway to be found, this error will appear. Parameters to check are: `searchRadius`, `radiusPrimary`, and `radiusSecondary`.
 * `WARNING: No closest links found for trackpoint ##, seq. ##.` This means that no paths were found through the underlying map that would allow connection from the previous trackpoint to the reported one. That doesn't necessarily mean that the underlying map *doesn't* have a connection; however, it may mean that the matching parameters are set too conservative. Parameters to check include: `limitPathDist`, `limitDirectDist`, `limitDirectDistRev`, and `maxHops`. Others beyond these may exhaust further searching by penalizing viable matches too aggressively.
+
+## Reporting
+
+Results are output from `path_engine.PathEngine.constructPath()` throgh a series of `path_engine.PathEnd` objects that represent the last remaining, winning series of points tracing back to the path's origin. The `reporter.prepareTrackpath()` method will go through such a list and create a series of `reporter.OutputTrackpoint` (extends `graph.TrackPoint`) that represent the path in several more useful ways. These include:
+
+* One point snapped to underlying topology per input trackpoint, along with `.distanceAway` a measure of physical distance between them
+* Optionally throwing in points representing the starts of each link that is traversed in the underlying topology (called "intermediary points"). This greatly helps in creating a list of driving directions, for example. For these, `.subseqFlag` is `True` and `.distanceAway` is always `0`.
+* Optionally adding in points between matches at a predefined distance interval, which can be useful for later sampling of underlying topology at a finer resolution than the original input trackpoints
+
+To help with outputting, a utility method for writing lists of output trackpoints to a CSV file is found in `dump_io.dumpStandardInfo()`.

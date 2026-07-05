@@ -65,7 +65,7 @@ def dumpStandardInfo(
             if trackpoint.linksTrav is not None:
                 for linkID in trackpoint.linksTrav:
                     try:
-                        int(linkID)
+                        int(linkID)  # pyright: ignore[reportArgumentType]
                     except ValueError:
                         linkIDInt = False
                         break
@@ -75,7 +75,9 @@ def dumpStandardInfo(
             linkTravStr = None
             if trackpoint.linksTrav is not None:
                 if linkIDInt:
-                    linkTravStr = str([int(linkID) for linkID in trackpoint.linksTrav])
+                    linkTravStr = str(
+                        [int(linkID) for linkID in trackpoint.linksTrav]
+                    )  # pyright: ignore[reportArgumentType]
                 else:
                     linkTravStr = str(trackpoint.linksTrav)
             # TODO: Facilitate rounding:
