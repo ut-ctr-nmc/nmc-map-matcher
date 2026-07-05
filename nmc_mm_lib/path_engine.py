@@ -101,7 +101,7 @@ class PathEngine:
         @param limitClosestPoints: "q_p": Number of close-proximity points that are considered for each trackpoint (default: 12)
         @param limitSimulPaths: "q_e": Number of proposed paths (hypotheses) to maintain during pathfinding stage (default: 8)
         @param maxHops: Maximum number of basemap links to pursue in a path-finding operation (default: 12)
-        @param tossRatio: Disable the invalidation of short paths (default: 1.0)
+        @param tossRatio: Threshold for invalidation of short paths (default: 1.0 = no invalidations)
         """
 
         searchRadius: float = 100.0
@@ -123,8 +123,6 @@ class PathEngine:
     prevCosts: list[float] = []  # A list of limitSimulPaths cost values that can be
     # used to determine if proposed paths are worth traversing.
     shapeScatterCache: list[graph.Map.PointOnLink] | None = None
-    forceLinks: Sequence[Iterable[Hashable]] | None = None
-    termRefactorRadius: float
 
     def __init__(self, params: Params = Params()):
         """
@@ -302,9 +300,7 @@ class PathEngine:
         if (len(pathPointsWork) == 0) and (avoidRestartCode < 2):
             if (avoidRestartCode < 1) and (len(self.pathPointsPrev) > 0):
                 # Warn if we are not at the start and we didn't find valid map points.
-                logging.warning(
-                    f"No map paths were found for path {shapeEntry.id}, sequence {shapeEntry.seq}."
-                )
+                self._reportNoMapPaths(shapeEntry)
 
             # Figure out which of the previous paths is the cheapest.
             pathPointRestart: PathEnd | None = None
@@ -345,6 +341,66 @@ class PathEngine:
             pathPoints = pathPointsWork[0 : self.params.limitSimulPaths]
 
         return pathPoints
+    
+    def _reportProgress(self, trackCtr: int, trackpoints: Iterable[graph.Trackpoint]) -> None:
+        """
+        _reportProgress logs the progress of the path construction process.
+
+        @param trackCtr: The current index of the trackpoint being processed.
+        @param trackpoints: The iterable of trackpoints being processed.
+        """
+        if (trackCtr + 1) % POINT_LOG_INTERVAL == 0:
+            if isinstance(trackpoints, Sequence):
+                logging.info(f"   ... {trackCtr + 1} of {len(trackpoints)}")
+            else:
+                logging.info(f"   ... {trackCtr + 1}")
+
+    def _reportNoClosestLinks(self, trackpoint: graph.Trackpoint) -> None:
+        """
+        _reportNoClosestLinks logs a warning when no closest links are found for a trackpoint.
+
+        @param trackpoint: The trackpoint for which no closest links were found.
+        """
+        logging.warning(
+            f"No closest links found for trackpoint {trackpoint.id}, seq. {trackpoint.seq}."
+        )
+
+    def _reportNoMapPaths(self, trackpoint: graph.Trackpoint) -> None:
+        """
+        _reportNoMapPaths logs a warning when no map paths are found for a trackpoint.
+
+        @param trackpoint: The trackpoint for which no map paths were found.
+        """
+        logging.warning(
+            f"No map paths were found for path {trackpoint.id}, sequence {trackpoint.seq}."
+        )
+
+    def _reportFinal(self, trackCtr: int, startValidIndex: int, invalidCtr: int) -> bool:
+        """
+        _reportFinal logs the final report of the path construction process.
+
+        @param trackCtr: The current index of the trackpoint being processed.
+        @param startValidIndex: The index of the first valid trackpoint.
+        @param invalidCtr: The count of invalid trackpoints at the end.
+        """
+        logging.info(f"Finished processing {trackCtr + 1} trackpoints.")
+
+        reportStr = ""
+        missingEnds = 0
+        if startValidIndex > 0:
+            reportStr = f"{startValidIndex} are missing from the start"
+            missingEnds = startValidIndex
+        if invalidCtr > 0 and startValidIndex < trackCtr + 1:
+            if startValidIndex > 0:
+                reportStr += " and "
+            reportStr += f"{invalidCtr} are missing from the end"
+            missingEnds += invalidCtr
+        if len(reportStr) > 0:
+            logging.warning(f"Out of {trackCtr + 1} georeference points, {reportStr}.")
+        if float(missingEnds) / (trackCtr + 1) > self.params.tossRatio:
+            logging.warning(f"Aborting.")
+            return False
+        return True
 
     def constructPath(
         self,
@@ -371,61 +427,27 @@ class PathEngine:
         trackCtr: int = -1
         for trackCtr, trackpoint in enumerate(trackpoints):
 
-            if (trackCtr + 1) % POINT_LOG_INTERVAL == 0:
-                if isinstance(trackpoints, Sequence):
-                    logging.info(f"   ... {trackCtr + 1} of {len(trackpoints)}")
-                else:
-                    logging.info(f"   ... {trackCtr + 1}")
+            # Report progress every POINT_LOG_INTERVAL trackpoints:
+            self._reportProgress(trackCtr, trackpoints)
 
-            # TODO: move the forceLinks stuff to baseMap.findPointsOnLinks().
-            closestLinks: list[graph.Map.PointOnLink]
-            if (
-                self.forceLinks
-                and trackCtr < len(self.forceLinks)
-                and self.forceLinks[trackCtr] is not None
-            ):
-                # Custom behavior for forcing the use of a limited set of links:
-                # TODO: Why not make a Map out of the subset, and it will be more versatile?
-                closestLinks = []
-                linkID: Hashable
-                link: graph.Map.LinkRecord | None
-                for linkID in self.forceLinks[trackCtr]:
-                    link = baseMap.getLinkByID(linkID)
-                    if link is None:
-                        logging.warning(
-                            f"forceLinks for index {trackCtr} contains link ID {linkID} that doesn't exist in the map."
-                        )
-                        continue
-                    dist, percentAlong, isPerpendicular, pointAlong = baseMap.pointDist(
-                        trackpoint, link
-                    )
-                    closestLinks.append(
-                        graph.Map.PointOnLink(
-                            link, percentAlong, not isPerpendicular, dist, pointAlong
-                        )
-                    )
-                closestLinks.sort(key=operator.attrgetter("refDist"))
-            else:
-                # Normal behavior: search among all links:
-                closestLinks = baseMap.findPointsOnLinks(
-                    trackpoint,
-                    self.params.searchRadius,
-                    self.params.radiusPrimary,
-                    self.params.radiusSecondary,
-                    (
-                        pathPoint.pointOnLink
-                        for pathPoint in self.pathPointsPrev
-                        if pathPoint is not None
-                    ),
-                    self.params.limitClosestPoints,
-                )
+            # Search among all links:
+            closestLinks: list[graph.Map.PointOnLink] = baseMap.findPointsOnLinks(
+                trackpoint,
+                self.params.searchRadius,
+                self.params.radiusPrimary,
+                self.params.radiusSecondary,
+                (
+                    pathPoint.pointOnLink
+                    for pathPoint in self.pathPointsPrev
+                    if pathPoint is not None
+                ),
+                self.params.limitClosestPoints,
+            )
 
             if not closestLinks:
                 lastValidIndex = trackCtr
                 invalidCtr += 1
-                logging.warning(
-                    f"No closest links found for trackpoint {trackpoint.id}, seq. {trackpoint.seq}."
-                )
+                self._reportNoClosestLinks(trackpoint)
                 continue
             else:
                 if startInvalidCheckFlag:
@@ -445,27 +467,11 @@ class PathEngine:
                 wppParams, trackpoint, endPoints
             )
 
-        if not isinstance(trackpoints, Sequence):
-            logging.info(f"Finished with {trackCtr + 1} trackpoints.")
-
         if startInvalidCheckFlag:
             startValidIndex = trackCtr + 1
 
         # Additional reporting on points found and not found:
-        reportStr = ""
-        missingEnds = 0
-        if startValidIndex > 0:
-            reportStr = f"{startValidIndex} are missing from the start"
-            missingEnds = startValidIndex
-        if lastValidIndex == trackCtr + 1 and startValidIndex < trackCtr + 1:
-            if startValidIndex > 0:
-                reportStr += " and "
-            reportStr += f"{invalidCtr} are missing from the end"
-            missingEnds += invalidCtr
-        if len(reportStr) > 0:
-            logging.warning(f"Out of {trackCtr + 1} georeference points, {reportStr}.")
-        if float(missingEnds) / (trackCtr + 1) > self.params.tossRatio:
-            logging.warning(f"Aborting ID {trackpoint.id}.")
+        if not self._reportFinal(trackCtr, startValidIndex, invalidCtr):
             return None
 
         # Now, extract the shortest path. First, find the end that has the
@@ -473,7 +479,6 @@ class PathEngine:
         # have a samilar cost (especially if processing incoming points from a
         # live stream), and it could be appropriate to report multiple
         # candidate paths.
-        logging.info("Finalizing path...")
         pathPoint: PathEnd | None = None
         if len(self.pathPointsPrev) > 0:
             pathPointPrev: PathEnd | None
