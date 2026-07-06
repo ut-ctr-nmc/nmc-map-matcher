@@ -1,6 +1,7 @@
 # Path Match <!-- omit in toc -->
 
 - [PathEngine](#pathengine)
+  - [Restarts and Errors](#restarts-and-errors)
 - [Reporting](#reporting)
 
 ## PathEngine
@@ -39,6 +40,16 @@ A couple other settings:
 * In sample codes: **REPORT_STEP_SIZE:** Distance from one reported map-matched trackpoint to the next, generated equidistantly from "critical trackpoints" that match with the originally submitted trackpoints and intersections.
 
 **NOTE** that if a CRS expressing distances in units other than *meters* (e.g. U.S. American *feet*) would require all default parameters assuming *meters* to be explicitly provided in terms of the alternative units. Again, the map matching algorithm assumes a nearly Euclidian ("approximately flat Earth") measurement scheme.
+
+### Restarts and Errors
+
+A "restart" (marked as `None` in a `path_engine.PathEnd` describing a matched series of points) marks a point where the map matcher was unsuccessful in finding a continuous path from the previous path sequence to the current one. This happens if:
+
+* The trajectory goes off of the underlying topology enough for the map matcher to lose track of its location, and must pick up again or "restart" at another location when proximity to the underlying topology is regained. This happens, for example, when a trajectory goes through a parking lot that isn't represented in the underlying topology. There may even be the case where several matched points may "bunch up" on one end of the topology (with an increasing offset distance), and then suddenly appear at a different location when a "restart" happens.
+* The vehicle made a U-turn along a roadway. This can happen when the map matcher is not configured to allow U-turns. Instead, the trajectory may proceed one direction, and then "restart" going back the other direction.
+* The trajectory exits and re-enters the edge of the available underlying topology.
+
+Note that when a "restart" happens, the total distance traveled is likely not cumulated accurately because the map matcher didn't find trajectory to run the route through. In this case, the direct distance is recorded across the problematic gap.
 
 These are a couple key error messages that you may see:
 

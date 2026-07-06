@@ -691,7 +691,7 @@ class WalkPathProcessor:
         cost: float
         if incomingLink is self.pointOnLinkDest.link:
             # Last-time initialization; we have hit the destination link:
-            # We are stopping midway through this link.  So, subtract off the
+            # We are stopping midway through this link. So, subtract off the
             # distance from the end that we aren't traversing.
             linkDistPotential -= (
                 1.0 - self.pointOnLinkDest.percentAlong

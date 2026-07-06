@@ -477,7 +477,7 @@ class PathEngine:
 
         # Now, extract the shortest path. First, find the end that has the
         # cheapest cost. Note that there could be cases where multiple ends
-        # have a samilar cost (especially if processing incoming points from a
+        # have a similar cost (especially if processing incoming points from a
         # live stream), and it could be appropriate to report multiple
         # candidate paths.
         pathPoint: PathEnd | None = None
