@@ -447,6 +447,7 @@ class PathEngine:
 
             if not closestLinks:
                 lastValidIndex = trackCtr
+                # TODO: Mark as restart if in the middle of the track.
                 invalidCtr += 1
                 self._reportNoClosestLinks(trackpoint)
                 continue
