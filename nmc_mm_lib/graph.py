@@ -83,6 +83,15 @@ class Trackpoint:
     id: Hashable | None
     seq: int | float | None
 
+    def __rshift__(self, other: Self) -> float:
+        """
+        Calculates the distance between two Trackpoints.
+
+        @param other: The other Trackpoint to measure distance to.
+        @return: The distance between the two Trackpoints.
+        """
+        return self.point.distance(other.point)
+
 
 class Map:
     """
@@ -422,6 +431,7 @@ class Map:
         )
         refDist: float  # "d_r", the reference distance, or the working radius from the original search point
         point: shapely.geometry.Point  # The point as it sits on the link
+        origPoint: Trackpoint | None = None  # The original trackpoint that led to this PointOnLink, if any
 
         def getDistanceAlong(self) -> float:
             """
@@ -539,7 +549,7 @@ class Map:
 
             # A candidate:
             pointOnLink = Map.PointOnLink(
-                linkRecord, percentAlong, not isPerpendicular, refDist, pointAlong
+                linkRecord, percentAlong, not isPerpendicular, refDist, pointAlong, trackPoint
             )
 
             if refDist <= primaryRadius:

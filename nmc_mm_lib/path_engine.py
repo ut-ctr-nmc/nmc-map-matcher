@@ -103,6 +103,7 @@ class PathEngine:
         @param limitSimulPaths: "q_e": Number of proposed paths (hypotheses) to maintain during pathfinding stage (default: 8)
         @param maxHops: Maximum number of basemap links to pursue in a path-finding operation (default: 12)
         @param tossRatio: Threshold for invalidation of short paths (default: 1.0 = no invalidations)
+        @param segLenDiffFactor: Penalizes segments differing in dist. between trackpoints (default: 0). New since Perrine et al., 2015
         """
 
         searchRadius: float = 100.0
@@ -118,6 +119,7 @@ class PathEngine:
         limitSimulPaths: int = 8
         maxHops: int = 12
         tossRatio: float = 1.0
+        segLenDiffFactor: float = 0.0
 
     params: Params
     pathPointsPrev: Sequence[PathEnd | None]
@@ -147,6 +149,7 @@ class PathEngine:
         distFactor: float = self.params.distFactor
         prevCosts: list[float] = self.prevCosts
         limitSimulPaths: int = self.params.limitSimulPaths
+        segLenDiffFactor: float = self.params.segLenDiffFactor
 
         # Bake functions from parameters given in this PathEngine.
         # TODO: Create a class derived from an "interface" instead of one-off functions.
@@ -180,6 +183,10 @@ class PathEngine:
                     cost = geoPoint.refDist * driftFactor
                     if geoPoint.nonPerpPenalty:
                         cost = cost * nonPerpPenalty
+                    if segLenDiffFactor != 0.0:
+                        if prevGeoPoint.origPoint is not None and geoPoint.origPoint is not None:
+                            segLenDiff = abs((geoPoint.origPoint >> prevGeoPoint.origPoint) - distance)
+                            cost += segLenDiff * segLenDiffFactor
                 else:
                     cost = 0.0
                 return cost + abs(distance) * distFactor
