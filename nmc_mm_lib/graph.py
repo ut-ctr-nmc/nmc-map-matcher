@@ -179,6 +179,9 @@ class Map:
             )
             return pointAlong.x, pointAlong.y
 
+        def getOrigin(self) -> shapely.geometry.Point:
+            return shapely.get_point(self.data["geometry"], 0)
+
     def addLink(
         self,
         origNodeID: Hashable,
@@ -372,7 +375,9 @@ class Map:
         """
         return (
             self.edgeIndexLookup[treeIndex]
-            for u, v, keys, treeIndex in self.graph.edges(nodeID, data="treeIndex", keys=True)
+            for u, v, keys, treeIndex in self.graph.edges(
+                nodeID, data="treeIndex", keys=True
+            )
         )
 
     def getLinkByID(self, linkID: Hashable) -> LinkRecord | None:
@@ -431,7 +436,9 @@ class Map:
         )
         refDist: float  # "d_r", the reference distance, or the working radius from the original search point
         point: shapely.geometry.Point  # The point as it sits on the link
-        origPoint: Trackpoint | None = None  # The original trackpoint that led to this PointOnLink, if any
+        origPoint: Trackpoint | None = (
+            None  # The original trackpoint that led to this PointOnLink, if any
+        )
 
         def getDistanceAlong(self) -> float:
             """
@@ -549,7 +556,12 @@ class Map:
 
             # A candidate:
             pointOnLink = Map.PointOnLink(
-                linkRecord, percentAlong, not isPerpendicular, refDist, pointAlong, trackPoint
+                linkRecord,
+                percentAlong,
+                not isPerpendicular,
+                refDist,
+                pointAlong,
+                trackPoint,
             )
 
             if refDist <= primaryRadius:
@@ -595,9 +607,14 @@ class WalkPathProcessor:
         @param uTurnInterPenalty: Penalty to add to U-turns in intersections, or None to disable U-turns in intersections (default: None)
         @param uTurnDeadEndPenalty: Penalty to add to U-turns at dead-ends, or None for uTurnInterPenalty (default: 50)
         """
+
         map: Map
-        scoreFunction: Callable[[Map.PointOnLink | None, float, Map.PointOnLink | None], float]
-        exceedsPreviousCosts: Callable[[float], bool]
+        scoreFunction: Callable[
+            [Map.PointOnLink | None, float, Map.PointOnLink | None], float
+        ]
+        exceedsPreviousCosts: Callable[
+            [float, Map.PointOnLink | None, Map.PointOnLink | None], bool
+        ]
         limitPathDist: float = 500.0
         limitDirectDist: float = 500.0
         limitDirectDistRev: float = 160.0
@@ -605,9 +622,8 @@ class WalkPathProcessor:
         uTurnInterPenalty: float | None = None
         uTurnDeadEndPenalty: float | None = 50.0
 
-
     pointOnLinkDest: Map.PointOnLink
-    backCache: dict[ # TODO: Change to tracking sources, not destinations.
+    backCache: dict[  # TODO: Change to tracking sources, not destinations.
         Hashable, dict[Hashable, Map.LinkRecord]
     ]  # Caches previous walkPathoperations to accelerate
     winner: "Next | None"  # Records the winning queue element
@@ -635,7 +651,7 @@ class WalkPathProcessor:
         self.pointOnLinkDest = pointOnLinkDest
 
         # walkPath cache to log earlier pathfinding operations:
-        self.backCache = {} # TODO: This stuck between pointOnLinkDest changes.
+        self.backCache = {}  # TODO: This stuck between pointOnLinkDest changes.
 
         # Record the winning queue element:
         self.winner = None
@@ -780,7 +796,7 @@ class WalkPathProcessor:
         self.winner = None
 
         # Are the points too far away to begin with?
-        origDestDist = pointOnLinkOrig.point.distance(self.pointOnLinkDest.point)
+        origDestDist = pointOnLinkOrig.findDistanceFrom(self.pointOnLinkDest)
         if origDestDist > self.params.limitDirectDist:
             return WalkPathProcessor.PathResult(
                 linkList=None, distance=0.0, cost=0.0, linkListIndex=0
@@ -842,7 +858,16 @@ class WalkPathProcessor:
             return
 
         # Do we exceed the worst cost in the list of simultaneous costs?
-        if self.params.exceedsPreviousCosts(walkPathElem.cost):
+        currentPoint = Map.PointOnLink(
+            walkPathElem.incomingLink,
+            0,
+            False,
+            0,
+            walkPathElem.incomingLink.getOrigin(),
+        )
+        if self.params.exceedsPreviousCosts(
+            walkPathElem.cost, currentPoint, self.pointOnLinkDest
+        ):
             return
 
         # Are we at the destination?
@@ -890,11 +915,12 @@ class WalkPathProcessor:
             # Filter out U-turns:
             penalty = 0.0
             if (
-                self.params.uTurnDeadEndPenalty != 0 or self.params.uTurnInterPenalty != 0
+                self.params.uTurnDeadEndPenalty or self.params.uTurnInterPenalty
             ) and self.params.map.isReverseLink(walkPathElem.incomingLink, link):
                 # Is it a dead-end?
                 if hasExactly(
-                    self.params.map.outgoingLinks(walkPathElem.incomingLink.destNodeID), 1
+                    self.params.map.outgoingLinks(walkPathElem.incomingLink.destNodeID),
+                    1,
                 ):
                     if self.params.uTurnDeadEndPenalty is None:
                         if self.params.uTurnInterPenalty is None:

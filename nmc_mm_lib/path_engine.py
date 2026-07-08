@@ -121,9 +121,55 @@ class PathEngine:
         tossRatio: float = 1.0
         segLenDiffFactor: float = 0.0
 
+    class PrevCosts:
+        """
+        PrevCosts is a list of limitSimulPaths cost values that can be used to determine if proposed paths are worth traversing.
+        """
+
+        costs: list[float] = []
+        limitSimulPaths: int
+
+        def __init__(self, limitSimulPaths: int):
+            """
+            Initializes the PrevCosts object with a limit on the number of costs to track.
+
+            @param limitSimulPaths: The maximum number of cost values to track.
+            """
+            self.limitSimulPaths = limitSimulPaths
+
+        def clear(self) -> None:
+            """
+            Clears the list of costs.
+            """
+            self.costs.clear()
+
+        def exceedsWorst(self, cost: float) -> bool:
+            """
+            Returns true if the given cost value exceeds the most expensive cost already recorded (if the list is
+            limitSimulPaths elements long)
+
+            @param cost: The cost value to check
+            """
+            return len(self.costs) >= self.limitSimulPaths and cost > self.costs[-1]
+
+        def append(self, cost: float) -> bool:
+            """
+            Appends a new cost value to the list of costs if it is better than the worst
+
+            @param cost: The cost value to append.
+            """
+            if len(self.costs) < self.limitSimulPaths:
+                self.costs.append(cost)
+            elif cost < self.costs[-1]:
+                self.costs[-1] = cost
+            else:
+                return False
+            self.costs.sort()
+            return True
+
     params: Params
     pathPointsPrev: Sequence[PathEnd | None]
-    prevCosts: list[float] = []  # A list of limitSimulPaths cost values that can be
+    prevCosts: PrevCosts  # A list of limitSimulPaths cost values that can be
     # used to determine if proposed paths are worth traversing.
     shapeScatterCache: list[graph.Map.PointOnLink] | None = None
 
@@ -147,7 +193,7 @@ class PathEngine:
         driftFactor: float = self.params.driftFactor
         nonPerpPenalty: float = self.params.nonPerpPenalty
         distFactor: float = self.params.distFactor
-        prevCosts: list[float] = self.prevCosts
+        prevCosts: PathEngine.PrevCosts = self.prevCosts
         limitSimulPaths: int = self.params.limitSimulPaths
         segLenDiffFactor: float = self.params.segLenDiffFactor
 
@@ -183,9 +229,17 @@ class PathEngine:
                     cost = geoPoint.refDist * driftFactor
                     if geoPoint.nonPerpPenalty:
                         cost = cost * nonPerpPenalty
-                    if segLenDiffFactor != 0.0:
-                        if prevGeoPoint.origPoint is not None and geoPoint.origPoint is not None:
-                            segLenDiff = abs((geoPoint.origPoint >> prevGeoPoint.origPoint) - distance)
+                    if segLenDiffFactor:
+                        # Change from Perrine et al., 2015: Penalize segments that differ in length from the
+                        # distance between trackpoints. Possibly better for short numbers of trackpoints.
+                        if (
+                            prevGeoPoint.origPoint is not None
+                            and geoPoint.origPoint is not None
+                        ):
+                            segLenDiff = abs(
+                                (geoPoint.origPoint >> prevGeoPoint.origPoint)
+                                - distance
+                            )
                             cost += segLenDiff * segLenDiffFactor
                 else:
                     cost = 0.0
@@ -195,14 +249,25 @@ class PathEngine:
                 # because of shape point noise or tiny U-turns.
 
         # Bake an exceeds checker:
-        def exceedsPreviousCosts(cost: float) -> bool:
+        def exceedsPreviousCosts(
+            cost: float,
+            curGeoPoint: graph.Map.PointOnLink | None = None,
+            tgtGeoPoint: graph.Map.PointOnLink | None = None,
+        ) -> bool:
             """
             Returns true if the given cost value exceeds the most expensive cost already recorded (if the list is
             limitSimulPaths elements long)
 
             @param cost: The cost value to check
+            @param curGeoPoint: The current point on the link being considered (optional)
+            @param tgtGeoPoint: The target point on the link being considered (optional)
             """
-            return len(prevCosts) >= limitSimulPaths and cost > prevCosts[-1]
+            # Do we have a chance of a viable score?
+            if curGeoPoint and tgtGeoPoint:
+                return prevCosts.exceedsWorst(
+                    cost + distFactor * curGeoPoint.findDistanceFrom(tgtGeoPoint)
+                )
+            return prevCosts.exceedsWorst(cost)
 
         return graph.WalkPathProcessor.Params(
             map=map,
@@ -289,11 +354,10 @@ class PathEngine:
                             else:
                                 pathPoint.totalCost = walkResult.cost
                                 pathPoint.totalDist = 0
-                            if len(self.prevCosts) < self.params.limitSimulPaths:
-                                self.prevCosts.append(pathPoint.totalCost)
-                            else:
-                                self.prevCosts[-1] = pathPoint.totalCost
-                            self.prevCosts.sort()
+                            if not self.prevCosts.append(pathPoint.totalCost):
+                                # This happens if during multithreading better scores were logged.
+                                # Remove this from further consideration.
+                                pathPoint.prevTreeNode = None
                     else:
                         # This is the very first part of the path. Seed with the cost of the first point:
                         pathPoint.totalCost = walkResult.cost
@@ -334,7 +398,9 @@ class PathEngine:
                     pathPoint.prevTreeNode = pathPointRestart
 
                     # Fake a distance and cost from the linear distance so that we something to report later.
-                    distance = pathPoint.pointOnLink.findDistanceFrom(pathPointRestart.pointOnLink)
+                    distance = pathPoint.pointOnLink.findDistanceFrom(
+                        pathPointRestart.pointOnLink
+                    )
                     pathPoint.totalCost = (
                         pathPointRestart.totalCost
                         + wppParams.scoreFunction(
@@ -432,6 +498,7 @@ class PathEngine:
         invalidCtr: int = 0
 
         # Create the parameter set for the WalkPathProcessor:
+        self.prevCosts = PathEngine.PrevCosts(self.params.limitSimulPaths)
         wppParams: graph.WalkPathProcessor.Params = self._gatherWPPParams(baseMap)
 
         logging.info("Building path...")
