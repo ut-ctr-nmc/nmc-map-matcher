@@ -254,38 +254,43 @@ class PathEngine:
                     )
                 )
 
-                if walkResult.linkList is not None and pathPointPrev:
-                    # A valid path was found:
-                    if (pathPoint.prevTreeNode is None) or (
-                        (pathPoint.prevTreeNode is not None)
-                        and (
-                            pathPointPrev.totalCost + walkResult.cost
-                            < pathPoint.totalCost
-                        )
-                    ):
-                        # This is the first proposed parent, or the proposed parent is
-                        # less costly than what was found previously. Set it:
-                        # TODO: If more costly parents are to be replaced, we can pass pathPoint's
-                        #       recent cost to walkPath(), or pass pathPoint to exceedsPreviousCosts(),
-                        #       and check there.
-                        pathPoint.prevTreeNode = pathPointPrev
-                        pathPoint.routeInfo = walkResult.linkList
-                        pathPoint.totalLinkCount = walkResult.linkListIndex
-                        if pathPointPrev is not None:
-                            pathPoint.totalCost = (
+                if walkResult.linkList is not None:
+                    if pathPointPrev:
+                        # A valid path was found:
+                        if (pathPoint.prevTreeNode is None) or (
+                            (pathPoint.prevTreeNode is not None)
+                            and (
                                 pathPointPrev.totalCost + walkResult.cost
+                                < pathPoint.totalCost
                             )
-                            pathPoint.totalDist = (
-                                pathPointPrev.totalDist + walkResult.distance
-                            )
-                        else:
-                            pathPoint.totalCost = walkResult.cost
-                            pathPoint.totalDist = 0
-                        if len(self.prevCosts) < self.params.limitSimulPaths:
-                            self.prevCosts.append(pathPoint.totalCost)
-                        else:
-                            self.prevCosts[-1] = pathPoint.totalCost
-                        self.prevCosts.sort()
+                        ):
+                            # This is the first proposed parent, or the proposed parent is
+                            # less costly than what was found previously. Set it:
+                            # TODO: If more costly parents are to be replaced, we can pass pathPoint's
+                            #       recent cost to walkPath(), or pass pathPoint to exceedsPreviousCosts(),
+                            #       and check there.
+                            pathPoint.prevTreeNode = pathPointPrev
+                            pathPoint.routeInfo = walkResult.linkList
+                            pathPoint.totalLinkCount = walkResult.linkListIndex
+                            if pathPointPrev is not None:
+                                pathPoint.totalCost = (
+                                    pathPointPrev.totalCost + walkResult.cost
+                                )
+                                pathPoint.totalDist = (
+                                    pathPointPrev.totalDist + walkResult.distance
+                                )
+                            else:
+                                pathPoint.totalCost = walkResult.cost
+                                pathPoint.totalDist = 0
+                            if len(self.prevCosts) < self.params.limitSimulPaths:
+                                self.prevCosts.append(pathPoint.totalCost)
+                            else:
+                                self.prevCosts[-1] = pathPoint.totalCost
+                            self.prevCosts.sort()
+                    else:
+                        # This is the very first part of the path. Seed with the cost of the first point:
+                        pathPoint.totalCost = walkResult.cost
+                        pathPoint.totalDist = 0
 
         # Clean up tree entries that didn't get assigned to a parent:
         if len(self.pathPointsPrev) > 0:
