@@ -151,7 +151,11 @@ class PathEngine:
 
             @param cost: The cost value to check
             """
-            return len(self.costs) >= self.limitSimulPaths and cost > -self.costs[0]
+            if len(self.costs) >= self.limitSimulPaths:
+                return cost > -self.costs[0]
+            #if self.costs:
+            #    return cost > -self.costs[0] * (self.limitSimulPaths - len(self.costs))
+            return False
 
         def append(self, cost: float) -> bool:
             """
@@ -276,7 +280,7 @@ class PathEngine:
     def _findShortestPaths(
         self,
         wppParams: graph.WalkPathProcessor.Params,
-        shapeEntry: graph.Trackpoint,
+        trackpoint: graph.Trackpoint,
         pathPoints: list[PathEnd],
         avoidRestartCode: int = 0,
     ) -> list[PathEnd]:
@@ -288,6 +292,7 @@ class PathEngine:
         """
         # Initialize the list of costs that will be used to reduce the number of path-finding iterations:
         self.prevCosts.clear()
+        self.prevCosts.limitSimulPaths = min(self.params.limitSimulPaths, len(pathPoints))
 
         # Then, for each previous tree entry, find the shortest path to each current tree entry:
         # (On the first time through, this loop will be skipped).
@@ -296,10 +301,13 @@ class PathEngine:
         )
         pathPointPrev: PathEnd | None
         # TODO: Make pathProcessors here while constructing.
+        # TODO: If we take this combination and arrange it according to priority...
+        # TODO: We could also choose limitSimulPaths based on how many candidates have popped up here.
         for pathPointPrev in iterList:
             pathPoint: PathEnd
             for pathPoint in pathPoints:
-                # TODO: What if these were found simultaneously?
+                # TODO: What if these were found simultaneously, and similar structures used to avoid repeating?
+                # TODO: What about depth-first in the priority queue rather than breadth-first?
                 pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(
                     wppParams, pathPoint.pointOnLink
                 )
@@ -370,7 +378,7 @@ class PathEngine:
         if (len(pathPointsWork) == 0) and (avoidRestartCode < 2):
             if (avoidRestartCode < 1) and (len(self.pathPointsPrev) > 0):
                 # Warn if we are not at the start and we didn't find valid map points.
-                self._reportNoMapPaths(shapeEntry)
+                self._reportNoMapPaths(trackpoint)
 
             # Figure out which of the previous paths is the cheapest.
             pathPointRestart: PathEnd | None = None

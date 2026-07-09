@@ -976,3 +976,7 @@ class WalkPathProcessor:
                     ),
                 )
             )
+        
+        # Try out depth-first...
+        #while not self.processingQueue.empty():
+        #    self._walkPath(self.processingQueue.get().nextStruct)
