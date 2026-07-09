@@ -24,7 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from collections.abc import Hashable, Iterable, Sequence, Generator
-import heapq
+import queue
 from typing import Callable, MutableMapping, Any, NamedTuple, Self
 from dataclasses import dataclass
 import shapely
@@ -626,7 +626,7 @@ class WalkPathProcessor:
         Hashable, dict[Hashable, Map.LinkRecord]
     ]  # Caches previous walkPathoperations to accelerate
     winner: "Next | None"  # Records the winning queue element
-    processingQueue: list[
+    processingQueue: queue.PriorityQueue[
         "PathElement"
     ]  # Processing queue to facilitate the breadth-first search
     pointOnLinkOrig: Map.PointOnLink  # For internal record-keeping
@@ -760,6 +760,7 @@ class WalkPathProcessor:
         that is to be processed.
         """
 
+        destDistance: float
         cost: float
         queueCounter: int
         nextStruct: "WalkPathProcessor.Next"
@@ -804,20 +805,22 @@ class WalkPathProcessor:
         self.backtrackLimit = self.params.limitPathDist
 
         # Set up a queue for the search. Preload the queue with the first starting location:
-        self.processingQueue = [
+        self.processingQueue = queue.PriorityQueue()
+        self.processingQueue.put(
             WalkPathProcessor.PathElement(
+                destDistance=origDestDist,
                 cost=0.0,
                 queueCounter=0,
                 nextStruct=self.createNext(
                     None, pointOnLinkOrig.link, startupCost, totalLinkCount
                 ),
             )
-        ]
+        )
         self.queueCounter = 0
 
         # Do the breadth-first search:
-        while self.processingQueue:
-            self._walkPath(heapq.heappop(self.processingQueue).nextStruct)
+        while not self.processingQueue.empty():
+            self._walkPath(self.processingQueue.get().nextStruct)
 
         # Set up the return:
         if self.winner is not None:
@@ -960,8 +963,9 @@ class WalkPathProcessor:
 
             # Add to the queue for processing later:
             self.queueCounter += 1
-            heapq.heappush(self.processingQueue,
+            self.processingQueue.put(
                 WalkPathProcessor.PathElement(
+                    destDistance=crowsDistance,
                     cost=walkPathElem.cost + penalty,
                     queueCounter=self.queueCounter,
                     nextStruct=self.createNext(
