@@ -26,6 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from collections.abc import Iterable, Sequence
 from typing import Final, NamedTuple
 import operator
+import heapq
 import logging
 
 from nmc_mm_lib import graph
@@ -126,7 +127,7 @@ class PathEngine:
         PrevCosts is a list of limitSimulPaths cost values that can be used to determine if proposed paths are worth traversing.
         """
 
-        costs: list[float] = []
+        costs: list[float] = []  # Maintained by heapq
         limitSimulPaths: int
 
         def __init__(self, limitSimulPaths: int):
@@ -150,7 +151,7 @@ class PathEngine:
 
             @param cost: The cost value to check
             """
-            return len(self.costs) >= self.limitSimulPaths and cost > self.costs[-1]
+            return len(self.costs) >= self.limitSimulPaths and cost > -self.costs[0]
 
         def append(self, cost: float) -> bool:
             """
@@ -159,12 +160,11 @@ class PathEngine:
             @param cost: The cost value to append.
             """
             if len(self.costs) < self.limitSimulPaths:
-                self.costs.append(cost)
-            elif cost < self.costs[-1]:
-                self.costs[-1] = cost
+                heapq.heappush(self.costs, -cost)
+            elif cost < -self.costs[0]:
+                heapq.heapreplace(self.costs, -cost)
             else:
                 return False
-            self.costs.sort()
             return True
 
     params: Params
@@ -189,12 +189,10 @@ class PathEngine:
         @return The parameters to initialize a WalkPathProcessor.
         """
         # Make local copies of variables for baking into functions:
-        # TODO: Is this necessary?
         driftFactor: float = self.params.driftFactor
         nonPerpPenalty: float = self.params.nonPerpPenalty
         distFactor: float = self.params.distFactor
         prevCosts: PathEngine.PrevCosts = self.prevCosts
-        limitSimulPaths: int = self.params.limitSimulPaths
         segLenDiffFactor: float = self.params.segLenDiffFactor
 
         # Bake functions from parameters given in this PathEngine.
@@ -251,22 +249,18 @@ class PathEngine:
         # Bake an exceeds checker:
         def exceedsPreviousCosts(
             cost: float,
-            curGeoPoint: graph.Map.PointOnLink | None = None,
-            tgtGeoPoint: graph.Map.PointOnLink | None = None,
+            distance: float | None = None,
         ) -> bool:
             """
             Returns true if the given cost value exceeds the most expensive cost already recorded (if the list is
             limitSimulPaths elements long)
 
             @param cost: The cost value to check
-            @param curGeoPoint: The current point on the link being considered (optional)
-            @param tgtGeoPoint: The target point on the link being considered (optional)
+            @param distance: The distance value to check (optional)
             """
             # Do we have a chance of a viable score?
-            if curGeoPoint and tgtGeoPoint:
-                return prevCosts.exceedsWorst(
-                    cost + distFactor * curGeoPoint.findDistanceFrom(tgtGeoPoint)
-                )
+            if distance:
+                cost = max(cost, distFactor * distance)
             return prevCosts.exceedsWorst(cost)
 
         return graph.WalkPathProcessor.Params(

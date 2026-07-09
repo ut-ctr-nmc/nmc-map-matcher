@@ -24,6 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from collections.abc import Hashable, Iterable, Sequence, Generator
+import heapq
 from typing import Callable, MutableMapping, Any, NamedTuple, Self
 from dataclasses import dataclass
 import shapely
@@ -612,9 +613,7 @@ class WalkPathProcessor:
         scoreFunction: Callable[
             [Map.PointOnLink | None, float, Map.PointOnLink | None], float
         ]
-        exceedsPreviousCosts: Callable[
-            [float, Map.PointOnLink | None, Map.PointOnLink | None], bool
-        ]
+        exceedsPreviousCosts: Callable[[float, float | None], bool]
         limitPathDist: float = 500.0
         limitDirectDist: float = 500.0
         limitDirectDistRev: float = 160.0
@@ -635,7 +634,7 @@ class WalkPathProcessor:
         list[Hashable] | None
     )  # Constrains matching to this list of links IDs, if provided
     # TODO: Can the LinkList be more like a tree, or does it need to be?
-    backtrackScore: float
+    backtrackLimit: float
     queueCounter: int
 
     def __init__(
@@ -651,7 +650,7 @@ class WalkPathProcessor:
         self.pointOnLinkDest = pointOnLinkDest
 
         # walkPath cache to log earlier pathfinding operations:
-        self.backCache = {}  # TODO: This stuck between pointOnLinkDest changes.
+        self.backCache = {}
 
         # Record the winning queue element:
         self.winner = None
@@ -754,8 +753,7 @@ class WalkPathProcessor:
             self.backtrackSet,
         )
 
-    @dataclass(frozen=True)
-    class PathElement:
+    class PathElement(NamedTuple):
         """
         PathElement is used to maintain the priority queue for walkPath.
         It contains the cost, a tie-breaker index, and the Next structure
@@ -803,7 +801,7 @@ class WalkPathProcessor:
             )
 
         # Set a reasonable bound for the expected distance in this path search:
-        self.backtrackScore = self.params.limitPathDist
+        self.backtrackLimit = self.params.limitPathDist
 
         # Set up a queue for the search. Preload the queue with the first starting location:
         self.processingQueue = [
@@ -819,7 +817,7 @@ class WalkPathProcessor:
 
         # Do the breadth-first search:
         while self.processingQueue:
-            self._walkPath(self.processingQueue.pop().nextStruct)
+            self._walkPath(heapq.heappop(self.processingQueue).nextStruct)
 
         # Set up the return:
         if self.winner is not None:
@@ -844,30 +842,37 @@ class WalkPathProcessor:
                 linkList=None, distance=0.0, cost=0.0, linkListIndex=0
             )
 
-    # _walkPath() is called internally by walkPath().
     def _walkPath(self, walkPathElem: Next) -> None:
         """
-        _walkPath is the internal processing element for the pathfinder.
+        _walkPath is the internal processing element for the pathfinder. It is
+        called internally from walkPath(), and recursively.
         """
         # Check maximum number of steps:
         if walkPathElem.stepCount >= self.params.limitSteps:
             return
 
         # Check total distance; we are not interested if we exceed our previous best score:
-        if walkPathElem.distance >= self.backtrackScore:
+        if walkPathElem.distance >= self.backtrackLimit:
             return
 
         # Do we exceed the worst cost in the list of simultaneous costs?
-        currentPoint = Map.PointOnLink(
-            walkPathElem.incomingLink,
-            0,
-            False,
-            0,
-            walkPathElem.incomingLink.getOrigin(),
+        currentPoint = (
+            Map.PointOnLink(
+                walkPathElem.incomingLink,
+                0,
+                False,
+                0,
+                walkPathElem.incomingLink.getOrigin(),  # TODO: Problem. May need to use current point. But where does dist score come from?
+            )
+            if walkPathElem.incomingLink is not self.pointOnLinkOrig.link
+            else self.pointOnLinkOrig
         )
-        if self.params.exceedsPreviousCosts(
-            walkPathElem.cost, currentPoint, self.pointOnLinkDest
-        ):
+
+        # Get distance from the current point to the destination point:
+        crowsDistance = currentPoint.findDistanceFrom(self.pointOnLinkDest)
+
+        # What about costs from simultaneous paths?
+        if self.params.exceedsPreviousCosts(walkPathElem.cost, crowsDistance):
             return
 
         # Are we at the destination?
@@ -875,7 +880,7 @@ class WalkPathProcessor:
         if walkPathElem.incomingLink is self.pointOnLinkDest.link:
             # We have a winner!
             self.winner = walkPathElem
-            self.backtrackScore = walkPathElem.distance
+            self.backtrackLimit = walkPathElem.distance
 
             # Log the winner into the cache by looking at all of the parent elements:
             if self.pointOnLinkDest.link.id not in self.backCache:
@@ -895,6 +900,15 @@ class WalkPathProcessor:
                     element = element.prevStruct
 
             # Process the next queue element:
+            return
+
+        # Can we possibly get back to the destination without exceeding the limit?
+        if (
+            walkPathElem.distance
+            + crowsDistance
+            - self.pointOnLinkOrig.link.getLength()
+            > self.backtrackLimit
+        ):
             return
 
         # Look at each link that comes out from the current node. First, see
@@ -946,7 +960,7 @@ class WalkPathProcessor:
 
             # Add to the queue for processing later:
             self.queueCounter += 1
-            self.processingQueue.append(
+            heapq.heappush(self.processingQueue,
                 WalkPathProcessor.PathElement(
                     cost=walkPathElem.cost + penalty,
                     queueCounter=self.queueCounter,
