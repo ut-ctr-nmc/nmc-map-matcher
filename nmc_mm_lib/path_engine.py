@@ -24,7 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from collections.abc import Iterable, Sequence
-from typing import Final, NamedTuple
+from typing import Final, Hashable, NamedTuple
 import operator
 import heapq
 import logging
@@ -122,6 +122,39 @@ class PathEngine:
         tossRatio: float = 1.0
         segLenDiffFactor: float = 0.0
 
+
+    class GlobalCostLogger:
+        """
+        Logs the cost of traversing a path from any link start to a set of proposed link ends
+        """
+
+        costLog: dict[tuple[Hashable, Hashable], float] = {}
+
+        def clear(self) -> None:
+            self.costLog.clear()
+
+        def update(self, startLink: Hashable, endLink: Hashable, cost: float) -> None:
+            """
+            Updates the cost log with a new cost value for a given start and end link.
+
+            @param startLink: The starting link identifier
+            @param endLink: The ending link identifier
+            @param cost: The cost value of that subpath
+            """
+            if (startLink, endLink) not in self.costLog or cost < self.costLog[(startLink, endLink)]:
+                self.costLog[(startLink, endLink)] = cost
+
+        def check(self, startLink: Hashable, endLink: Hashable) -> float | None:
+            """
+            Checks the cost log for a given start and end link.
+
+            @param startLink: The starting link identifier
+            @param endLink: The ending link identifier
+            @return: The cost value if it exists, otherwise None
+            """
+            return self.costLog.get((startLink, endLink))
+        
+
     class PrevCosts:
         """
         PrevCosts is a list of limitSimulPaths cost values that can be used to determine if proposed paths are worth traversing.
@@ -131,17 +164,9 @@ class PathEngine:
         limitSimulPaths: int
 
         def __init__(self, limitSimulPaths: int):
-            """
-            Initializes the PrevCosts object with a limit on the number of costs to track.
-
-            @param limitSimulPaths: The maximum number of cost values to track.
-            """
             self.limitSimulPaths = limitSimulPaths
 
         def clear(self) -> None:
-            """
-            Clears the list of costs.
-            """
             self.costs.clear()
 
         def exceedsWorst(self, cost: float) -> bool:
@@ -292,7 +317,8 @@ class PathEngine:
         """
         # Initialize the list of costs that will be used to reduce the number of path-finding iterations:
         self.prevCosts.clear()
-        self.prevCosts.limitSimulPaths = min(self.params.limitSimulPaths, len(pathPoints))
+        # TODO: Maybe not:
+        #self.prevCosts.limitSimulPaths = min(self.params.limitSimulPaths, len(pathPoints))
 
         # Then, for each previous tree entry, find the shortest path to each current tree entry:
         # (On the first time through, this loop will be skipped).
