@@ -123,38 +123,6 @@ class PathEngine:
         segLenDiffFactor: float = 0.0
 
 
-    class GlobalCostLogger:
-        """
-        Logs the cost of traversing a path from any link start to a set of proposed link ends
-        """
-
-        costLog: dict[tuple[Hashable, Hashable], float] = {}
-
-        def clear(self) -> None:
-            self.costLog.clear()
-
-        def update(self, startLink: Hashable, endLink: Hashable, cost: float) -> None:
-            """
-            Updates the cost log with a new cost value for a given start and end link.
-
-            @param startLink: The starting link identifier
-            @param endLink: The ending link identifier
-            @param cost: The cost value of that subpath
-            """
-            if (startLink, endLink) not in self.costLog or cost < self.costLog[(startLink, endLink)]:
-                self.costLog[(startLink, endLink)] = cost
-
-        def check(self, startLink: Hashable, endLink: Hashable) -> float | None:
-            """
-            Checks the cost log for a given start and end link.
-
-            @param startLink: The starting link identifier
-            @param endLink: The ending link identifier
-            @return: The cost value if it exists, otherwise None
-            """
-            return self.costLog.get((startLink, endLink))
-        
-
     class PrevCosts:
         """
         PrevCosts is a list of limitSimulPaths cost values that can be used to determine if proposed paths are worth traversing.
@@ -200,7 +168,7 @@ class PathEngine:
     pathPointsPrev: Sequence[PathEnd | None]
     prevCosts: PrevCosts  # A list of limitSimulPaths cost values that can be
     # used to determine if proposed paths are worth traversing.
-    shapeScatterCache: list[graph.Map.PointOnLink] | None = None
+    globalPathCache: graph.GlobalPathCache = graph.GlobalPathCache()
 
     def __init__(self, params: Params = Params()):
         """
@@ -296,6 +264,7 @@ class PathEngine:
             map=map,
             scoreFunction=scoreFunction,
             exceedsPreviousCosts=exceedsPreviousCosts,
+            globalPathCache=self.globalPathCache,
             limitPathDist=self.params.limitPathDist,
             limitDirectDist=self.params.limitDirectDist,
             limitDirectDistRev=self.params.limitDirectDistRev,
@@ -557,6 +526,7 @@ class PathEngine:
                 # TODO: Mark as restart if in the middle of the track.
                 invalidCtr += 1
                 self._reportNoClosestLinks(trackpoint)
+                self.globalPathCache.clear()
                 continue
             else:
                 if startInvalidCheckFlag:
@@ -568,6 +538,7 @@ class PathEngine:
             endPoints: list[PathEnd] = [
                 PathEnd(trackpoint, endPoint) for endPoint in closestLinks
             ]
+            self.globalPathCache.trimExcept(endPoint.link.id for endPoint in closestLinks)
 
             # Find the shortest paths from pathPointsPrev to the handful of closest base map points:
             # (We're adding another layer to the tree, and previous tree nodes can be found by accessing
