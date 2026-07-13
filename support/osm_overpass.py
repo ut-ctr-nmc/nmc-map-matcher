@@ -25,7 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import requests
 from nmc_mm_lib import graph
-from typing import Any, Hashable, NamedTuple
+from typing import Hashable, NamedTuple
 import logging
 
 

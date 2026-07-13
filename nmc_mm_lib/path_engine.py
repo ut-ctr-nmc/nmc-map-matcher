@@ -25,6 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from collections.abc import Iterable, Sequence
 from enum import Enum
+import queue
 from typing import Final, NamedTuple
 import operator
 import heapq
@@ -290,84 +291,118 @@ class PathEngine:
         """
         _findShortestPaths coordinates the creation of a list of new tree nodes for each of the reachable new points.
         This is mostly an implementation of "FindShortestPath" in Figure 2 of Perrine et al., 2015.
-
-        @param avoidRestartCode: 0 to allow restarts; 1 to allow restarts but suppress message; 2 to avoid restarts
         """
-        # Initialize the list of costs that will be used to reduce the number of path-finding iterations:
-        self.prevCosts.clear()
-        # TODO: Maybe not:
-        # self.prevCosts.limitSimulPaths = min(self.params.limitSimulPaths, len(pathPoints))
-
-        # Then, for each previous tree entry, find the shortest path to each current tree entry:
+        # For each previous tree entry, find the shortest path to each current tree entry:
         # (On the first time through, this loop will be skipped).
         iterList: Sequence[PathEnd | None] = (
             self.pathPointsPrev if self.pathPointsPrev else [None]
         )
-        pathPointPrev: PathEnd | None
-        # TODO: Make pathProcessors here while constructing.
-        # TODO: If we take this combination and arrange it according to priority...
-        # TODO: We could also choose limitSimulPaths based on how many candidates have popped up here.
-        for pathPointPrev in iterList:
-            pathPoint: PathEnd
-            for pathPoint in pathPoints:
-                # TODO: What if these were found simultaneously, and similar structures used to avoid repeating?
-                # TODO: What about depth-first in the priority queue rather than breadth-first?
-                pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(
-                    wppParams, pathPoint.pointOnLink
-                )
 
-                # Calculate path from pathPointPrev to candidate points.
-                walkResult = (
-                    graph.WalkPathProcessor.PathResult(
-                        [],
-                        0.0,
-                        wppParams.scoreFunction(None, 0.0, pathPoint.pointOnLink),
-                        0,
-                    )
-                    if not pathPointPrev
-                    else pathProcessor.walkPath(
-                        pathPointPrev.pointOnLink,
-                        pathPointPrev.totalCost,
-                        pathPointPrev.totalLinkCount,
-                    )
-                )
+        # Initialize the list of costs that will be used to reduce the number of path-finding iterations:
+        self.prevCosts.clear()
+        # TODO: We could also choose limitSimulPaths based on how many candidates have popped up here. Or, maybe not:
+        self.prevCosts.limitSimulPaths = min(self.params.limitSimulPaths, max(len(iterList), len(pathPoints)))
 
-                if walkResult.linkList is not None:
-                    if pathPointPrev:
-                        # A valid path was found:
-                        if (pathPoint.prevTreeNode is None) or (
-                            (pathPoint.prevTreeNode is not None)
-                            and (
+        # Prioritize pair combinations:
+        pairQueue: queue.PriorityQueue[tuple[float, int, PathEnd | None, PathEnd, graph.WalkPathProcessor]] = (
+            queue.PriorityQueue()
+        )
+        pathPoint: PathEnd
+        for pathPoint in pathPoints:
+            pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(
+                wppParams, pathPoint.pointOnLink
+            )
+            pathPointPrev: PathEnd | None
+            for pathPointPrev in iterList:
+                if pathPointPrev is not None:
+                    # Calculate the linear distance between the two points:
+                    distance = pathPoint.pointOnLink.findDistanceFrom(
+                        pathPointPrev.pointOnLink
+                    )
+                    # Put it with penalty criteria:
+                    pairQueue.put(
+                        (
+                            pathPointPrev.totalCost
+                            + wppParams.scoreFunction(
+                                pathPointPrev.pointOnLink,
+                                distance,
+                                pathPoint.pointOnLink,
+                            ),
+                            pairQueue.qsize(),
+                            pathPointPrev,
+                            pathPoint,
+                            pathProcessor
+                        )
+                    )
+                else:
+                    # This is the first time through, so we don't have a previous point to compare to:
+                    pairQueue.put(
+                        (
+                            wppParams.scoreFunction(None, 0.0, pathPoint.pointOnLink),
+                            pairQueue.qsize(),
+                            pathPointPrev,
+                            pathPoint,
+                            pathProcessor
+                        )
+                    )
+
+        # Process pairs to find shortest paths between them:
+        while not pairQueue.empty():
+            _, _, pathPointPrev, pathPoint, pathProcessor = pairQueue.get()
+            # TODO: What if these were found simultaneously, and similar structures used to avoid repeating?
+
+            # Calculate path from pathPointPrev to candidate points.
+            walkResult = (
+                graph.WalkPathProcessor.PathResult(
+                    [],
+                    0.0,
+                    wppParams.scoreFunction(None, 0.0, pathPoint.pointOnLink),
+                    0,
+                )
+                if not pathPointPrev
+                else pathProcessor.walkPath(
+                    pathPointPrev.pointOnLink,
+                    pathPointPrev.totalCost,
+                    pathPointPrev.totalLinkCount,
+                )
+            )
+
+            if walkResult.linkList is not None:
+                if pathPointPrev:
+                    # A valid path was found:
+                    if (pathPoint.prevTreeNode is None) or (
+                        (pathPoint.prevTreeNode is not None)
+                        and (
+                            pathPointPrev.totalCost + walkResult.cost
+                            < pathPoint.totalCost
+                        )
+                    ):
+                        # This is the first proposed parent, or the proposed parent is
+                        # less costly than what was found previously. Set it:
+                        # TODO: If more costly parents are to be replaced, we can pass pathPoint's
+                        #       recent cost to walkPath(), or pass pathPoint to exceedsPreviousCosts(),
+                        #       and check there.
+                        pathPoint.prevTreeNode = pathPointPrev
+                        pathPoint.routeInfo = walkResult.linkList
+                        pathPoint.totalLinkCount = walkResult.linkListIndex
+                        if pathPointPrev is not None:
+                            pathPoint.totalCost = (
                                 pathPointPrev.totalCost + walkResult.cost
-                                < pathPoint.totalCost
                             )
-                        ):
-                            # This is the first proposed parent, or the proposed parent is
-                            # less costly than what was found previously. Set it:
-                            # TODO: If more costly parents are to be replaced, we can pass pathPoint's
-                            #       recent cost to walkPath(), or pass pathPoint to exceedsPreviousCosts(),
-                            #       and check there.
-                            pathPoint.prevTreeNode = pathPointPrev
-                            pathPoint.routeInfo = walkResult.linkList
-                            pathPoint.totalLinkCount = walkResult.linkListIndex
-                            if pathPointPrev is not None:
-                                pathPoint.totalCost = (
-                                    pathPointPrev.totalCost + walkResult.cost
-                                )
-                                pathPoint.totalDist = (
-                                    pathPointPrev.totalDist + walkResult.distance
-                                )
-                            else:
-                                pathPoint.totalCost = walkResult.cost
-                                pathPoint.totalDist = 0
-                            if not self.prevCosts.append(pathPoint.totalCost):
-                                # This happens if during multithreading better scores were logged.
-                                # Remove this from further consideration.
-                                pathPoint.prevTreeNode = None
-                    else:
-                        # This is the very first part of the path. Seed with the cost of the first point:
-                        pathPoint.totalCost = walkResult.cost
-                        pathPoint.totalDist = 0
+                            pathPoint.totalDist = (
+                                pathPointPrev.totalDist + walkResult.distance
+                            )
+                        else:
+                            pathPoint.totalCost = walkResult.cost
+                            pathPoint.totalDist = 0
+                        if not self.prevCosts.append(pathPoint.totalCost):
+                            # This happens if during multithreading better scores were logged.
+                            # Remove this from further consideration.
+                            pathPoint.prevTreeNode = None
+                else:
+                    # This is the very first part of the path. Seed with the cost of the first point:
+                    pathPoint.totalCost = walkResult.cost
+                    pathPoint.totalDist = 0
 
         # Clean up tree entries that didn't get assigned to a parent:
         if len(self.pathPointsPrev) > 0:

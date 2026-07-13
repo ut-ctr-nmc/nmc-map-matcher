@@ -1022,13 +1022,6 @@ class WalkPathProcessor:
                 )
             )
 
-        # Try out depth-first...
+        # If for some reason depth-first is worth trying, uncomment these lines:
         # while not self.processingQueue.empty():
         #    self._walkPath(self.processingQueue.get().nextStruct)
-
-
-"""
-THERE IS STILL THE CHALLENGE OF WHERE TO CREATE GLOBAL CACHE ENTRIES, AND WHETHER
-WE NEED TO ACTUALLY HAVE A TRACK OF TRAVERSALS TO RECONSTRUCT THE WINNING PATH.
-IF WE ARE HEADING TO A SPECIFIC DESTINATION, HERE'S THE COST...
-"""
