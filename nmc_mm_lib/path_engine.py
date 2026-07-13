@@ -24,7 +24,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from collections.abc import Iterable, Sequence
-from typing import Final, Hashable, NamedTuple
+from enum import Enum
+from typing import Final, NamedTuple
 import operator
 import heapq
 import logging
@@ -121,6 +122,15 @@ class PathEngine:
         maxHops: int = 12
         tossRatio: float = 1.0
         segLenDiffFactor: float = 0.0
+
+    class RestartOpts(Enum):
+        """
+        RestartOpts is an enumeration of the different types of restarts that can occur during pathfinding.
+        """
+
+        ALLOW_RESTARTS = 0
+        ALLOW_RESTARTS_SUPPRESS_MSG = 1
+        AVOID_RESTARTS = 2
 
     class PrevCosts:
         """
@@ -275,7 +285,7 @@ class PathEngine:
         wppParams: graph.WalkPathProcessor.Params,
         trackpoint: graph.Trackpoint,
         pathPoints: list[PathEnd],
-        avoidRestartCode: int = 0,
+        avoidRestartOpt: RestartOpts = RestartOpts.ALLOW_RESTARTS,
     ) -> list[PathEnd]:
         """
         _findShortestPaths coordinates the creation of a list of new tree nodes for each of the reachable new points.
@@ -369,8 +379,12 @@ class PathEngine:
             pathPointsWork = pathPoints
 
         # Warn if we ended up with nothing and move on to the next point:
-        if (len(pathPointsWork) == 0) and (avoidRestartCode < 2):
-            if (avoidRestartCode < 1) and (len(self.pathPointsPrev) > 0):
+        if (len(pathPointsWork) == 0) and (
+            avoidRestartOpt != PathEngine.RestartOpts.AVOID_RESTARTS
+        ):
+            if (avoidRestartOpt == PathEngine.RestartOpts.ALLOW_RESTARTS) and (
+                len(self.pathPointsPrev) > 0
+            ):
                 # Warn if we are not at the start and we didn't find valid map points.
                 self._reportNoMapPaths(trackpoint)
 
@@ -407,7 +421,7 @@ class PathEngine:
                     )
                     pathPoint.totalDist = pathPointRestart.totalDist + distance
         else:
-            # Trim off lowest-scoring paths:
+            # Trim off highest-costing paths:
             pathPointsWork.sort(key=operator.attrgetter("totalCost"))
             pathPoints = pathPointsWork[0 : self.params.limitSimulPaths]
 
