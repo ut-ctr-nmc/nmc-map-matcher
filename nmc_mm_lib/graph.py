@@ -589,7 +589,7 @@ class Map:
 
 class GlobalPathCache:
     """
-    Logs the shortest path previously found ending at an end link 
+    Logs the shortest path previously found ending at an end link
     """
 
     pathCache: dict[Hashable, dict[Hashable, Map.LinkRecord]] = {}
@@ -605,10 +605,12 @@ class GlobalPathCache:
         @param endLinks: An iterable of ending link identifiers to keep in the path cache
         """
         allowed = set(saveEndLinks)
-        for k in (self.pathCache.keys() - allowed):
+        for k in self.pathCache.keys() - allowed:
             del self.pathCache[k]
 
-    def update(self, endLink: Hashable, linkRecrds: Iterable[tuple[Hashable, Map.LinkRecord]]) -> None:
+    def update(
+        self, endLink: Hashable, linkRecrds: Iterable[tuple[Hashable, Map.LinkRecord]]
+    ) -> None:
         """
         Updates the path cache with a new path for a given start and end link.
 
@@ -660,6 +662,7 @@ class WalkPathProcessor:
         ]
         exceedsPreviousCosts: Callable[[float, float | None], bool]
         globalPathCache: GlobalPathCache | None = None
+        allTargetLinkIDs: set[Hashable] = set()
         limitPathDist: float = 500.0
         limitDirectDist: float = 500.0
         limitDirectDistRev: float = 160.0
@@ -893,7 +896,7 @@ class WalkPathProcessor:
         # Check total distance; we are not interested if we exceed our previous best score:
         if walkPathElem.distance >= self.backtrackLimit:
             return
-        
+
         # Do we exceed the worst cost in the list of simultaneous costs?
         currentPoint = (
             Map.PointOnLink(
@@ -914,27 +917,33 @@ class WalkPathProcessor:
         if self.params.exceedsPreviousCosts(walkPathElem.cost, crowsDistance):
             return
 
-        # Are we at the destination?
-        # TODO: What happens if we change this to "a destination" among the several?
+        # Are we at one of the destinations of interest?
+        if (
+            self.params.globalPathCache
+            and walkPathElem.incomingLink.id in self.params.allTargetLinkIDs
+            and not self.params.globalPathCache.check(
+                self.pointOnLinkOrig.link.id, self.pointOnLinkDest.link.id
+            )
+        ):
+            # Log the path into the cache by looking at all of the parent elements:
+            prevLinks: list[tuple[Hashable, Map.LinkRecord]] = []
+            if walkPathElem.prevStruct:
+                current: Map.LinkRecord = walkPathElem.incomingLink
+                prior: WalkPathProcessor.Next = walkPathElem.prevStruct
+                while prior.prevStruct:
+                    if prior.incomingLink is not current:
+                        prevLinks.append((prior.incomingLink.id, current))
+                    current = prior.incomingLink
+                    prior = prior.prevStruct
+            self.params.globalPathCache.update(walkPathElem.incomingLink.id, prevLinks)
+            # TODO: Add in third parameter to prevLinks that is "expense", so we can
+            # quickly compare below to see if a path is viable to pursue.
+
+        # Are we at our currently analyzed destination?
         if walkPathElem.incomingLink is self.pointOnLinkDest.link:
-            # We have a winner!
+            # Log winner for this round:
             self.winner = walkPathElem
             self.backtrackLimit = walkPathElem.distance
-
-            # Log the winner into the cache by looking at all of the parent elements:
-            if self.params.globalPathCache is not None:
-                prevLinks: list[tuple[Hashable, Map.LinkRecord]] = []
-                if walkPathElem.prevStruct is not None:
-                    current: Map.LinkRecord = walkPathElem.incomingLink
-                    prior: WalkPathProcessor.Next = walkPathElem.prevStruct
-                    while prior.prevStruct is not None:
-                        if prior.incomingLink is not current:
-                            prevLinks.append((prior.incomingLink.id, current))
-                        current = prior.incomingLink
-                        prior = prior.prevStruct
-                self.params.globalPathCache.update(walkPathElem.incomingLink.id, prevLinks)
-                # TODO: Add in third parameter to prevLinks that is "expense", so we can
-                # quickly compare below to see if a path is viable to pursue.
 
             # Process the next queue element:
             return
@@ -953,7 +962,9 @@ class WalkPathProcessor:
         myList: Iterable[Map.LinkRecord]
         shortcut: Map.LinkRecord | None
         if self.params.globalPathCache:
-            shortcut = self.params.globalPathCache.check(walkPathElem.incomingLink.id, self.pointOnLinkDest.link.id)
+            shortcut = self.params.globalPathCache.check(
+                walkPathElem.incomingLink.id, self.pointOnLinkDest.link.id
+            )
         else:
             shortcut = None
         if shortcut:
@@ -1010,10 +1021,11 @@ class WalkPathProcessor:
                     ),
                 )
             )
-        
+
         # Try out depth-first...
-        #while not self.processingQueue.empty():
+        # while not self.processingQueue.empty():
         #    self._walkPath(self.processingQueue.get().nextStruct)
+
 
 """
 THERE IS STILL THE CHALLENGE OF WHERE TO CREATE GLOBAL CACHE ENTRIES, AND WHETHER

@@ -122,7 +122,6 @@ class PathEngine:
         tossRatio: float = 1.0
         segLenDiffFactor: float = 0.0
 
-
     class PrevCosts:
         """
         PrevCosts is a list of limitSimulPaths cost values that can be used to determine if proposed paths are worth traversing.
@@ -146,7 +145,7 @@ class PathEngine:
             """
             if len(self.costs) >= self.limitSimulPaths:
                 return cost > -self.costs[0]
-            #if self.costs:
+            # if self.costs:
             #    return cost > -self.costs[0] * (self.limitSimulPaths - len(self.costs))
             return False
 
@@ -287,7 +286,7 @@ class PathEngine:
         # Initialize the list of costs that will be used to reduce the number of path-finding iterations:
         self.prevCosts.clear()
         # TODO: Maybe not:
-        #self.prevCosts.limitSimulPaths = min(self.params.limitSimulPaths, len(pathPoints))
+        # self.prevCosts.limitSimulPaths = min(self.params.limitSimulPaths, len(pathPoints))
 
         # Then, for each previous tree entry, find the shortest path to each current tree entry:
         # (On the first time through, this loop will be skipped).
@@ -538,7 +537,12 @@ class PathEngine:
             endPoints: list[PathEnd] = [
                 PathEnd(trackpoint, endPoint) for endPoint in closestLinks
             ]
-            self.globalPathCache.trimExcept(endPoint.link.id for endPoint in closestLinks)
+            self.globalPathCache.trimExcept(
+                endPoint.link.id for endPoint in closestLinks
+            )
+            wppParams.allTargetLinkIDs.update(
+                {endPoint.link.id for endPoint in closestLinks}
+            )
 
             # Find the shortest paths from pathPointsPrev to the handful of closest base map points:
             # (We're adding another layer to the tree, and previous tree nodes can be found by accessing
