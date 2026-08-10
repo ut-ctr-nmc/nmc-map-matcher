@@ -23,8 +23,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from collections.abc import Hashable, Iterable, Sequence, Generator
-import queue
+from collections.abc import Hashable, Iterable, Sequence
+import heapq
 from typing import Callable, MutableMapping, Any, NamedTuple, Self
 from dataclasses import dataclass
 import shapely
@@ -103,9 +103,15 @@ class Map:
     fromCRS: pyproj.CRS
     workingCRS: pyproj.CRS
     transformer: pyproj.Transformer
-    graph: networkx.MultiDiGraph = networkx.MultiDiGraph()
-    edgeIndexLookup: tuple["LinkRecord", ...] = tuple()
-    linkIDLookup: dict[Hashable, "LinkRecord"] = {}
+    graph: networkx.MultiDiGraph
+    edgeIndexLookup: tuple["LinkRecord", ...]
+    linkIDLookup: dict[Hashable, "LinkRecord"]
+    outLinkLookup: dict[
+        Hashable, tuple["LinkRecord", ...]
+    ]  # Node ID -> outgoing links; built by completeMap()
+    reverseLinkLookup: dict[
+        Hashable, frozenset[Hashable]
+    ]  # Link ID -> IDs of links that reverse it; built by completeMap()
     tree: shapely.strtree.STRtree | None = None
     trackpointCtr: int = 0  # For auto-assigning trackpoint sequence numbers
     eqCutoff: int = 3  # Decimal places for equality checks
@@ -126,6 +132,11 @@ class Map:
         self.transformer = pyproj.Transformer.from_crs(
             self.fromCRS, self.workingCRS, always_xy=True
         )
+        self.graph = networkx.MultiDiGraph()
+        self.edgeIndexLookup = tuple()
+        self.linkIDLookup = {}
+        self.outLinkLookup = {}
+        self.reverseLinkLookup = {}
 
     def addNode(
         self,
@@ -167,10 +178,11 @@ class Map:
         id: Hashable
 
         def getLength(self) -> float:
-            return self.data["geometry"].length
+            # "length" is cached into the edge data by Map.completeMap():
+            return self.data["length"]
 
         def getFirstCoords(self) -> tuple[float, float]:
-            return self.data["geometry"].coords[0]
+            return self.data["originXY"]
 
         def getPointAlong(
             self, value: float, normalize: bool = False
@@ -181,7 +193,8 @@ class Map:
             return pointAlong.x, pointAlong.y
 
         def getOrigin(self) -> shapely.geometry.Point:
-            return shapely.get_point(self.data["geometry"], 0)
+            # "origin" is cached into the edge data by Map.completeMap():
+            return self.data["origin"]
 
     def addLink(
         self,
@@ -293,7 +306,10 @@ class Map:
 
     def completeMap(self, treeNeeded=True) -> None:
         """
-        Completes the map by building the spatial index.
+        Completes the map by building the spatial index. This also caches the
+        per-link quantities that the pathfinder would otherwise recompute on
+        every step of every search: link length, link origin, the outgoing-link
+        adjacency, and which links reverse which.
 
         @param treeNeeded: Whether to build the spatial index tree (default: True).
         """
@@ -303,11 +319,58 @@ class Map:
         )
         self.linkIDLookup = {}
 
+        # Pull the per-link geometry measures out of Shapely in bulk. The
+        # vectorized calls hand back every link's value in one pass, which is
+        # far cheaper than touching the .length/.coords properties one geometry
+        # at a time:
+        geometries: list[shapely.geometry.LineString] = [
+            link.data["geometry"] for link in self.edgeIndexLookup
+        ]
+        lengths: list[float] = shapely.length(geometries).tolist()
+        origins = shapely.get_point(geometries, 0)
+        allCoords: list[list[float]] = shapely.get_coordinates(geometries).tolist()
+        coordCounts: list[int] = shapely.get_num_coordinates(geometries).tolist()
+
+        # Cache those measures, and group links by their origin node so that
+        # outgoingLinks() doesn't have to consult NetworkX:
+        outLinks: dict[Hashable, list[Map.LinkRecord]] = {}
+        nodePairs: dict[tuple[Hashable, Hashable], list[Map.LinkRecord]] = {}
+        shapes: dict[Hashable, tuple[float, list[list[float]]]] = {}
         index: int
         link: Map.LinkRecord
+        coordPos: int = 0
         for index, link in enumerate(self.edgeIndexLookup):
+            coords = allCoords[coordPos : coordPos + coordCounts[index]]
+            coordPos += coordCounts[index]
             link.data["treeIndex"] = index
+            link.data["length"] = lengths[index]
+            link.data["originXY"] = tuple(coords[0])
+            link.data["origin"] = origins[index]
             self.linkIDLookup[link.id] = link
+            outLinks.setdefault(link.origNodeID, []).append(link)
+            nodePairs.setdefault((link.origNodeID, link.destNodeID), []).append(link)
+            shapes[link.id] = (lengths[index], coords)
+        self.outLinkLookup = {
+            nodeID: tuple(links) for nodeID, links in outLinks.items()
+        }
+
+        # Resolve reverse links once. Only links that run between the same pair
+        # of nodes in the opposite direction are candidates, so the geometry
+        # comparison is done at most once per opposing pair:
+        self.reverseLinkLookup = {}
+        for link in self.edgeIndexLookup:
+            opposing = nodePairs.get((link.destNodeID, link.origNodeID))
+            if not opposing:
+                continue
+            lengthA, coordsA = shapes[link.id]
+            reverses = frozenset(
+                other.id
+                for other in opposing
+                if self._reverseMatches(lengthA, coordsA, *shapes[other.id])
+            )
+            if reverses:
+                self.reverseLinkLookup[link.id] = reverses
+
         if treeNeeded:
             self.tree = shapely.strtree.STRtree(
                 [link.data["geometry"] for link in self.edgeIndexLookup]
@@ -333,10 +396,33 @@ class Map:
 
         geomA: shapely.geometry.LineString = linkA.data["geometry"]
         geomB: shapely.geometry.LineString = linkB.data["geometry"]
-        if round(geomA.length, self.eqCutoff) != round(geomB.length, self.eqCutoff):
+        return self._reverseMatches(
+            geomA.length, tuple(geomA.coords), geomB.length, tuple(geomB.coords)
+        )
+
+    def _reverseMatches(
+        self,
+        lengthA: float,
+        coordsA: Sequence[Sequence[float]],
+        lengthB: float,
+        coordsB: Sequence[Sequence[float]],
+    ) -> bool:
+        """
+        Compares two link geometries that are already known to join the same two
+        nodes in opposite directions, and reports whether one traces the other
+        backwards. Kept separate from isReverseLink() so that completeMap() can
+        feed it coordinates it extracted from Shapely just once per link.
+
+        @param lengthA: Length of the first link.
+        @param coordsA: Coordinates of the first link.
+        @param lengthB: Length of the second link.
+        @param coordsB: Coordinates of the second link.
+        @return: True if the second link is the reverse of the first.
+        """
+        if round(lengthA, self.eqCutoff) != round(lengthB, self.eqCutoff):
             return False
         tolerance = 1 / self.eqCutoff
-        for (xA, yA), (xB, yB) in zip(geomA.coords, geomB.coords[::-1]):
+        for (xA, yA), (xB, yB) in zip(coordsA, reversed(coordsB)):
             if abs(xA - xB) >= tolerance or abs(yA - yB) >= tolerance:
                 return False
         return True
@@ -367,19 +453,30 @@ class Map:
                 return False
         return True
 
-    def outgoingLinks(self, nodeID: Hashable) -> Generator[LinkRecord]:
+    def outgoingLinks(self, nodeID: Hashable) -> tuple[LinkRecord, ...]:
         """
-        Returns a generator of outgoing links from a given node.
+        Returns the outgoing links from a given node. This reads the adjacency
+        cached by completeMap() rather than querying the NetworkX graph.
 
         @param nodeID: The node ID to look up.
         @return: A tuple of LinkRecords for outgoing links.
         """
-        return (
-            self.edgeIndexLookup[treeIndex]
-            for u, v, keys, treeIndex in self.graph.edges(
-                nodeID, data="treeIndex", keys=True
-            )
-        )
+        return self.outLinkLookup.get(nodeID, ())
+
+    def isReverseLinkCached(
+        self, linkA: LinkRecord, linkB: LinkRecord
+    ) -> bool:
+        """
+        Determines if linkB is the reverse of linkA, consulting the lookup that
+        completeMap() resolved ahead of time. Equivalent to isReverseLink(), but
+        cheap enough to call from the innermost pathfinding loop.
+
+        @param linkA: The first link.
+        @param linkB: The second link.
+        @return: True if linkB is the reverse of linkA.
+        """
+        reverses = self.reverseLinkLookup.get(linkA.id)
+        return reverses is not None and linkB.id in reverses
 
     def getLinkByID(self, linkID: Hashable) -> LinkRecord | None:
         """
@@ -592,8 +689,11 @@ class GlobalPathCache:
     Logs the shortest path previously found ending at an end link
     """
 
-    pathCache: dict[Hashable, dict[Hashable, Map.LinkRecord]] = {}
+    pathCache: dict[Hashable, dict[Hashable, Map.LinkRecord]]
     # That's destination -> start -> next link in path
+
+    def __init__(self) -> None:
+        self.pathCache = {}
 
     def clear(self) -> None:
         self.pathCache.clear()
@@ -672,10 +772,11 @@ class WalkPathProcessor:
 
     pointOnLinkDest: Map.PointOnLink
     winner: "Next | None"  # Records the winning queue element
-    processingQueue: queue.PriorityQueue[
+    processingQueue: list[
         "PathElement"
-    ]  # Processing queue to facilitate the breadth-first search
+    ]  # Processing queue (a heapq) to facilitate the breadth-first search
     pointOnLinkOrig: Map.PointOnLink  # For internal record-keeping
+    origLinkLength: float  # Cached length of pointOnLinkOrig's link
     backtrackLimit: float
     queueCounter: int
 
@@ -745,11 +846,11 @@ class WalkPathProcessor:
             # First-time initialization:
             linkDistPotential = (
                 1.0 - self.pointOnLinkOrig.percentAlong
-            ) * self.pointOnLinkOrig.link.data["geometry"].length
+            ) * self.origLinkLength
             # TODO: Use incomingLink length for last term?
             stepCount = 0
         else:
-            linkDistPotential = incomingLink.data["geometry"].length
+            linkDistPotential = incomingLink.data["length"]
             stepCount = prevStruct.stepCount + 1
 
         cost: float
@@ -759,7 +860,7 @@ class WalkPathProcessor:
             # distance from the end that we aren't traversing.
             linkDistPotential -= (
                 1.0 - self.pointOnLinkDest.percentAlong
-            ) * incomingLink.data["geometry"].length
+            ) * incomingLink.data["length"]
             cost = startupCost + self.params.scoreFunction(
                 self.pointOnLinkOrig, linkDistPotential, self.pointOnLinkDest
             )
@@ -831,6 +932,7 @@ class WalkPathProcessor:
         self.pointOnLinkOrig = (
             pointOnLinkOrig  # TOOD: Rearrange methods to keep these local
         )
+        self.origLinkLength = pointOnLinkOrig.link.getLength()
         self.winner = None
 
         # Are the points too far away to begin with?
@@ -844,8 +946,7 @@ class WalkPathProcessor:
         self.backtrackLimit = self.params.limitPathDist
 
         # Set up a queue for the search. Preload the queue with the first starting location:
-        self.processingQueue = queue.PriorityQueue()
-        self.processingQueue.put(
+        self.processingQueue = [
             WalkPathProcessor.PathElement(
                 destDistance=origDestDist,
                 cost=0.0,
@@ -854,12 +955,13 @@ class WalkPathProcessor:
                     None, pointOnLinkOrig.link, startupCost, totalLinkCount
                 ),
             )
-        )
+        ]
         self.queueCounter = 0
 
         # Do the breadth-first search:
-        while not self.processingQueue.empty():
-            self._walkPath(self.processingQueue.get().nextStruct)
+        processingQueue = self.processingQueue
+        while processingQueue:
+            self._walkPath(heapq.heappop(processingQueue).nextStruct)
 
         # Set up the return:
         if self.winner is not None:
@@ -898,20 +1000,16 @@ class WalkPathProcessor:
             return
 
         # Do we exceed the worst cost in the list of simultaneous costs?
-        currentPoint = (
-            Map.PointOnLink(
-                walkPathElem.incomingLink,
-                0,
-                False,
-                0,
-                walkPathElem.incomingLink.getOrigin(),  # TODO: Problem. May need to use current point. But where does dist score come from?
-            )
+        # (The origin of the incoming link stands in for the current location,
+        # except on the origin link, where we start partway along.)
+        currentPointGeo = (
+            walkPathElem.incomingLink.getOrigin()  # TODO: Problem. May need to use current point. But where does dist score come from?
             if walkPathElem.incomingLink is not self.pointOnLinkOrig.link
-            else self.pointOnLinkOrig
+            else self.pointOnLinkOrig.point
         )
 
         # Get distance from the current point to the destination point:
-        crowsDistance = currentPoint.findDistanceFrom(self.pointOnLinkDest)
+        crowsDistance = currentPointGeo.distance(self.pointOnLinkDest.point)
 
         # What about costs from simultaneous paths?
         if self.params.exceedsPreviousCosts(walkPathElem.cost, crowsDistance):
@@ -950,15 +1048,16 @@ class WalkPathProcessor:
 
         # Can we possibly get back to the destination without exceeding the limit?
         if (
-            walkPathElem.distance
-            + crowsDistance
-            - self.pointOnLinkOrig.link.getLength()
+            walkPathElem.distance + crowsDistance - self.origLinkLength
             > self.backtrackLimit
         ):
             return
 
         # Look at each link that comes out from the current node. First, see
         # if there is a shortcut to our destination already in the cache:
+        outgoing: tuple[Map.LinkRecord, ...] = self.params.map.outgoingLinks(
+            walkPathElem.incomingLink.destNodeID
+        )
         myList: Iterable[Map.LinkRecord]
         shortcut: Map.LinkRecord | None
         if self.params.globalPathCache:
@@ -970,7 +1069,7 @@ class WalkPathProcessor:
         if shortcut:
             myList = (shortcut,)
         else:
-            myList = self.params.map.outgoingLinks(walkPathElem.incomingLink.destNodeID)
+            myList = outgoing
 
         link: Map.LinkRecord
         for link in myList:
@@ -978,12 +1077,9 @@ class WalkPathProcessor:
             penalty = 0.0
             if (
                 self.params.uTurnDeadEndPenalty or self.params.uTurnInterPenalty
-            ) and self.params.map.isReverseLink(walkPathElem.incomingLink, link):
+            ) and self.params.map.isReverseLinkCached(walkPathElem.incomingLink, link):
                 # Is it a dead-end?
-                if hasExactly(
-                    self.params.map.outgoingLinks(walkPathElem.incomingLink.destNodeID),
-                    1,
-                ):
+                if len(outgoing) == 1:
                     if self.params.uTurnDeadEndPenalty is None:
                         if self.params.uTurnInterPenalty is None:
                             continue
@@ -1008,7 +1104,8 @@ class WalkPathProcessor:
 
             # Add to the queue for processing later:
             self.queueCounter += 1
-            self.processingQueue.put(
+            heapq.heappush(
+                self.processingQueue,
                 WalkPathProcessor.PathElement(
                     destDistance=crowsDistance,
                     cost=walkPathElem.cost + penalty,
@@ -1023,5 +1120,5 @@ class WalkPathProcessor:
             )
 
         # If for some reason depth-first is worth trying, uncomment these lines:
-        # while not self.processingQueue.empty():
-        #    self._walkPath(self.processingQueue.get().nextStruct)
+        # while self.processingQueue:
+        #    self._walkPath(heapq.heappop(self.processingQueue).nextStruct)

@@ -8,6 +8,7 @@ Navigate to the following:
 * [Introductory Presentation](intro_pres.md)
 * [Modules](modules.md)
 * [Path Match](path_match.md)
+* [Performance](performance.md)
 
 This documentation continues to be updated. Also, a number of comments are provided from within the source code that may be of help.
 

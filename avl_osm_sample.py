@@ -108,6 +108,7 @@ for tripID, avlEntries in avl.items():
         )
         for index, avlEntry in enumerate(avlEntries.values())
     )
+    break
 
 # Run path match for each AVL track:
 matchedPaths: dict[Hashable, list[path_engine.PathEnd]] = {}

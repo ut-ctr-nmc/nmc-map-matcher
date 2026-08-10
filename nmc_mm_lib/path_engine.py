@@ -25,7 +25,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from collections.abc import Iterable, Sequence
 from enum import Enum
-import queue
 from typing import Final, NamedTuple
 import operator
 import heapq
@@ -138,11 +137,12 @@ class PathEngine:
         PrevCosts is a list of limitSimulPaths cost values that can be used to determine if proposed paths are worth traversing.
         """
 
-        costs: list[float] = []  # Maintained by heapq
+        costs: list[float]  # Maintained by heapq
         limitSimulPaths: int
 
         def __init__(self, limitSimulPaths: int):
             self.limitSimulPaths = limitSimulPaths
+            self.costs = []
 
         def clear(self) -> None:
             self.costs.clear()
@@ -178,7 +178,7 @@ class PathEngine:
     pathPointsPrev: Sequence[PathEnd | None]
     prevCosts: PrevCosts  # A list of limitSimulPaths cost values that can be
     # used to determine if proposed paths are worth traversing.
-    globalPathCache: graph.GlobalPathCache = graph.GlobalPathCache()
+    globalPathCache: graph.GlobalPathCache
 
     def __init__(self, params: Params = Params()):
         """
@@ -188,6 +188,7 @@ class PathEngine:
         @param params: Configuration parameters
         """
         self.params = params
+        self.globalPathCache = graph.GlobalPathCache()
 
     def _gatherWPPParams(self, map: graph.Map) -> graph.WalkPathProcessor.Params:
         """
@@ -275,6 +276,9 @@ class PathEngine:
             scoreFunction=scoreFunction,
             exceedsPreviousCosts=exceedsPreviousCosts,
             globalPathCache=self.globalPathCache,
+            allTargetLinkIDs=set(),  # Explicit, so the NamedTuple's shared
+            # default set is never the one that gets mutated
+
             limitPathDist=self.params.limitPathDist,
             limitDirectDist=self.params.limitDirectDist,
             limitDirectDistRev=self.params.limitDirectDistRev,
@@ -304,9 +308,9 @@ class PathEngine:
         self.prevCosts.limitSimulPaths = min(self.params.limitSimulPaths, max(len(iterList), len(pathPoints)))
 
         # Prioritize pair combinations:
-        pairQueue: queue.PriorityQueue[tuple[float, int, PathEnd | None, PathEnd, graph.WalkPathProcessor]] = (
-            queue.PriorityQueue()
-        )
+        pairQueue: list[
+            tuple[float, int, PathEnd | None, PathEnd, graph.WalkPathProcessor]
+        ] = []
         pathPoint: PathEnd
         for pathPoint in pathPoints:
             pathProcessor: graph.WalkPathProcessor = graph.WalkPathProcessor(
@@ -320,7 +324,8 @@ class PathEngine:
                         pathPointPrev.pointOnLink
                     )
                     # Put it with penalty criteria:
-                    pairQueue.put(
+                    heapq.heappush(
+                        pairQueue,
                         (
                             pathPointPrev.totalCost
                             + wppParams.scoreFunction(
@@ -328,7 +333,7 @@ class PathEngine:
                                 distance,
                                 pathPoint.pointOnLink,
                             ),
-                            pairQueue.qsize(),
+                            len(pairQueue),
                             pathPointPrev,
                             pathPoint,
                             pathProcessor
@@ -336,10 +341,11 @@ class PathEngine:
                     )
                 else:
                     # This is the first time through, so we don't have a previous point to compare to:
-                    pairQueue.put(
+                    heapq.heappush(
+                        pairQueue,
                         (
                             wppParams.scoreFunction(None, 0.0, pathPoint.pointOnLink),
-                            pairQueue.qsize(),
+                            len(pairQueue),
                             pathPointPrev,
                             pathPoint,
                             pathProcessor
@@ -347,8 +353,8 @@ class PathEngine:
                     )
 
         # Process pairs to find shortest paths between them:
-        while not pairQueue.empty():
-            _, _, pathPointPrev, pathPoint, pathProcessor = pairQueue.get()
+        while pairQueue:
+            _, _, pathPointPrev, pathPoint, pathProcessor = heapq.heappop(pairQueue)
             # TODO: What if these were found simultaneously, and similar structures used to avoid repeating?
 
             # Calculate path from pathPointPrev to candidate points.
@@ -586,12 +592,14 @@ class PathEngine:
             endPoints: list[PathEnd] = [
                 PathEnd(trackpoint, endPoint) for endPoint in closestLinks
             ]
-            self.globalPathCache.trimExcept(
-                endPoint.link.id for endPoint in closestLinks
-            )
-            wppParams.allTargetLinkIDs.update(
-                {endPoint.link.id for endPoint in closestLinks}
-            )
+            targetLinkIDs = {endPoint.link.id for endPoint in closestLinks}
+            self.globalPathCache.trimExcept(targetLinkIDs)
+            # Only this trackpoint's candidates are worth caching paths to; the
+            # cache was just trimmed to them. Replacing rather than accumulating
+            # keeps _walkPath()'s cache-logging branch from firing on an
+            # ever-growing set of stale links as the track goes on.
+            wppParams.allTargetLinkIDs.clear()
+            wppParams.allTargetLinkIDs.update(targetLinkIDs)
 
             # Find the shortest paths from pathPointsPrev to the handful of closest base map points:
             # (We're adding another layer to the tree, and previous tree nodes can be found by accessing
