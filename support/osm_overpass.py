@@ -25,7 +25,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import requests
 from nmc_mm_lib import graph
-from typing import Hashable, NamedTuple
+from typing import Any, Hashable, NamedTuple
+import json
 import logging
 
 
@@ -86,21 +87,33 @@ way["highway"="service"]["bus"~"^(yes|designated)$"];
 way["highway"="service"]["psv"="yes"];
     """
     TIMEOUT: int = 25
+    CACHE_VERSION: int = 1
     nodeCache: dict[Hashable, Node]
     waySet: set[Way]
     wayNodeLkp: dict[Hashable, set[Way]]
 
-    def __init__(self, endpoint: str, bounds: OverpassBounds) -> None:
+    def __init__(
+        self, endpoint: str, bounds: OverpassBounds, cacheFilename: str | None = None
+    ) -> None:
+        """
+        @param cacheFilename: If given, geoRead() reads previously fetched OSM data from
+            this JSON file rather than querying Overpass, and writes the file after a query
+        """
         self.endpoint = endpoint
         self.bounds = bounds
+        self.cacheFilename = cacheFilename
 
     def geoRead(self) -> None:
         """
-        Queries Overpass API for OSM data within the specified bounding box
+        Queries Overpass API for OSM data within the specified bounding box, or reads it
+        from the cache file if one was given and it matches the requested query
         """
         self.nodeCache = {}
         self.waySet = set()
         self.wayNodeLkp = {}
+
+        if self.cacheFilename and self.cacheRead():
+            return
 
         logging.info(f"Fetching {self.bounds.stepsEW}x{self.bounds.stepsNS} OSM data")
         blockWidth = (self.bounds.maxLon - self.bounds.minLon) / self.bounds.stepsEW
@@ -124,6 +137,107 @@ way["highway"="service"]["psv"="yes"];
                     + blockWidth * self.bounds.overlap,
                 )
                 self.getChunk(lowCoords, highCoords)
+
+        if self.cacheFilename:
+            self.cacheWrite()
+
+    def cacheSignature(self) -> dict[str, Any]:
+        """
+        Internal function that describes the query that a cache file was built from, so that
+        a stale cache is detected rather than silently used
+        """
+        return {
+            "version": self.CACHE_VERSION,
+            "endpoint": self.endpoint,
+            "bounds": dict(self.bounds._asdict()),
+            "highwayClause": self.HIGHWAY_CLAUSE,
+        }
+
+    def cacheRead(self) -> bool:
+        """
+        Internal function that attempts to populate nodes and ways from the cache file,
+        returning True if that succeeded
+
+        @return True if the cache was usable; False if Overpass needs to be queried
+        """
+        assert self.cacheFilename
+        try:
+            with open(self.cacheFilename, mode="rt") as cacheFile:
+                cache = json.load(cacheFile)
+        except FileNotFoundError:
+            logging.info(f"No OSM cache at {self.cacheFilename}; querying Overpass API")
+            return False
+        except (OSError, json.JSONDecodeError) as exc:
+            logging.warning(f"Cannot read OSM cache {self.cacheFilename}: {exc}")
+            return False
+
+        if cache.get("signature") != self.cacheSignature():
+            logging.info(
+                f"OSM cache {self.cacheFilename} was built from a different query; querying Overpass API"
+            )
+            return False
+
+        logging.info(f"Reading OSM data from cache {self.cacheFilename}")
+        try:
+            for nodeRec in cache["nodes"]:
+                node = OSMReader.Node(**nodeRec)
+                self.nodeCache[node.id] = node
+                self.wayNodeLkp[node.id] = set()
+            for wayRec in cache["ways"]:
+                nodes = tuple(self.nodeCache[nodeID] for nodeID in wayRec["nodes"])
+                way = OSMReader.Way(
+                    id=wayRec["id"],
+                    type=wayRec["type"],
+                    name=wayRec["name"],
+                    oneWay=wayRec["oneWay"],
+                    motorway=wayRec["motorway"],
+                    tags=tuple((k, v) for k, v in wayRec["tags"]),
+                    nodes=nodes,
+                )
+                self.waySet |= {way}
+                for node in nodes:
+                    self.wayNodeLkp[node.id] |= {way}
+        except (KeyError, TypeError, ValueError) as exc:
+            logging.warning(
+                f"OSM cache {self.cacheFilename} is malformed ({exc}); querying Overpass API"
+            )
+            self.nodeCache = {}
+            self.waySet = set()
+            self.wayNodeLkp = {}
+            return False
+
+        logging.info(
+            f"Cached nodes: {len(self.nodeCache)}; Cached ways: {len(self.waySet)}."
+        )
+        return True
+
+    def cacheWrite(self) -> None:
+        """
+        Internal function that stores the fetched nodes and ways to the cache file
+        """
+        assert self.cacheFilename
+        cache = {
+            "signature": self.cacheSignature(),
+            "nodes": [dict(node._asdict()) for node in self.nodeCache.values()],
+            "ways": [
+                {
+                    "id": way.id,
+                    "type": way.type,
+                    "name": way.name,
+                    "oneWay": way.oneWay,
+                    "motorway": way.motorway,
+                    "tags": [[k, v] for k, v in way.tags],
+                    "nodes": [node.id for node in way.nodes],
+                }
+                for way in self.waySet
+            ],
+        }
+        logging.info(f"Writing OSM cache to {self.cacheFilename}")
+        try:
+            with open(self.cacheFilename, mode="wt") as cacheFile:
+                json.dump(cache, cacheFile)
+        except OSError as exc:
+            logging.warning(f"Cannot write OSM cache {self.cacheFilename}: {exc}")
 
     def addToMap(self, map: graph.Map) -> None:
         """

@@ -47,6 +47,8 @@ logging.basicConfig(
 
 AVL_PATH: Final[str] = os.path.join("samples", "avl", "capmetro_rapid_20241101.csv")
 OVERPASS_API: Final[str] = "https://overpass-api.de/api/interpreter"
+# OSM data fetched from Overpass is cached here; delete this file to force a fresh query:
+OVERPASS_CACHE: Final[str] = "osm_cache.json"
 OVERPASS_BOUNDS: Final[osm_overpass.OSMReader.OverpassBounds] = (
     osm_overpass.OSMReader.OverpassBounds(
         # Depicts the GPS bounding box for the greater Austin, TX metro area:
@@ -61,7 +63,7 @@ OVERPASS_BOUNDS: Final[osm_overpass.OSMReader.OverpassBounds] = (
 )
 
 # Create OSM base map:
-osmReader = osm_overpass.OSMReader(OVERPASS_API, OVERPASS_BOUNDS)
+osmReader = osm_overpass.OSMReader(OVERPASS_API, OVERPASS_BOUNDS, OVERPASS_CACHE)
 osmReader.geoRead()
 map = graph.Map(workingCRS="EPSG:3082")  # Use Texas system in meters
 osmReader.addToMap(map)
