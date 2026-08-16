@@ -31,6 +31,6 @@ This section contains a description of the branches and steps that are planned f
 The development roadmap is to:
 
 1. Add more free-standing samples that use more input formats.
-1. Accelerate map-matching with optimizations and concurrency.
+1. Accelerate map-matching with optimizations and concurrency. A first round of optimization has been done and is written up in [Performance](performance.md), which also lists what remains; concurrency has not been started.
 1. Improve documentation on how to use class methods and attributes.
 1. How about creating a QGIS plug-in?

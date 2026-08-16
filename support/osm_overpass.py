@@ -89,8 +89,12 @@ way["highway"="service"]["psv"="yes"];
     TIMEOUT: int = 25
     CACHE_VERSION: int = 1
     nodeCache: dict[Hashable, Node]
-    waySet: set[Way]
-    wayNodeLkp: dict[Hashable, set[Way]]
+    # Ways are keyed by their OSM ID rather than collected into a set. A set of
+    # Way records iterates in an order that depends on the per-process hash of
+    # the strings inside them, which made the order links were added to the map
+    # differ on every run; see doc/performance.md.
+    wayLkp: dict[Hashable, Way]
+    wayNodeLkp: dict[Hashable, set[Hashable]]  # Node ID -> IDs of ways using it
 
     def __init__(
         self, endpoint: str, bounds: OverpassBounds, cacheFilename: str | None = None
@@ -109,7 +113,7 @@ way["highway"="service"]["psv"="yes"];
         from the cache file if one was given and it matches the requested query
         """
         self.nodeCache = {}
-        self.waySet = set()
+        self.wayLkp = {}
         self.wayNodeLkp = {}
 
         if self.cacheFilename and self.cacheRead():
@@ -140,6 +144,41 @@ way["highway"="service"]["psv"="yes"];
 
         if self.cacheFilename:
             self.cacheWrite()
+
+    def addWay(self, way: Way) -> None:
+        """
+        Internal function that records a way and the nodes it runs through. Ways
+        are keyed by ID, so a way that arrives twice (which happens when
+        bounding-box chunks overlap) is stored once regardless of arrival order.
+
+        @param way: The way to record
+        """
+        if way.id in self.wayLkp:
+            return
+        self.wayLkp[way.id] = way
+        for node in way.nodes:
+            self.wayNodeLkp[node.id] |= {way.id}
+
+    def sortedNodes(self) -> list[Node]:
+        """
+        Internal function that returns the fetched nodes in a stable order. The
+        order nodes arrive in from Overpass is not guaranteed, so ordering by ID
+        is what makes repeated fetches of the same area agree.
+
+        @return: The nodes, ordered by node ID
+        """
+        return sorted(self.nodeCache.values(), key=lambda node: node.id)  # type: ignore[arg-type,return-value]
+
+    def sortedWays(self) -> list[Way]:
+        """
+        Internal function that returns the fetched ways in a stable order, for
+        the same reason as sortedNodes(). This governs the order links are added
+        to a graph.Map, which decides ties among equally-close candidate links
+        during map matching, so it must not vary from run to run.
+
+        @return: The ways, ordered by way ID
+        """
+        return sorted(self.wayLkp.values(), key=lambda way: way.id)  # type: ignore[arg-type,return-value]
 
     def cacheSignature(self) -> dict[str, Any]:
         """
@@ -185,40 +224,42 @@ way["highway"="service"]["psv"="yes"];
                 self.wayNodeLkp[node.id] = set()
             for wayRec in cache["ways"]:
                 nodes = tuple(self.nodeCache[nodeID] for nodeID in wayRec["nodes"])
-                way = OSMReader.Way(
-                    id=wayRec["id"],
-                    type=wayRec["type"],
-                    name=wayRec["name"],
-                    oneWay=wayRec["oneWay"],
-                    motorway=wayRec["motorway"],
-                    tags=tuple((k, v) for k, v in wayRec["tags"]),
-                    nodes=nodes,
+                self.addWay(
+                    OSMReader.Way(
+                        id=wayRec["id"],
+                        type=wayRec["type"],
+                        name=wayRec["name"],
+                        oneWay=wayRec["oneWay"],
+                        motorway=wayRec["motorway"],
+                        tags=tuple(sorted((k, v) for k, v in wayRec["tags"])),
+                        nodes=nodes,
+                    )
                 )
-                self.waySet |= {way}
-                for node in nodes:
-                    self.wayNodeLkp[node.id] |= {way}
         except (KeyError, TypeError, ValueError) as exc:
             logging.warning(
                 f"OSM cache {self.cacheFilename} is malformed ({exc}); querying Overpass API"
             )
             self.nodeCache = {}
-            self.waySet = set()
+            self.wayLkp = {}
             self.wayNodeLkp = {}
             return False
 
         logging.info(
-            f"Cached nodes: {len(self.nodeCache)}; Cached ways: {len(self.waySet)}."
+            f"Cached nodes: {len(self.nodeCache)}; Cached ways: {len(self.wayLkp)}."
         )
         return True
 
     def cacheWrite(self) -> None:
         """
-        Internal function that stores the fetched nodes and ways to the cache file
+        Internal function that stores the fetched nodes and ways to the cache
+        file. Nodes and ways are written in ID order so that the same query
+        produces the same file byte for byte, which makes the file diffable and
+        keeps a cached run identical to the fetch it came from.
         """
         assert self.cacheFilename
         cache = {
             "signature": self.cacheSignature(),
-            "nodes": [dict(node._asdict()) for node in self.nodeCache.values()],
+            "nodes": [dict(node._asdict()) for node in self.sortedNodes()],
             "ways": [
                 {
                     "id": way.id,
@@ -229,7 +270,7 @@ way["highway"="service"]["psv"="yes"];
                     "tags": [[k, v] for k, v in way.tags],
                     "nodes": [node.id for node in way.nodes],
                 }
-                for way in self.waySet
+                for way in self.sortedWays()
             ],
         }
         logging.info(f"Writing OSM cache to {self.cacheFilename}")
@@ -250,7 +291,11 @@ way["highway"="service"]["psv"="yes"];
         # nodes into links:
         linkCount = 0
         reversedLinkCount = 0
-        for way in (w for w in self.waySet if len(w.nodes) > 1):
+        # Ways are walked in ID order. The order links land in the map decides
+        # their treeIndex, which breaks ties among equally-close candidates in
+        # Map.findPointsOnLinks(), so an unstable order here would change which
+        # path wins from one run to the next:
+        for way in (w for w in self.sortedWays() if len(w.nodes) > 1):
             startIdx = 0
             for index, node in enumerate(way.nodes):
                 endFlag = False
@@ -372,20 +417,25 @@ way["highway"="service"]["psv"="yes"];
                             element["nodes"] = list(reversed(element["nodes"]))
                             oneWay = True
                     nodes = tuple(self.nodeCache[nodeID] for nodeID in element["nodes"])
-                    way = OSMReader.Way(
-                        id=element["id"],
-                        type=element["tags"]["highway"],
-                        name=ourName,
-                        oneWay=oneWay,
-                        motorway=motorway,
-                        tags=tuple(
-                            (k, v) for k, v in element["tags"].items() if k != "name"
-                        ),
-                        nodes=nodes,
+                    self.addWay(
+                        OSMReader.Way(
+                            id=element["id"],
+                            type=element["tags"]["highway"],
+                            name=ourName,
+                            oneWay=oneWay,
+                            motorway=motorway,
+                            # Tags are sorted so that a way is described the same
+                            # way regardless of the order Overpass listed its tags:
+                            tags=tuple(
+                                sorted(
+                                    (k, v)
+                                    for k, v in element["tags"].items()
+                                    if k != "name"
+                                )
+                            ),
+                            nodes=nodes,
+                        )
                     )
-                    self.waySet |= {way}
-                    for node in nodes:
-                        self.wayNodeLkp[node.id] |= {way}
                     wayCount += 1
         logging.info(f"New nodes: {nodeCount}; New ways: {wayCount}.")
         return nodeCount
